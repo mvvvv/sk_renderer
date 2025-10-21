@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: MIT
+// The authors below grant copyright rights under the MIT license:
+// Copyright (c) 2025 Nick Klingensmith
+// Copyright (c) 2025 Qualcomm Technologies, Inc.
+
 #include "skr_log.h"
 
 #include <stdarg.h>
@@ -13,8 +18,8 @@
 void _default_log(skr_log_ level, const char *text) {
 #ifdef __ANDROID__
 	android_LogPriority priority = level == skr_log_info     ? ANDROID_LOG_INFO  :
-	                                level == skr_log_warning  ? ANDROID_LOG_WARN  :
-	                                level == skr_log_critical ? ANDROID_LOG_ERROR : ANDROID_LOG_UNKNOWN;
+	                               level == skr_log_warning  ? ANDROID_LOG_WARN  :
+	                               level == skr_log_critical ? ANDROID_LOG_ERROR : ANDROID_LOG_UNKNOWN;
 	__android_log_write(priority, "sk_renderer", text);
 #else
 	const char *prefix = level == skr_log_info     ? "[info] "     :

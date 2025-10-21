@@ -1,4 +1,10 @@
-#include "../include/sk_renderer.h"
+// SPDX-License-Identifier: MIT
+// The authors below grant copyright rights under the MIT license:
+// Copyright (c) 2025 Nick Klingensmith
+// Copyright (c) 2025 Qualcomm Technologies, Inc.
+
+#include "sk_renderer.h"
+
 #include "skr_vulkan.h"
 #include "../skr_log.h"
 

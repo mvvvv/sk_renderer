@@ -1,7 +1,13 @@
-#include "skr_pipeline.h"
+// SPDX-License-Identifier: MIT
+// The authors below grant copyright rights under the MIT license:
+// Copyright (c) 2025 Nick Klingensmith
+// Copyright (c) 2025 Qualcomm Technologies, Inc.
+
 #include "_sk_renderer.h"
-#include "../skr_log.h"
+
+#include "skr_pipeline.h"
 #include "skr_conversions.h"
+#include "../skr_log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
