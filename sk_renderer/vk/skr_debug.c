@@ -1,0 +1,112 @@
+#include "_sk_renderer.h"
+#include "skr_pipeline.h"
+#include "../skr_log.h"
+
+#include <stdio.h>
+#include <string.h>
+
+///////////////////////////////////////////////////////////////////////////////
+// Debug naming utilities
+///////////////////////////////////////////////////////////////////////////////
+
+void _skr_set_debug_name(VkObjectType type, uint64_t handle, const char* name) {
+	if (name == NULL || handle == 0) return;
+
+	vkSetDebugUtilsObjectNameEXT(_skr_vk.device, &(VkDebugUtilsObjectNameInfoEXT){
+		.sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+		.objectType   = type,
+		.objectHandle = handle,
+		.pObjectName  = name,
+	});
+}
+
+void _skr_append_vertex_format(char* str, size_t str_size, const skr_vert_component_t* components, uint32_t component_count) {
+	if (!str || !components || component_count == 0) return;
+
+	size_t pos = strlen(str);
+
+	for (uint32_t i = 0; i < component_count && pos < str_size - 3; i++) {
+		char semantic = '?';
+		switch (components[i].semantic) {
+			case skr_semantic_position:     semantic = 'p'; break;
+			case skr_semantic_texcoord:     semantic = 'u'; break;
+			case skr_semantic_normal:       semantic = 'n'; break;
+			case skr_semantic_color:        semantic = 'c'; break;
+			case skr_semantic_tangent:      semantic = 't'; break;
+			case skr_semantic_binormal:     semantic = 'b'; break;
+			case skr_semantic_psize:        semantic = 's'; break;
+			case skr_semantic_blendweight:  semantic = 'w'; break;
+			case skr_semantic_blendindices: semantic = 'i'; break;
+			default:                        semantic = '?'; break;
+		}
+
+		// Limit count to single digit (clamp to 0-9)
+		uint8_t count = components[i].count > 9 ? 9 : components[i].count;
+
+		str[pos++] = semantic;
+		str[pos++] = '0' + count;
+	}
+
+	str[pos] = '\0';
+}
+
+void _skr_append_material_config(char* str, size_t str_size, const skr_material_info_t* mat_info) {
+	if (!str || !mat_info) return;
+
+	// Cull mode
+	const char* cull_str =
+		mat_info->cull == skr_cull_back  ? "b" :
+		mat_info->cull == skr_cull_front ? "f" :
+		mat_info->cull == skr_cull_none  ? "n" : "?";
+
+	// Depth test
+	const char* depth_str =
+		mat_info->depth_test == skr_compare_none         ? "!" :
+		mat_info->depth_test == skr_compare_less         ? "<" :
+		mat_info->depth_test == skr_compare_less_or_eq   ? "<=" :
+		mat_info->depth_test == skr_compare_greater      ? ">" :
+		mat_info->depth_test == skr_compare_greater_or_eq? ">=" :
+		mat_info->depth_test == skr_compare_equal        ? "=" :
+		mat_info->depth_test == skr_compare_always       ? "==" : "?";
+
+	// Blend mode - check if blending is enabled
+	bool blend_enabled = (mat_info->blend_state.src_color_factor != skr_blend_one ||
+	                      mat_info->blend_state.dst_color_factor != skr_blend_zero);
+	const char* blend_str = blend_enabled ? "b" : "o";
+	if (mat_info->alpha_to_coverage) blend_str = "a2c";
+
+	// Write mask (compact: just show what's written)
+	char write_str[16];
+	int write_pos = 0;
+	if (mat_info->write_mask & skr_write_r)       write_str[write_pos++] = 'r';
+	if (mat_info->write_mask & skr_write_g)       write_str[write_pos++] = 'g';
+	if (mat_info->write_mask & skr_write_b)       write_str[write_pos++] = 'b';
+	if (mat_info->write_mask & skr_write_a)       write_str[write_pos++] = 'a';
+	if (mat_info->write_mask & skr_write_depth)   write_str[write_pos++] = 'd';
+	if (mat_info->write_mask & skr_write_stencil) write_str[write_pos++] = 's';
+	write_str[write_pos] = '\0';
+
+	size_t pos = strlen(str);
+	snprintf(str + pos, str_size - pos, "%s%s%s-%s", cull_str, depth_str, blend_str, write_str);
+}
+
+void _skr_append_renderpass_config(char* str, size_t str_size, const skr_pipeline_renderpass_key_t* rp_key) {
+	if (!str || !rp_key) return;
+
+	const char* color_str =
+		rp_key->color_format == VK_FORMAT_UNDEFINED           ? "none" :
+		rp_key->color_format == VK_FORMAT_B8G8R8A8_SRGB       ? "bgra8_srgb" :
+		rp_key->color_format == VK_FORMAT_B8G8R8A8_UNORM      ? "bgra8" :
+		rp_key->color_format == VK_FORMAT_R8G8B8A8_SRGB       ? "rgba8_srgb" :
+		rp_key->color_format == VK_FORMAT_R8G8B8A8_UNORM      ? "rgba8" :
+		rp_key->color_format == VK_FORMAT_R16G16B16A16_SFLOAT ? "rgba16f" :
+		rp_key->color_format == VK_FORMAT_R32G32B32A32_SFLOAT ? "rgba32f" : "?";
+
+	const char* depth_str =
+		rp_key->depth_format == VK_FORMAT_UNDEFINED  ? "none" :
+		rp_key->depth_format == VK_FORMAT_D16_UNORM  ? "d16" :
+		rp_key->depth_format == VK_FORMAT_D32_SFLOAT ? "d32" : "?";
+
+	size_t pos = strlen(str);
+	snprintf(str + pos, str_size - pos, "%s_%s_x%d", color_str, depth_str, rp_key->samples);
+}

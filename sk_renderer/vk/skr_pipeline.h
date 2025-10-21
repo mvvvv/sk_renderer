@@ -1,0 +1,43 @@
+#pragma once
+
+#include "../include/sk_renderer.h"
+#include "skr_vulkan.h"
+#include "_sk_renderer.h"
+
+#include <volk.h>
+#include <stdint.h>
+
+///////////////////////////////////////////////////////////////////////////////
+// Pipeline management system
+//
+// Pipelines are determined by three dimensions:
+// 1. Material dimension - shader, cull, depth test, blend, etc.
+// 2. Render pass dimension - color format, depth format, MSAA samples
+// 3. Vertex format dimension - vertex layout (position, normal, uv, etc.)
+//
+// Each dimension can be registered to get an integer index, which allows
+// for fast 3D lookup of pipelines.
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Initialize/shutdown the pipeline system
+void     _skr_pipeline_init    ();
+void     _skr_pipeline_shutdown();
+
+// Register/unregister dimensions - returns index for fast lookup
+int32_t  _skr_pipeline_register_material  (const skr_material_info_t*           info);
+int32_t  _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* key);
+int32_t  _skr_pipeline_register_vertformat(const skr_vert_type_t vert_type);
+void     _skr_pipeline_unregister_material  (int32_t material_idx);
+void     _skr_pipeline_unregister_renderpass(int32_t renderpass_idx);
+void     _skr_pipeline_unregister_vertformat(int32_t vertformat_idx);
+
+// Get or create pipeline for a material/renderpass/vertformat triplet
+VkPipeline _skr_pipeline_get(int32_t material_idx, int32_t renderpass_idx, int32_t vertformat_idx);
+
+// Get pipeline layout for a material
+VkPipelineLayout      _skr_pipeline_get_layout(int32_t material_idx);
+VkDescriptorSetLayout _skr_pipeline_get_descriptor_layout(int32_t material_idx);
+
+// Get render pass for a renderpass index
+VkRenderPass          _skr_pipeline_get_renderpass(int32_t renderpass_idx);

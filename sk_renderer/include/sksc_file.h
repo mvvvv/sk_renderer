@@ -1,0 +1,153 @@
+#pragma once
+
+#include <stdint.h>
+#include <stdbool.h>
+
+///////////////////////////////////////////////////////////////////////////////
+
+typedef enum {
+	skr_vertex_fmt_none,
+	skr_vertex_fmt_f64,
+	skr_vertex_fmt_f32,
+	skr_vertex_fmt_f16,
+	skr_vertex_fmt_i32,
+	skr_vertex_fmt_i16,
+	skr_vertex_fmt_i8,
+	skr_vertex_fmt_i32_normalized,
+	skr_vertex_fmt_i16_normalized,
+	skr_vertex_fmt_i8_normalized,
+	skr_vertex_fmt_ui32,
+	skr_vertex_fmt_ui16,
+	skr_vertex_fmt_ui8,
+	skr_vertex_fmt_ui32_normalized,
+	skr_vertex_fmt_ui16_normalized,
+	skr_vertex_fmt_ui8_normalized,
+} skr_vertex_fmt_;
+
+typedef enum {
+	skr_semantic_none,
+	skr_semantic_position,
+	skr_semantic_texcoord,
+	skr_semantic_normal,
+	skr_semantic_binormal,
+	skr_semantic_tangent,
+	skr_semantic_color,
+	skr_semantic_psize,
+	skr_semantic_blendweight,
+	skr_semantic_blendindices,
+} skr_semantic_;
+
+typedef enum {
+	skr_stage_vertex  = 1 << 0,
+	skr_stage_pixel   = 1 << 1,
+	skr_stage_compute = 1 << 2,
+} skr_stage_;
+
+typedef enum {
+	skr_shader_lang_hlsl,
+	skr_shader_lang_spirv,
+	skr_shader_lang_glsl,
+	skr_shader_lang_glsl_es,
+	skr_shader_lang_glsl_web,
+} skr_shader_lang_;
+
+typedef enum {
+	sksc_result_unknown       =  0,
+	sksc_result_success       =  1,
+	sksc_result_out_of_memory = -1,
+	sksc_result_bad_format    = -2,
+	sksc_result_old_version   = -3,
+	sksc_result_corrupt_data  = -4,
+} sksc_result_;
+
+typedef struct {
+	skr_vertex_fmt_ format;
+	uint8_t         count;
+	skr_semantic_   semantic;
+	uint8_t         semantic_slot;
+} skr_vert_component_t;
+
+typedef struct {
+	uint16_t slot;
+	// of type skr_stage_
+	uint8_t  stage_bits; 
+	// of type skr_register_
+	uint8_t  register_type;
+} skr_bind_t;
+
+typedef struct {
+	char     name [32];
+	uint64_t name_hash;
+	char     extra[64];
+	uint32_t offset;
+	uint32_t size;
+	uint16_t type;
+	uint16_t type_count;
+} sksc_shader_var_t;
+
+typedef struct {
+	char              name[32];
+	uint64_t          name_hash;
+	skr_bind_t        bind;
+	uint8_t           space;
+	uint32_t          size;
+	void             *defaults;
+	uint32_t          var_count;
+	sksc_shader_var_t *vars;
+} sksc_shader_buffer_t;
+
+typedef struct {
+	char       name [32];
+	uint64_t   name_hash;
+	char       value[64];
+	char       tags [64];
+	skr_bind_t bind;
+} sksc_shader_resource_t;
+
+typedef struct {
+	int32_t total;
+	int32_t tex_read;
+	int32_t dynamic_flow;
+} sksc_shader_ops_t;
+
+typedef struct {
+	char                   name[256];
+	uint32_t               buffer_count;
+	sksc_shader_buffer_t   *buffers;
+	uint32_t               resource_count;
+	sksc_shader_resource_t *resources;
+	int32_t                references;
+	int32_t                global_buffer_id;
+	skr_vert_component_t  *vertex_inputs;
+	int32_t                vertex_input_count;
+	sksc_shader_ops_t      ops_vertex;
+	sksc_shader_ops_t      ops_pixel;
+} sksc_shader_meta_t;
+
+typedef struct {
+	skr_shader_lang_ language;
+	skr_stage_       stage;
+	uint32_t         code_size;
+	void            *code;
+} sksc_shader_file_stage_t;
+
+typedef struct {
+	sksc_shader_meta_t       *meta;
+	uint32_t                  stage_count;
+	sksc_shader_file_stage_t *stages;
+} sksc_shader_file_t;
+
+
+///////////////////////////////////////////////////////////////////////////////
+
+bool                     sksc_shader_file_verify         (const void *file_memory, uint32_t file_size, uint16_t *out_version, char *out_name, uint32_t out_name_size);
+sksc_result_             sksc_shader_file_load_memory    (const void *file_memory, uint32_t file_size, sksc_shader_file_t *out_file);
+void                     sksc_shader_file_destroy        (sksc_shader_file_t *file);
+
+skr_bind_t               sksc_shader_meta_get_bind       (const sksc_shader_meta_t *meta, const char *name);
+int32_t                  sksc_shader_meta_get_var_count  (const sksc_shader_meta_t *meta);
+int32_t                  sksc_shader_meta_get_var_index  (const sksc_shader_meta_t *meta, const char *name);
+int32_t                  sksc_shader_meta_get_var_index_h(const sksc_shader_meta_t *meta, uint64_t name_hash);
+const sksc_shader_var_t* sksc_shader_meta_get_var_info   (const sksc_shader_meta_t *meta, int32_t var_index);
+void                     sksc_shader_meta_reference      (      sksc_shader_meta_t *meta);
+void                     sksc_shader_meta_release        (      sksc_shader_meta_t *meta);
