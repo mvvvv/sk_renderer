@@ -186,7 +186,7 @@ static scene_t* _scene_impostor_create() {
 	}
 
 	// Load ground.png texture for terrain
-	pixels = skr_image_load("ground.png", &width, &height, NULL, 4);
+	pixels = skr_image_load("ground.jpg", &width, &height, NULL, 4);
 	if (pixels) {
 		scene->ground_texture = skr_tex_create(skr_tex_fmt_rgba32,
 			skr_tex_flags_readable | skr_tex_flags_gen_mips,

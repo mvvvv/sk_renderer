@@ -656,8 +656,7 @@ static scene_t* _scene_gltf_create() {
 	scene->load_ctx = calloc(1, sizeof(gltf_load_context_t));
 	scene->load_ctx->state = gltf_load_state_loading;
 	scene->load_ctx->scene = scene;
-	//snprintf(scene->load_ctx->filepath, sizeof(scene->load_ctx->filepath), "/home/koujaku/Downloads/venice_mask/scene.gltf");
-	snprintf(scene->load_ctx->filepath, sizeof(scene->load_ctx->filepath), "DamagedHelmet.gltf");
+	snprintf(scene->load_ctx->filepath, sizeof(scene->load_ctx->filepath), "DamagedHelmet.glb");
 
 	pthread_create(&scene->load_ctx->thread, NULL, _load_gltf_thread, scene->load_ctx);
 
