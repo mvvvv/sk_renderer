@@ -5,6 +5,10 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -30,6 +34,15 @@ typedef enum {
 } skr_vertex_fmt_;
 
 typedef enum {
+	sksc_shader_var_none,
+	sksc_shader_var_int,
+	sksc_shader_var_uint,
+	sksc_shader_var_uint8,
+	sksc_shader_var_float,
+	sksc_shader_var_double,
+} sksc_shader_var_;
+
+typedef enum {
 	skr_semantic_none,
 	skr_semantic_position,
 	skr_semantic_texcoord,
@@ -47,6 +60,17 @@ typedef enum {
 	skr_stage_pixel   = 1 << 1,
 	skr_stage_compute = 1 << 2,
 } skr_stage_;
+
+typedef enum {
+	skr_register_default,
+	skr_register_vertex,
+	skr_register_index,
+	skr_register_constant,
+	skr_register_texture,
+	skr_register_read_buffer,
+	skr_register_readwrite,
+	skr_register_readwrite_tex,
+} skr_register_;
 
 typedef enum {
 	skr_shader_lang_hlsl,
@@ -86,6 +110,7 @@ typedef struct {
 	char     extra[64];
 	uint32_t offset;
 	uint32_t size;
+	// of type sksc_shader_var_
 	uint16_t type;
 	uint16_t type_count;
 } sksc_shader_var_t;
@@ -156,3 +181,7 @@ int32_t                  sksc_shader_meta_get_var_index_h(const sksc_shader_meta
 const sksc_shader_var_t* sksc_shader_meta_get_var_info   (const sksc_shader_meta_t *meta, int32_t var_index);
 void                     sksc_shader_meta_reference      (      sksc_shader_meta_t *meta);
 void                     sksc_shader_meta_release        (      sksc_shader_meta_t *meta);
+
+#ifdef __cplusplus
+}
+#endif

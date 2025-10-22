@@ -261,17 +261,6 @@ typedef enum skr_log_ {
 	skr_log_critical,
 } skr_log_;
 
-typedef enum {
-	skr_register_default,
-	skr_register_vertex,
-	skr_register_index,
-	skr_register_constant,
-	skr_register_texture,
-	skr_register_read_buffer,
-	skr_register_readwrite,
-	skr_register_readwrite_tex,
-} skr_register_;
-
 typedef enum skr_clear_ {
 	skr_clear_none    = 0,
 	skr_clear_color   = 1 << 0,

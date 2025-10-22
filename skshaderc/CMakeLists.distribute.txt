@@ -1,0 +1,76 @@
+cmake_minimum_required(VERSION 3.14)
+
+project(sk_gpu VERSION 1.0
+               DESCRIPTION "sk_gpu.h and the skshaderc compiler"
+               LANGUAGES CXX)
+
+set(SKG_HEADER ON CACHE BOOL "Expose sk_gpu's header file as a valid include. On by default, you might not need this if all you're intereste in is skshaderc.")
+
+add_library(sk_gpu INTERFACE)
+
+if (SKG_HEADER)
+    target_include_directories(sk_gpu INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+endif()
+
+# Pick a shader compiler executable that works on our host platform
+if (CMAKE_HOST_APPLE)
+    set(SKSHADERC_EXE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/tools/mac/skshaderc CACHE INTERNAL "")
+    file(CHMOD ${SKSHADERC_EXE_PATH} PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ WORLD_EXECUTE WORLD_READ)
+elseif(CMAKE_HOST_WIN32 AND (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "AMD64" OR CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64"))
+    set(SKSHADERC_EXE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/tools/win32_x64/skshaderc.exe CACHE INTERNAL "")
+elseif(CMAKE_HOST_WIN32 AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "ARM64")
+    set(SKSHADERC_EXE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/tools/win32_arm64/skshaderc.exe CACHE INTERNAL "")
+elseif(CMAKE_HOST_UNIX AND CMAKE_SYSTEM_NAME MATCHES "Windows" AND (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "AMD64" OR CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64"))
+    set(SKSHADERC_EXE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/tools/win32_x64/skshaderc.exe CACHE INTERNAL "")
+    set(WINE "wine" CACHE INTERNAL "")
+elseif(CMAKE_HOST_UNIX AND CMAKE_SYSTEM_NAME MATCHES "Windows" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "ARM64")
+    set(SKSHADERC_EXE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/tools/win32_arm64/skshaderc.exe CACHE INTERNAL "")
+    set(WINE "wine" CACHE INTERNAL "")
+elseif(CMAKE_HOST_UNIX AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set(SKSHADERC_EXE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/tools/linux_x64/skshaderc CACHE INTERNAL "")
+    file(CHMOD ${SKSHADERC_EXE_PATH} PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ WORLD_EXECUTE WORLD_READ)
+elseif(CMAKE_HOST_UNIX AND (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64" OR CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "arm64"))
+    set(SKSHADERC_EXE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/tools/linux_arm64/skshaderc CACHE INTERNAL "")
+    file(CHMOD ${SKSHADERC_EXE_PATH} PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ WORLD_EXECUTE WORLD_READ)
+else()
+    message(FATAL_ERROR "No shader compiler available for this platform! (${CMAKE_HOST_SYSTEM} + ${CMAKE_HOST_SYSTEM_PROCESSOR}) skshaderc supports Windows, Linux, and MacOS with x64 and ARM64 architectures.")
+endif()
+
+# functions for compiling shaders easily
+function(SKSHADERC_COMPILE_ASSETS TARGET COMMAND_STRING OUT_LIST)
+    message(STATUS "sk_gpu compiling shader assets with args '${SKSHADERC_EXE_PATH} ${COMMAND_STRING}'")
+    set(SKSHADERC_COMPILE_COMMANDS ${COMMAND_STRING})
+    separate_arguments(SKSHADERC_COMPILE_COMMANDS)
+
+    set(SHADER_LIST)
+    foreach(SHADER IN LISTS ARGN)
+        add_custom_command(
+            TARGET ${TARGET} PRE_BUILD
+            COMMAND ${WINE} ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
+            VERBATIM
+        )
+        list(APPEND SHADER_LIST ${SHADER})
+    endforeach(SHADER)
+
+    set(${OUT_LIST} ${SHADER_LIST} PARENT_SCOPE)
+endfunction()
+
+function(SKSHADERC_COMPILE_HEADERS ADD_TARGET OUTPUT_FOLDER COMMAND_STRING)
+    set(SKSHADERC_COMPILE_COMMANDS "-h -e -o ${OUTPUT_FOLDER} ${COMMAND_STRING}")
+    message(STATUS "sk_gpu compiling shader headers with args '${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS}'")
+    separate_arguments(SKSHADERC_COMPILE_COMMANDS)
+
+    set(SHADER_LIST)
+    foreach(SHADER IN LISTS ARGN)
+        get_filename_component(SHADER_NAME ${SHADER} NAME)
+        add_custom_command(
+            OUTPUT ${OUTPUT_FOLDER}/${SHADER_NAME}.h
+            COMMAND ${WINE} ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
+            VERBATIM
+        )
+        list(APPEND SHADER_LIST ${OUTPUT_FOLDER}/${SHADER_NAME}.h)
+    endforeach(SHADER)
+
+    target_include_directories(${ADD_TARGET} PRIVATE ${OUTPUT_FOLDER})
+    target_sources            (${ADD_TARGET} PRIVATE ${SHADER_LIST})
+endfunction()

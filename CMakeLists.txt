@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(sk_renderer VERSION 0.1.0 LANGUAGES CXX C)
 
+add_subdirectory(skshaderc)
+
 include(FetchContent)
 
 ###############################################################################
@@ -112,6 +114,31 @@ target_sources            (sk_renderer_test PRIVATE
 	example/scene_gltf.c
 	example/scene_shadows.c
 	example/bloom.c
+)
+
+if(ANDROID)
+	set(ASSET_PATH ${CMAKE_BINARY_DIR}/asssets/shaders/) # Is this right?
+else()
+	set(ASSET_PATH ${CMAKE_BINARY_DIR}/shaders/)
+endif()
+skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH} ""
+    example/assets/shaders/bloom_composite.hlsl
+    example/assets/shaders/bloom_downsample.hlsl
+    example/assets/shaders/bloom_upsample.hlsl
+    example/assets/shaders/compute_test.hlsl
+    example/assets/shaders/cubemap_mipgen.hlsl
+    example/assets/shaders/cubemap_reflection.hlsl
+    example/assets/shaders/cubemap_skybox.hlsl
+    example/assets/shaders/equirect_to_cubemap.hlsl
+    example/assets/shaders/mipgen_alpha_weighted_render.hlsl
+    example/assets/shaders/orbital_particles_compute.hlsl
+    example/assets/shaders/orbital_particles.hlsl
+    example/assets/shaders/pbr.hlsl
+    example/assets/shaders/shadow_caster.hlsl
+    example/assets/shaders/shadow_receiver.hlsl
+    example/assets/shaders/stereo_display.hlsl
+    example/assets/shaders/test.hlsl
+    example/assets/shaders/texture3d.hlsl
 )
 
 if(NOT ANDROID)
