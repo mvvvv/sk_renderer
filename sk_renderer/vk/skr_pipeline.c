@@ -484,43 +484,47 @@ static VkDescriptorSetLayout _skr_pipeline_create_descriptor_layout(const sksc_s
 
 	// Add buffer bindings
 	for (uint32_t i = 0; i < meta->buffer_count; i++) {
+		skr_bind_t bind = meta->buffers[i].bind;
+
+		VkShaderStageFlags stages = 0;
+		if (bind.stage_bits & skr_stage_vertex ) stages |= VK_SHADER_STAGE_VERTEX_BIT;
+		if (bind.stage_bits & skr_stage_pixel  ) stages |= VK_SHADER_STAGE_FRAGMENT_BIT;
+		if (bind.stage_bits & skr_stage_compute) stages |= VK_SHADER_STAGE_COMPUTE_BIT;
+
 		bindings[binding_count++] = (VkDescriptorSetLayoutBinding){
 			.binding            = meta->buffers[i].bind.slot,
 			.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 			.descriptorCount    = 1,
-			.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			.stageFlags         = stages,
 			.pImmutableSamplers = NULL,
 		};
 	}
 
 	// Add resource bindings (textures and storage buffers)
 	for (uint32_t i = 0; i < meta->resource_count; i++) {
-		VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+		skr_bind_t bind = meta->resources[i].bind;
 
 		// Determine descriptor type based on register type
-		switch (meta->resources[i].bind.register_type) {
-			case 4: // skr_register_texture
-				desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				break;
-			case 5: // skr_register_read_buffer (StructuredBuffer)
-				desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-				break;
-			case 6: // skr_register_readwrite (RWStructuredBuffer)
-				desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-				break;
-			case 7: // skr_register_readwrite_tex (RWTexture)
-				desc_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-				break;
-			default:
-				desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				break;
+		switch (bind.register_type) {
+			case skr_register_constant:      desc_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;         break;
+			case skr_register_texture:       desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; break;
+			case skr_register_read_buffer:   desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         break; // (StructuredBuffer)
+			case skr_register_readwrite:     desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         break; // (RWStructuredBuffer)
+			case skr_register_readwrite_tex: desc_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          break; // (RWTexture)
+			default:                         desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM; break;
 		}
 
+		VkShaderStageFlags stages = 0;
+		if (bind.stage_bits & skr_stage_vertex ) stages |= VK_SHADER_STAGE_VERTEX_BIT;
+		if (bind.stage_bits & skr_stage_pixel  ) stages |= VK_SHADER_STAGE_FRAGMENT_BIT;
+		if (bind.stage_bits & skr_stage_compute) stages |= VK_SHADER_STAGE_COMPUTE_BIT;
+
 		bindings[binding_count++] = (VkDescriptorSetLayoutBinding){
-			.binding            = meta->resources[i].bind.slot,
+			.binding            = bind.slot,
 			.descriptorType     = desc_type,
 			.descriptorCount    = 1,
-			.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+			.stageFlags         = stages,
 			.pImmutableSamplers = NULL,
 		};
 	}

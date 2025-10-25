@@ -28,15 +28,11 @@ typedef struct {
 	// Scene rendering
 	skr_mesh_t     cube_mesh;
 	skr_mesh_t     floor_mesh;
-	skr_mesh_t     light_sphere_mesh;
-	skr_mesh_t     light_ray_mesh;
 	skr_shader_t   shadow_receiver_shader;
 	skr_material_t cube_material;
 	skr_material_t floor_material;
-	skr_material_t light_material;
 	skr_tex_t      checkerboard_texture;
 	skr_tex_t      white_texture;
-	skr_tex_t      yellow_texture;
 
 	// Shadow buffer (sent to shader as constants)
 	skr_buffer_t   shadow_buffer;
@@ -155,44 +151,18 @@ static scene_t* _scene_shadows_create() {
 				.write_mask = skr_write_default,
 				.depth_test = skr_compare_less,
 			});
-
-			scene->light_material = skr_material_create((skr_material_info_t){
-				.shader     = &scene->shadow_receiver_shader,
-				.write_mask = skr_write_default,
-				.depth_test = skr_compare_less,
-			});
 		}
 	}
-
-	// Create light visualization meshes
-	skr_vec4_t yellow = {1.0f, 1.0f, 0.0f, 1.0f};
-	scene->light_sphere_mesh = skr_mesh_create_sphere(16, 12, 0.5f, yellow);
-	skr_mesh_set_name(&scene->light_sphere_mesh, "light_sphere");
-
-	// Create thin cube for light ray direction (1 unit long, very thin)
-	skr_vec4_t light_ray_colors[6];
-	for (int i = 0; i < 6; i++) light_ray_colors[i] = yellow;
-	scene->light_ray_mesh = skr_mesh_create_cube(1.0f, light_ray_colors);
-	skr_mesh_set_name(&scene->light_ray_mesh, "light_ray");
 
 	// Create textures
 	scene->checkerboard_texture = skr_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF888888, true);
 	skr_tex_set_name(&scene->checkerboard_texture, "floor_checker");
 	scene->white_texture = skr_tex_create_solid_color(0xFFFFFFFF);
 	skr_tex_set_name(&scene->white_texture, "white_1x1");
-	scene->yellow_texture = skr_tex_create_solid_color(0xFFFFFF00);
-	skr_tex_set_name(&scene->yellow_texture, "yellow_1x1");
 
 	// Bind textures to materials (shadow map will be bound globally per frame)
-	if (skr_material_is_valid(&scene->cube_material)) {
-		skr_material_set_tex(&scene->cube_material, 0, &scene->white_texture);
-	}
-	if (skr_material_is_valid(&scene->floor_material)) {
-		skr_material_set_tex(&scene->floor_material, 0, &scene->checkerboard_texture);
-	}
-	if (skr_material_is_valid(&scene->light_material)) {
-		skr_material_set_tex(&scene->light_material, 0, &scene->yellow_texture);
-	}
+	skr_material_set_tex(&scene->cube_material,  "tex", &scene->white_texture);
+	skr_material_set_tex(&scene->floor_material, "tex", &scene->checkerboard_texture);
 
 	// Create shadow buffer (constant buffer for shadow parameters)
 	shadow_buffer_data_t shadow_data = {0};
@@ -209,18 +179,14 @@ static void _scene_shadows_destroy(scene_t* base) {
 	skr_render_list_destroy(&scene->shadow_list);
 	skr_mesh_destroy(&scene->cube_mesh);
 	skr_mesh_destroy(&scene->floor_mesh);
-	skr_mesh_destroy(&scene->light_sphere_mesh);
-	skr_mesh_destroy(&scene->light_ray_mesh);
 	skr_material_destroy(&scene->shadow_caster_material);
 	skr_material_destroy(&scene->cube_material);
 	skr_material_destroy(&scene->floor_material);
-	skr_material_destroy(&scene->light_material);
 	skr_shader_destroy(&scene->shadow_caster_shader);
 	skr_shader_destroy(&scene->shadow_receiver_shader);
 	skr_tex_destroy(&scene->shadow_map);
 	skr_tex_destroy(&scene->checkerboard_texture);
 	skr_tex_destroy(&scene->white_texture);
-	skr_tex_destroy(&scene->yellow_texture);
 	skr_buffer_destroy(&scene->shadow_buffer);
 
 	free(scene);
@@ -311,22 +277,22 @@ static void _scene_shadows_render(scene_t* base, int32_t width, int32_t height, 
 
 	// Clear global texture/constants that shadow caster doesn't use
 	skr_renderer_set_global_constants(13, NULL);
-	skr_renderer_set_global_texture(14, NULL);
+	skr_renderer_set_global_texture  (14, NULL);
 
 	// Render shadow map (depth-only pass)
 	skr_renderer_begin_pass(NULL, &scene->shadow_map, NULL, skr_clear_depth, (skr_vec4_t){0, 0, 0, 0}, 1.0f, 0);
 	skr_renderer_set_viewport((skr_rect_t ){0, 0, (float)SHADOW_MAP_RESOLUTION, (float)SHADOW_MAP_RESOLUTION});
 	skr_renderer_set_scissor ((skr_recti_t){0, 0, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION});
 
-	skr_render_list_add(&scene->shadow_list, &scene->cube_mesh,  &scene->shadow_caster_material, cube_instances, sizeof(instance_data_t), cube_count);
-	skr_render_list_add(&scene->shadow_list, &scene->floor_mesh, &scene->shadow_caster_material, &floor_instance, sizeof(instance_data_t), 1);
-	skr_renderer_draw(&scene->shadow_list, &shadow_sys_buffer, sizeof(app_system_buffer_t), 1);
+	skr_render_list_add  (&scene->shadow_list, &scene->cube_mesh,  &scene->shadow_caster_material, cube_instances, sizeof(instance_data_t), cube_count);
+	skr_render_list_add  (&scene->shadow_list, &scene->floor_mesh, &scene->shadow_caster_material, &floor_instance, sizeof(instance_data_t), 1);
+	skr_renderer_draw    (&scene->shadow_list, &shadow_sys_buffer, sizeof(app_system_buffer_t), 1);
 	skr_render_list_clear(&scene->shadow_list);
 	skr_renderer_end_pass();
 
 	// Bind shadow buffer and shadow map globally (b13 for constants, t14 for texture to avoid slot conflicts)
 	skr_renderer_set_global_constants(13, &scene->shadow_buffer);
-	skr_renderer_set_global_texture(14, &scene->shadow_map);
+	skr_renderer_set_global_texture  (14, &scene->shadow_map);
 
 	// Create light visualization instances
 	instance_data_t light_sphere_instance;

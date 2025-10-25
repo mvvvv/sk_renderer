@@ -137,9 +137,9 @@ void bloom_apply(skr_tex_t* scene_color, skr_tex_t* target, float bloom_strength
 		skr_tex_t* source = (i == 0) ? scene_color : &g_bloom.bloom_chain[i - 1];
 		skr_tex_t* dest   = &g_bloom.bloom_chain[i];
 
-		skr_compute_set_buffer(&g_bloom.bloom_downsample_comp[i], 0, &g_bloom.bloom_params_buffers[i]);
-		skr_compute_set_tex   (&g_bloom.bloom_downsample_comp[i], 1, source);
-		skr_compute_set_tex   (&g_bloom.bloom_downsample_comp[i], 2, dest);
+		skr_compute_set_buffer(&g_bloom.bloom_downsample_comp[i], "BloomParams", &g_bloom.bloom_params_buffers[i]);
+		skr_compute_set_tex   (&g_bloom.bloom_downsample_comp[i], "source_tex",  source);
+		skr_compute_set_tex   (&g_bloom.bloom_downsample_comp[i], "dest_tex",    dest);
 
 		uint32_t dispatch_x = (mip_width  + 7) / 8;
 		uint32_t dispatch_y = (mip_height + 7) / 8;
@@ -163,10 +163,10 @@ void bloom_apply(skr_tex_t* scene_color, skr_tex_t* target, float bloom_strength
 		skr_tex_t* blend  = (i == g_bloom.bloom_mips - 1) ? &g_bloom.bloom_chain[i] : &g_bloom.bloom_upsample[i + 1];
 		skr_tex_t* dest   = &g_bloom.bloom_upsample[i];
 
-		skr_compute_set_buffer(&g_bloom.bloom_upsample_comp[i], 0, &g_bloom.bloom_params_buffers[i]);
-		skr_compute_set_tex   (&g_bloom.bloom_upsample_comp[i], 1, source);
-		skr_compute_set_tex   (&g_bloom.bloom_upsample_comp[i], 2, blend);
-		skr_compute_set_tex   (&g_bloom.bloom_upsample_comp[i], 3, dest);
+		skr_compute_set_buffer(&g_bloom.bloom_upsample_comp[i], "BloomParams", &g_bloom.bloom_params_buffers[i]);
+		skr_compute_set_tex   (&g_bloom.bloom_upsample_comp[i], "source_tex",  source);
+		skr_compute_set_tex   (&g_bloom.bloom_upsample_comp[i], "blend_tex",   blend);
+		skr_compute_set_tex   (&g_bloom.bloom_upsample_comp[i], "dest_tex",    dest);
 
 		uint32_t dispatch_x = (mip_width  + 7) / 8;
 		uint32_t dispatch_y = (mip_height + 7) / 8;
@@ -174,9 +174,9 @@ void bloom_apply(skr_tex_t* scene_color, skr_tex_t* target, float bloom_strength
 	}
 
 	// Composite pass: render fullscreen quad with bloom to target
-	skr_material_set_buffer(&g_bloom.bloom_composite_mat, 1, &g_bloom.composite_params_buffer);
-	skr_material_set_tex   (&g_bloom.bloom_composite_mat, 0, scene_color);
-	skr_material_set_tex   (&g_bloom.bloom_composite_mat, 2, &g_bloom.bloom_upsample[0]);
+	skr_material_set_params(&g_bloom.bloom_composite_mat, &g_bloom.composite_params_buffer, sizeof(g_bloom.composite_params_buffer));
+	skr_material_set_tex   (&g_bloom.bloom_composite_mat, "scene_tex", scene_color);
+	skr_material_set_tex   (&g_bloom.bloom_composite_mat, "bloom_tex", &g_bloom.bloom_upsample[0]);
 
 	skr_render_list_t render_list = skr_render_list_create();
 	skr_renderer_begin_pass(target, NULL, NULL, skr_clear_none, (skr_vec4_t){0, 0, 0, 0}, 1.0f, 0);

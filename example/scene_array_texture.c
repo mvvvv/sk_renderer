@@ -103,9 +103,7 @@ static scene_t* _scene_array_texture_create() {
 	scene->depth_buffer.image = VK_NULL_HANDLE;
 
 	// Bind textures to materials
-	if (skr_material_is_valid(&scene->cube_material)) {
-		skr_material_set_tex(&scene->cube_material, 0, &scene->checkerboard_texture);
-	}
+	skr_material_set_tex(&scene->cube_material, "tex", &scene->checkerboard_texture);
 
 	return (scene_t*)scene;
 }
@@ -166,9 +164,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 		skr_tex_set_name(&scene->depth_buffer, "array_stereo_depth");
 
 		// Bind array texture to stereo material
-		if (skr_material_is_valid(&scene->stereo_material)) {
-			skr_material_set_tex(&scene->stereo_material, 0, &scene->array_render_target);
-		}
+		skr_material_set_tex(&scene->stereo_material, "array_tex", &scene->array_render_target);
 	}
 
 	// Build stereo system buffer (2 views for left/right eye)

@@ -11,14 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-///////////////////////////////////////////////////////////////////////////////
-// Forward declarations
-///////////////////////////////////////////////////////////////////////////////
-
-static VkDescriptorSet _skr_compute_allocate_and_update_descriptor_set(skr_compute_t* compute);
-
-///////////////////////////////////////////////////////////////////////////////
-
 skr_compute_t skr_compute_create(const skr_shader_t* shader) {
 	skr_compute_t compute = {0};
 
@@ -118,6 +110,12 @@ skr_compute_t skr_compute_create(const skr_shader_t* shader) {
 		return compute;
 	}
 
+	// Allocate memory for our resource binds
+	compute.bind_count = shader->meta->resource_count + shader->meta->buffer_count;
+	compute.binds      = (skr_material_bind_t*)calloc(compute.bind_count, sizeof(skr_material_bind_t));
+	for (int32_t i = 0; i < shader->meta->buffer_count;   i++) compute.binds[i                           ].bind = shader->meta->buffers  [i].bind;
+	for (int32_t i = 0; i < shader->meta->resource_count; i++) compute.binds[i+shader->meta->buffer_count].bind = shader->meta->resources[i].bind;
+
 	return compute;
 }
 
@@ -149,119 +147,62 @@ void skr_compute_destroy(skr_compute_t* compute) {
 		if (compute->descriptor_layout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(_skr_vk.device, compute->descriptor_layout, NULL);
 	}
 
-	// Note: shader is not owned by compute, so we don't destroy it
+	free(compute->binds);
 
 	memset(compute, 0, sizeof(skr_compute_t));
 }
 
-void skr_compute_set_buffer(skr_compute_t* compute, int32_t bind, skr_buffer_t* buffer) {
-	if (!compute || bind < 0 || bind >= 16) return;
-	compute->buffers[bind] = buffer;
-	// Binding is staged - will be applied on next skr_compute_execute()
+void skr_compute_set_buffer(skr_compute_t* compute, const char* name, skr_buffer_t* buffer) {
+	const sksc_shader_meta_t *meta = compute->shader->meta;
+
+	int32_t  idx  = -1;
+	uint64_t hash = skr_hash(name);
+	for (uint32_t i = 0; i < meta->buffer_count; i++) {
+		if (meta->buffers[i].name_hash == hash) {
+			idx = i;
+			break; 
+		}
+	}
+
+	if (idx >= 0) {
+		compute->binds[idx].buffer = buffer;
+		return;
+	}
+
+	// StructuredBuffers look like buffers, but HLSL treats them like textures/resources
+	for (uint32_t i = 0; i < meta->resource_count; i++) {
+		if (meta->resources[i].name_hash == hash) {
+			idx  = i;
+			break; 
+		}
+	}
+
+	if (idx >= 0) {
+		compute->binds[meta->buffer_count + idx].buffer = buffer;
+	} else {
+		skr_logf(skr_log_warning, "Buffer name '%s' not found", name);
+	}
+	return;
 }
 
-void skr_compute_set_tex(skr_compute_t* compute, int32_t bind, skr_tex_t* texture) {
-	if (!compute || bind < 0 || bind >= 16) return;
-	compute->textures[bind] = texture;
-	// Binding is staged - will be applied on next skr_compute_execute()
-}
+void skr_compute_set_tex(skr_compute_t* compute, const char* name, skr_tex_t* texture) {
+	const sksc_shader_meta_t *meta = compute->shader->meta;
 
-// Build descriptor writes for push descriptors (no dstSet needed)
-static uint32_t _skr_compute_build_descriptor_writes(skr_compute_t* compute,
-                                                       VkWriteDescriptorSet* writes,
-                                                       VkDescriptorBufferInfo* buffer_infos,
-                                                       VkDescriptorImageInfo* image_infos) {
-	uint32_t write_count = 0;
-	uint32_t buffer_info_count = 0;
-	uint32_t image_info_count = 0;
-
-	if (!compute->shader || !compute->shader->meta) {
-		return 0;
-	}
-
-	// Build buffer descriptors
-	for (uint32_t i = 0; i < compute->shader->meta->buffer_count; i++) {
-		int32_t slot = compute->shader->meta->buffers[i].bind.slot;
-		if (slot >= 0 && slot < 16 && compute->buffers[slot]) {
-			VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			if (compute->shader->meta->buffers[i].bind.register_type == skr_register_readwrite) {
-				desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			}
-
-			buffer_infos[buffer_info_count] = (VkDescriptorBufferInfo){
-				.buffer = compute->buffers[slot]->buffer,
-				.offset = 0,
-				.range  = compute->buffers[slot]->size,
-			};
-
-			writes[write_count++] = (VkWriteDescriptorSet){
-				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet          = VK_NULL_HANDLE,  // Not used with push descriptors
-				.dstBinding      = slot,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType  = desc_type,
-				.pBufferInfo     = &buffer_infos[buffer_info_count++],
-			};
+	int32_t  idx  = -1;
+	uint64_t hash = skr_hash(name);
+	for (uint32_t i = 0; i < meta->resource_count; i++) {
+		if (meta->resources[i].name_hash == hash) {
+			idx  = i;
+			break; 
 		}
 	}
 
-	// Build resource descriptors (textures and storage buffers from StructuredBuffers)
-	for (uint32_t i = 0; i < compute->shader->meta->resource_count; i++) {
-		int32_t slot = compute->shader->meta->resources[i].bind.slot;
-		skr_register_ reg_type = compute->shader->meta->resources[i].bind.register_type;
-
-		// Handle storage buffers (StructuredBuffer is skr_register_read_buffer, RWStructuredBuffer is skr_register_readwrite)
-		if ((reg_type == skr_register_read_buffer || reg_type == skr_register_readwrite) &&
-		    slot >= 0 && slot < 16 && compute->buffers[slot]) {
-			buffer_infos[buffer_info_count] = (VkDescriptorBufferInfo){
-				.buffer = compute->buffers[slot]->buffer,
-				.offset = 0,
-				.range  = compute->buffers[slot]->size,
-			};
-
-			writes[write_count++] = (VkWriteDescriptorSet){
-				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet          = VK_NULL_HANDLE,  // Not used with push descriptors
-				.dstBinding      = slot,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-				.pBufferInfo     = &buffer_infos[buffer_info_count++],
-			};
-		}
-		// Handle textures and storage images
-		else if (slot >= 0 && slot < 16 && compute->textures[slot]) {
-			VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-			if (reg_type == skr_register_readwrite_tex) {
-				desc_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-				layout = VK_IMAGE_LAYOUT_GENERAL;
-			} else if (compute->textures[slot]->flags & skr_tex_flags_compute) {
-				// Textures created with compute flag are in GENERAL layout
-				layout = VK_IMAGE_LAYOUT_GENERAL;
-			}
-
-			image_infos[image_info_count] = (VkDescriptorImageInfo){
-				.sampler     = compute->textures[slot]->sampler,
-				.imageView   = compute->textures[slot]->view,
-				.imageLayout = layout,
-			};
-
-			writes[write_count++] = (VkWriteDescriptorSet){
-				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet          = VK_NULL_HANDLE,  // Not used with push descriptors
-				.dstBinding      = slot,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType  = desc_type,
-				.pImageInfo      = &image_infos[image_info_count++],
-			};
-		}
+	if (idx == -1) {
+		skr_logf(skr_log_warning, "Texture name '%s' not found", name);
+		return;
 	}
 
-	return write_count;
+	compute->binds[meta->buffer_count + idx].texture = texture;
 }
 
 void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_t z) {
@@ -277,27 +218,28 @@ void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_
 
 	// Transition all bound textures to appropriate layouts before dispatch
 	const sksc_shader_meta_t* meta = compute->shader->meta;
-	for (uint32_t i = 0; i < meta->resource_count; i++) {
-		int32_t       slot     = meta->resources[i].bind.slot;
-		skr_register_ reg_type = meta->resources[i].bind.register_type;
-
-		if (slot >= 0 && slot < 16 && compute->textures[slot]) {
-			if       (reg_type == skr_register_readwrite_tex) {_skr_tex_transition_for_storage    (cmd, compute->textures[slot]); }
-			 else if (reg_type == skr_register_texture)       {_skr_tex_transition_for_shader_read(cmd, compute->textures[slot], VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT); }
-		}
+	for (uint32_t i = 0; i < compute->bind_count; i++) {
+		skr_material_bind_t *res = &compute->binds[i];
+		if      (res->bind.register_type == skr_register_readwrite_tex && res->texture) {_skr_tex_transition_for_storage    (cmd, res->texture); }
+		else if (res->bind.register_type == skr_register_texture       && res->texture) {_skr_tex_transition_for_shader_read(cmd, res->texture, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT); }
 	}
 
-	// Push descriptors directly (no allocation/pooling needed)
-	if (compute->descriptor_layout) {
-		VkWriteDescriptorSet   writes[32];
-		VkDescriptorBufferInfo buffer_infos[16];
-		VkDescriptorImageInfo  image_infos[16];
+	VkWriteDescriptorSet   writes      [32];
+	VkDescriptorBufferInfo buffer_infos[16];
+	VkDescriptorImageInfo  image_infos [16];
+	uint32_t write_ct  = 0;
+	uint32_t buffer_ct = 0;
+	uint32_t image_ct  = 0;
+	_skr_material_add_writes(compute->binds, compute->bind_count, NULL, 0,
+		writes,       sizeof(writes      )/sizeof(writes      [0]),
+		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
+		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
+		&write_ct, &buffer_ct, &image_ct);
 
-		uint32_t write_count = _skr_compute_build_descriptor_writes(compute, writes, buffer_infos, image_infos);
-		if (write_count > 0) {
-			vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->layout, 0, write_count, writes);
-		}
-	}
+	//_skr_log_descriptor_writes(writes, buffer_infos, image_infos, write_ct, buffer_ct, image_ct);
+
+	if (write_ct > 0)
+		vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->layout, 0, write_ct, writes);
 
 	vkCmdDispatch(cmd, x, y, z);
 
@@ -321,17 +263,20 @@ void skr_compute_execute_indirect(skr_compute_t* compute, skr_buffer_t* indirect
 	VkCommandBuffer cmd = _skr_command_acquire().cmd;
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline);
 
-	// Push descriptors directly (no allocation/pooling needed)
-	if (compute->descriptor_layout) {
-		VkWriteDescriptorSet   writes[32];
-		VkDescriptorBufferInfo buffer_infos[16];
-		VkDescriptorImageInfo  image_infos[16];
+	VkWriteDescriptorSet   writes      [32];
+	VkDescriptorBufferInfo buffer_infos[16];
+	VkDescriptorImageInfo  image_infos [16];
+	uint32_t write_ct = 0;
+	uint32_t buffer_ct = 0;
+	uint32_t image_ct = 0;
+	_skr_material_add_writes(compute->binds, compute->bind_count, NULL, 0,
+		writes,       sizeof(writes      )/sizeof(writes      [0]),
+		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
+		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
+		&write_ct, &buffer_ct, &image_ct);
 
-		uint32_t write_count = _skr_compute_build_descriptor_writes(compute, writes, buffer_infos, image_infos);
-		if (write_count > 0) {
-			vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->layout, 0, write_count, writes);
-		}
-	}
+	if (write_ct > 0)
+		vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->layout, 0, write_ct, writes);
 
 	vkCmdDispatchIndirect(cmd, indirect_args->buffer, 0);
 	_skr_command_release(cmd);

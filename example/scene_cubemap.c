@@ -114,7 +114,7 @@ static scene_t* _scene_cubemap_create() {
 				.write_mask = skr_write_default,
 				.depth_test = skr_compare_less,
 			});
-			skr_material_set_tex(&scene->sphere_material, 0, &scene->cubemap_texture);
+			skr_material_set_tex(&scene->sphere_material, "cubemap", &scene->cubemap_texture);
 		}
 	}
 
@@ -132,7 +132,7 @@ static scene_t* _scene_cubemap_create() {
 				.cull         = skr_cull_front,          // Cull front faces since we're inside
 				.queue_offset = 100,                     // Draw last (after sphere)
 			});
-			skr_material_set_tex(&scene->skybox_material, 0, &scene->cubemap_texture);
+			skr_material_set_tex(&scene->skybox_material, "cubemap", &scene->cubemap_texture);
 		}
 	}
 

@@ -166,6 +166,7 @@ void sksc_shader_file_destroy(sksc_shader_file_t *file) {
 ///////////////////////////////////////////////////////////////////////////////
 
 skr_bind_t sksc_shader_meta_get_bind(const sksc_shader_meta_t *meta, const char *name) {
+	if (name == NULL) return (skr_bind_t){};
 	uint64_t hash = skr_hash(name);
 	for (uint32_t i = 0; i < meta->buffer_count; i++) {
 		if (meta->buffers[i].name_hash == hash)
@@ -175,8 +176,7 @@ skr_bind_t sksc_shader_meta_get_bind(const sksc_shader_meta_t *meta, const char 
 		if (meta->resources[i].name_hash == hash)
 			return meta->resources[i].bind;
 	}
-	skr_bind_t empty = {};
-	return empty;
+	return (skr_bind_t){};
 }
 
 ///////////////////////////////////////////////////////////////////////////////

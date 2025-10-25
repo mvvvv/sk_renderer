@@ -9,6 +9,8 @@
 
 #include <stdio.h>
 #include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 // Constants
@@ -45,23 +47,7 @@ static VkFramebuffer _skr_get_or_create_framebuffer(skr_tex_t* cache_target, VkR
 	return *cached_fb;
 }
 
-static void _skr_material_ensure_descriptors(skr_material_t* material) {
-	// Check if shader requires descriptors
-	bool needs_descriptors = material->info.shader && material->info.shader->meta &&
-	                         (material->info.shader->meta->buffer_count > 0 ||
-	                          material->info.shader->meta->resource_count > 0);
-
-	// Rebuild if dirty or if descriptors are missing but shader requires them
-	if (material->descriptors_dirty || (material->descriptor_write_count == 0 && needs_descriptors)) {
-		_skr_material_rebuild_descriptors(material);
-	}
-
-	// Patch in current global bindings
-	_skr_material_update_globals(material);
-}
-
-static void _skr_ensure_buffer(skr_buffer_t* buffer, bool* ref_valid, const void* data, size_t size,
-                                skr_buffer_type_ type, const char* name) {
+static void _skr_ensure_buffer(skr_buffer_t* buffer, bool* ref_valid, const void* data, size_t size, skr_buffer_type_ type, const char* name) {
 	bool needs_recreate = !*ref_valid || buffer->size < size;
 
 	if (needs_recreate) {
@@ -163,39 +149,6 @@ void skr_renderer_frame_end() {
 	// Increment frame counter and advance flight index
 	_skr_vk.frame++;
 	_skr_vk.flight_idx = _skr_vk.frame % SKR_MAX_FRAMES_IN_FLIGHT;
-}
-
-// Helper: Transition all textures in a render list to shader-read layout
-// This must be called BEFORE render pass begins to avoid in-pass barriers
-static void _skr_transition_render_list_textures(VkCommandBuffer cmd, skr_render_list_t* list) {
-	if (!list) return;
-
-	for (uint32_t i = 0; i < list->count; i++) {
-		const skr_render_item_t* item = &list->items[i];
-		if (!skr_material_is_valid(item->material)) continue;
-
-		const sksc_shader_meta_t* meta = item->material->info.shader->meta;
-		if (!meta) continue;
-
-		for (uint32_t j = 0; j < meta->resource_count; j++) {
-			int32_t slot = meta->resources[j].bind.slot;
-			uint8_t reg_type = meta->resources[j].bind.register_type;
-
-			// Get texture from material or globals
-			skr_tex_t* tex = (slot >= 0 && slot < 16) ?
-				(item->material->textures[slot] ? item->material->textures[slot] : _skr_vk.global_textures[slot]) :
-				NULL;
-
-			if (tex && tex->image) {
-				// Transition based on register type
-				if (reg_type == skr_register_texture) {
-					_skr_tex_transition_for_shader_read(cmd, tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-				} else if (reg_type == skr_register_readwrite_tex) {
-					_skr_tex_transition_for_storage(cmd, tex);
-				}
-			}
-		}
-	}
 }
 
 void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve, skr_clear_ clear, skr_vec4_t clear_color, float clear_depth, uint32_t clear_stencil) {
@@ -391,7 +344,6 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	                     bounds_px.w == to->size.x && bounds_px.h == to->size.y);
 
 	_skr_command_context_t ctx = _skr_command_acquire();
-	VkCommandBuffer cmd = ctx.cmd;
 
 	// Register render pass format with pipeline system
 	// Use DONT_CARE for full blit (discard previous contents), LOAD for partial (preserve)
@@ -409,27 +361,54 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	// Get render pass from pipeline system
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(renderpass_idx);
 	if (render_pass == VK_NULL_HANDLE) {
-		_skr_command_release(cmd);
+		_skr_command_release(ctx.cmd);
 		return;
 	}
 
-	// Ensure descriptors are up to date
-	_skr_material_ensure_descriptors(material);
+	// Build per-draw descriptor writes
+	VkWriteDescriptorSet   writes      [32];
+	VkDescriptorBufferInfo buffer_infos[16];
+	VkDescriptorImageInfo  image_infos [16];
+	uint32_t write_ct  = 0;
+	uint32_t buffer_ct = 0;
+	uint32_t image_ct  = 0;
+
+	skr_buffer_t param_buffer;
+	if (material->param_buffer_size > 0) {
+		param_buffer = skr_buffer_create(material->param_buffer, 1, material->param_buffer_size, skr_buffer_type_constant, skr_use_static);
+
+		buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
+			.buffer = param_buffer.buffer,
+			.range  = param_buffer.size,
+		};
+		writes[write_ct++] = (VkWriteDescriptorSet){
+			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,
+			.descriptorCount = 1,
+			.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.pBufferInfo     = &buffer_infos[buffer_ct++],
+		};
+	}
+
+	// Material texture and buffer binds
+	const int32_t ignore_slots[] = { SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL };
+	_skr_material_add_writes(material->binds, material->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
+		writes,       sizeof(writes      )/sizeof(writes      [0]),
+		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
+		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
+		&write_ct, &buffer_ct, &image_ct);
 
 	// Transition any source textures in material to shader-read layout
 	const sksc_shader_meta_t* meta = material->info.shader->meta;
-	if (meta) {
-		for (uint32_t i = 0; i < meta->resource_count; i++) {
-			int32_t slot = meta->resources[i].bind.slot;
-			if (slot >= 0 && slot < 16 && material->textures[slot]) {
-				_skr_tex_transition_for_shader_read(cmd, material->textures[slot], VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-			}
-		}
+	for (int32_t i=0;i<meta->resource_count;i++) {
+		skr_material_bind_t* res = &material->binds[meta->buffer_count + i];
+		if (res->texture)
+			_skr_tex_transition_for_shader_read(ctx.cmd, res->texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 	}
 
 	// Transition target texture to color attachment layout
 	// Automatic system handles this - will use UNDEFINED if first use or track previous layout
-	_skr_tex_transition(cmd, to, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	_skr_tex_transition(ctx.cmd, to, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
@@ -479,7 +458,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 			}
 
 			// Begin render pass for this layer
-			vkCmdBeginRenderPass(cmd, &(VkRenderPassBeginInfo){
+			vkCmdBeginRenderPass(ctx.cmd, &(VkRenderPassBeginInfo){
 				.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 				.renderPass  = render_pass,
 				.framebuffer = framebuffer,
@@ -495,7 +474,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 			// Get pipeline (we need a dummy vertex type since we're using SV_VertexID)
 			VkPipeline pipeline = _skr_pipeline_get(material->pipeline_material_idx, renderpass_idx, vert_idx);
 			if (pipeline != VK_NULL_HANDLE) {
-				vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+				vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
 				// Set viewport and scissor
 				VkViewport viewport = {
@@ -513,21 +492,19 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 						bounds_px.h > 0 ? bounds_px.h : to->size.y
 					}
 				};
-				vkCmdSetViewport(cmd, 0, 1, &viewport);
-				vkCmdSetScissor (cmd, 0, 1, &scissor);
+				vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
+				vkCmdSetScissor (ctx.cmd, 0, 1, &scissor);
 
 				// Bind descriptors
-				if (material->descriptor_write_count > 0) {
-					vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						_skr_pipeline_get_layout(material->pipeline_material_idx),
-						0, material->descriptor_write_count, material->descriptor_writes);
+				if (write_ct > 0) {
+					vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, write_ct, writes);
 				}
 
 				// Draw fullscreen triangle (SV_VertexID generates positions)
-				vkCmdDraw(cmd, 3, 1, 0, layer);
+				vkCmdDraw(ctx.cmd, 3, 1, 0, layer);
 			}
 
-			vkCmdEndRenderPass(cmd);
+			vkCmdEndRenderPass(ctx.cmd);
 
 			// Queue per-layer resources for deferred destruction
 			_skr_destroy_list_add_framebuffer(ctx.destroy_list, framebuffer);
@@ -537,12 +514,12 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		// Regular 2D texture - use cached framebuffer
 		VkFramebuffer framebuffer = _skr_get_or_create_framebuffer(to, render_pass, to, NULL, NULL, false);
 		if (framebuffer == VK_NULL_HANDLE) {
-			_skr_command_release(cmd);
+			_skr_command_release(ctx.cmd);
 			return;
 		}
 
 		// Begin render pass
-		vkCmdBeginRenderPass(cmd, &(VkRenderPassBeginInfo){
+		vkCmdBeginRenderPass(ctx.cmd, &(VkRenderPassBeginInfo){
 			.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 			.renderPass  = render_pass,
 			.framebuffer = framebuffer,
@@ -558,7 +535,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		// Get pipeline
 		VkPipeline pipeline = _skr_pipeline_get(material->pipeline_material_idx, renderpass_idx, 0);
 		if (pipeline != VK_NULL_HANDLE) {
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+			vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
 			// Set viewport and scissor
 			VkViewport viewport = {
@@ -576,79 +553,82 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 					bounds_px.h > 0 ? bounds_px.h : to->size.y
 				}
 			};
-			vkCmdSetViewport(cmd, 0, 1, &viewport);
-			vkCmdSetScissor (cmd, 0, 1, &scissor);
+			vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
+			vkCmdSetScissor (ctx.cmd, 0, 1, &scissor);
 
 			// Bind descriptors
-			if (material->descriptor_write_count > 0) {
-				vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, material->descriptor_write_count, material->descriptor_writes);
+			if (write_ct > 0) {
+				vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, write_ct, writes);
 			}
 
 			// Draw fullscreen triangle
-			vkCmdDraw(cmd, 3, 1, 0, 0);
+			vkCmdDraw(ctx.cmd, 3, 1, 0, 0);
 		}
 
-		vkCmdEndRenderPass(cmd);
+		vkCmdEndRenderPass(ctx.cmd);
 	}
 
 	// Transition target texture back to shader read layout
 	// Automatic system tracks that it's currently in COLOR_ATTACHMENT_OPTIMAL
-	_skr_tex_transition_for_shader_read(cmd, to, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+	_skr_tex_transition_for_shader_read(ctx.cmd, to, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	_skr_command_release(cmd);
+	skr_buffer_destroy(&param_buffer);
+	_skr_command_release(ctx.cmd);
 }
 
 void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t system_data_size, int32_t instance_multiplier) {
 	if (!list || list->count == 0) return;
+	instance_multiplier = (instance_multiplier < 1) ? 1 : instance_multiplier;
 
 	VkCommandBuffer cmd = _skr_command_acquire().cmd;
 
-	// Update system buffer (bind slot 1) - create or resize if needed
-	if (system_data && system_data_size > 0) {
-		_skr_ensure_buffer(&list->system_buffer, &list->system_buffer_valid, system_data, system_data_size, skr_buffer_type_constant, "system_buffer");
-		skr_renderer_set_global_constants(1, &list->system_buffer);
-	}
-
-	// Clamp instance_multiplier to valid range (default to 1)
-	instance_multiplier = (instance_multiplier < 1) ? 1 : instance_multiplier;
-
-	// Sort list for batching if needed
 	_skr_render_list_sort(list);
 
-	// Upload instance data to GPU if present
-	if (list->instance_data_used > 0) {
-		char name[128];
-		snprintf(name, sizeof(name), "renderlist_inst_data_%lX", (uint64_t)list);
-		_skr_ensure_buffer(&list->instance_buffer, &list->instance_buffer_valid, list->instance_data, list->instance_data_used, skr_buffer_type_storage, name);
+	// This consolidates all material params into a single buffer
+	list->material_data_used = 0;
+	skr_material_t* prev_material = NULL;
+	for (uint32_t i = 0; i < list->count; i++) {
+		skr_material_t* material = list->items[i].material;
+		if (material == prev_material) continue;
 
-		// Bind instance buffer globally at slot 2 (transform buffer)
-		skr_renderer_set_global_constants(2, &list->instance_buffer);
+		// Resize material param data if needed
+		while (list->material_data_used + material->param_buffer_size > list->material_data_capacity) {
+			list->material_data_capacity = list->material_data_capacity * 2;
+			list->material_data          = realloc(list->material_data, list->material_data_capacity);
+		}
+
+		memcpy(&list->material_data[list->material_data_used], material->param_buffer, material->param_buffer_size);
+		list->material_data_used += material->param_buffer_size;
+
+		prev_material = material;
 	}
 
-	// Track bound state to avoid redundant state changes
-	VkPipeline bound_pipeline = VK_NULL_HANDLE;
+	// Upload data to our material and instance buffers
+	if (system_data && system_data_size > 0) _skr_ensure_buffer(&list->system_buffer,         &list->system_buffer_valid,         system_data,         system_data_size,         skr_buffer_type_constant, "system_buffer");
+	if (list->material_data_used        > 0) _skr_ensure_buffer(&list->material_param_buffer, &list->material_param_buffer_valid, list->material_data, list->material_data_used, skr_buffer_type_constant, "renderlist_material_params");
+	if (list->instance_data_used        > 0) _skr_ensure_buffer(&list->instance_buffer,       &list->instance_buffer_valid,       list->instance_data, list->instance_data_used, skr_buffer_type_storage,  "renderlist_inst_data");
 
 	// Draw items with batching
+	VkPipeline bound_pipeline       = VK_NULL_HANDLE;
+	uint32_t   material_data_offset = 0;
+	prev_material = NULL;
 	for (uint32_t i = 0; i < list->count; ) {
 		const skr_render_item_t* item = &list->items[i];
 
-		if (!skr_mesh_is_valid(item->mesh) || !skr_material_is_valid(item->material)) {
-			i++;
-			continue;
-		}
-
-		// Get pipeline from the 3D cache (material x renderpass x vertformat)
+		// Get pipeline from the cache
 		VkPipeline pipeline = _skr_pipeline_get(item->material->pipeline_material_idx, _skr_vk.current_renderpass_idx, item->mesh->vert_type->pipeline_idx);
 		assert(pipeline != VK_NULL_HANDLE && "Is the Vertex format out of scope?");
 
 		// Find consecutive items with same mesh/material for batching
 		uint32_t batch_count     = 1;
 		uint32_t total_instances = item->instance_count;
+		uint32_t total_inst_data = item->instance_data_size * item->instance_count;
 		while (i + batch_count < list->count) {
 			const skr_render_item_t* next = &list->items[i + batch_count];
-			if (next->mesh != item->mesh || next->material != item->material || next->instance_data_size != item->instance_data_size)
+			if (next->mesh != item->mesh || next->material != item->material)
 				break;
 			total_instances += next->instance_count;
+			total_inst_data += next->instance_data_size * next->instance_count;
 			batch_count++;
 		}
 
@@ -658,16 +638,76 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t 
 			bound_pipeline = pipeline;
 		}
 
-		// Update material descriptors (rebuild if dirty, patch in current globals)
-		_skr_material_ensure_descriptors(item->material);
+		// Build per-draw descriptor writes
+		VkWriteDescriptorSet   writes      [32]; // Material writes
+		VkDescriptorBufferInfo buffer_infos[16];
+		VkDescriptorImageInfo  image_infos [16];
+		uint32_t write_ct  = 0;
+		uint32_t buffer_ct = 0;
+		uint32_t image_ct  = 0;
 
-		// Note: Texture transitions should happen BEFORE render pass begins
-		// We can't safely transition textures inside a render pass without self-dependencies
-		// For now, we rely on textures being in correct layout from previous operations
-		// TODO: Add a pre-draw texture transition pass before render pass begins
+		// Material parameter buffer
+		if (item->material->param_buffer_size > 0) {
+			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
+				.buffer = list->material_param_buffer.buffer,
+				.offset = material_data_offset,
+				.range  = item->material->param_buffer_size,
+			};
+			writes[write_ct++] = (VkWriteDescriptorSet){
+				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,
+				.descriptorCount = 1,
+				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.pBufferInfo     = &buffer_infos[buffer_ct++],
+			};
+		}
 
-		if (item->material->descriptor_write_count > 0) {
-			vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(item->material->pipeline_material_idx), 0, item->material->descriptor_write_count, item->material->descriptor_writes);
+		// System data buffer
+		if (item->material->has_system_buffer) {
+			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
+				.buffer = list->system_buffer.buffer,
+				.range  = list->system_buffer.size,
+			};
+			writes[write_ct++] = (VkWriteDescriptorSet){
+				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_SYSTEM,
+				.descriptorCount = 1,
+				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.pBufferInfo     = &buffer_infos[buffer_ct++],
+			};
+		}
+
+		// Instance data buffer
+		if (item->instance_data_size > 0) {
+			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
+				.buffer = list->instance_buffer.buffer,
+				.offset = item->instance_offset,
+				.range  = total_inst_data,
+			};
+			writes[write_ct++] = (VkWriteDescriptorSet){
+				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstBinding      = SKR_BIND_SHIFT_TEXTURE + SKR_BIND_INSTANCE,
+				.descriptorCount = 1,
+				.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+				.pBufferInfo     = &buffer_infos[buffer_ct++],
+			};
+		}
+
+		const int32_t ignore_slots[] = {
+			SKR_BIND_SHIFT_TEXTURE + SKR_BIND_INSTANCE,
+			SKR_BIND_SHIFT_BUFFER  + SKR_BIND_MATERIAL,
+			SKR_BIND_SHIFT_BUFFER  + SKR_BIND_SYSTEM };
+		// Material texture and buffer binds
+		const skr_material_t* mat = item->material;
+		_skr_material_add_writes(mat->binds, mat->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
+			writes,       sizeof(writes      )/sizeof(writes      [0]),
+			buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
+			image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
+			&write_ct, &buffer_ct, &image_ct);
+
+		// Push all descriptors at once
+		if (write_ct > 0) {
+			vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(mat->pipeline_material_idx), 0, write_ct, writes);
 		}
 
 		// Bind vertex buffer
@@ -676,18 +716,21 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t 
 			vkCmdBindVertexBuffers(cmd, 0, 1, &item->mesh->vertex_buffer.buffer, &offset);
 		}
 
-		// Calculate first instance offset (byte offset / instance size)
-		uint32_t first_instance = (item->instance_data_size > 0) ? (item->instance_offset / item->instance_data_size) : 0;
-		uint32_t draw_instances = total_instances * instance_multiplier;
-
 		// Draw with instancing (batched)
+		// firstInstance = 0 because we offset the buffer binding itself in the descriptor
+		uint32_t draw_instances = total_instances * instance_multiplier;
 		if (skr_buffer_is_valid(&item->mesh->index_buffer)) {
 			vkCmdBindIndexBuffer(cmd, item->mesh->index_buffer.buffer, 0, item->mesh->ind_format_vk);
-			vkCmdDrawIndexed    (cmd, item->mesh->ind_count,  draw_instances, 0, 0, first_instance * instance_multiplier);
+			vkCmdDrawIndexed    (cmd, item->mesh->ind_count,  draw_instances, 0, 0, 0);
 		} else {
-			vkCmdDraw           (cmd, item->mesh->vert_count, draw_instances, 0,    first_instance * instance_multiplier);
+			vkCmdDraw           (cmd, item->mesh->vert_count, draw_instances, 0,    0);
 		}
 		i += batch_count;
+
+		if (item->material != prev_material) {
+			prev_material         = item->material;
+			material_data_offset += item->material->param_buffer_size;
+		}
 	}
 	_skr_command_release(cmd);
 }

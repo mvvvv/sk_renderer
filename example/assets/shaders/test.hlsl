@@ -3,6 +3,8 @@
 
 #include "common.hlsli"
 
+float4 emissive;
+
 struct Inst {
 	float4x4 world;
 };
@@ -21,8 +23,8 @@ struct psIn {
 	uint   layer : SV_RenderTargetArrayIndex;  // Output to array layer
 };
 
-Texture2D    tex         : register(t0);
-SamplerState tex_sampler : register(s0);
+Texture2D    tex         : register(t3);
+SamplerState tex_sampler : register(s3);
 
 psIn vs(vsIn input, uint id : SV_InstanceID) {
 	const float3 light_dir = normalize(float3(1, 4, 2));
@@ -41,5 +43,5 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	return output;
 }
 float4 ps(psIn input) : SV_TARGET {
-	return float4(input.color, 1) * tex.Sample(tex_sampler, input.uv);
+	return float4(input.color, 1) * tex.Sample(tex_sampler, input.uv) + emissive;
 }

@@ -25,6 +25,10 @@ void _default_log(skr_log_ level, const char *text) {
 	const char *prefix = level == skr_log_info     ? "[info] "     :
 	                     level == skr_log_warning  ? "[warning] "  :
 	                     level == skr_log_critical ? "[critical] " : "[unknown] ";
+	
+	if (level == skr_log_critical) {
+		level = level;
+	}
 	printf("%s%s\n", prefix, text);
 #endif
 }

@@ -19,7 +19,7 @@ float4 emission_factor;
 float4 tex_trans;
 float  metallic;
 float  roughness;
-float2 _mat_pad;
+float2 _mat_pad; 
 
 ///////////////////////////////////////////
 // Instance Data
@@ -28,31 +28,31 @@ float2 _mat_pad;
 struct Inst {
 	float4x4 world;
 };
-StructuredBuffer<Inst> inst : register(t2, space0);
+StructuredBuffer<Inst> inst : register(t2);
 
 ///////////////////////////////////////////
 // Textures - Using slots 3,4,5,6 to avoid conflicts with t2 (instance buffer)
 ///////////////////////////////////////////
 
 // Albedo/diffuse texture
-Texture2D    albedo_tex   : register(t3);
-SamplerState albedo_tex_s : register(s3);
+Texture2D    albedo_tex   : register(t0);
+SamplerState albedo_tex_s : register(s0);
 
 // Emission texture
-Texture2D    emission_tex : register(t4);
-SamplerState emission_tex_s : register(s4);
+Texture2D    emission_tex : register(t1);
+SamplerState emission_tex_s : register(s1);
 
 // Metallic-roughness texture (R=occlusion, G=roughness, B=metallic)
-Texture2D    metal_tex    : register(t5);
-SamplerState metal_tex_s  : register(s5);
+Texture2D    metal_tex    : register(t2);
+SamplerState metal_tex_s  : register(s2);
 
 // Occlusion texture (packed in metal texture R channel, but can be separate)
-Texture2D    occlusion_tex : register(t6);
-SamplerState occlusion_tex_s : register(s6);
+Texture2D    occlusion_tex : register(t3);
+SamplerState occlusion_tex_s : register(s3);
 
 // Environment cubemap for IBL
-TextureCube  environment_map : register(t7);
-SamplerState environment_map_s : register(s7);
+TextureCube  environment_map : register(t4);
+SamplerState environment_map_s : register(s4);
 
 ///////////////////////////////////////////
 // Vertex/Pixel Shader I/O

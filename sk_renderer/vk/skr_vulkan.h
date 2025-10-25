@@ -85,28 +85,36 @@ typedef struct skr_shader_t {
 	skr_shader_stage_t  compute_stage;
 } skr_shader_t;
 
+typedef struct  {
+	union {
+		skr_tex_t*    texture;
+		skr_buffer_t* buffer;
+	};
+	skr_bind_t bind;
+} skr_material_bind_t;
+
 typedef struct skr_material_t {
 	int32_t                pipeline_material_idx; // Index into pipeline cache
 	skr_material_info_t    info;                  // Material state (used as pipeline key)
-	// Staged bindings (updated by skr_material_set_tex/buffer, pushed on draw)
-	skr_tex_t*             textures[16];
-	skr_buffer_t*          buffers[16];
-	// Cached descriptor writes (rebuilt when bindings change)
-	VkWriteDescriptorSet   descriptor_writes[32];
-	VkDescriptorBufferInfo buffer_infos[16];
-	VkDescriptorImageInfo  image_infos[16];
-	uint32_t               descriptor_write_count;
-	bool                   descriptors_dirty;
+
+	skr_material_bind_t*   binds;
+	uint32_t               bind_count;
+	// Material parameters
+	void*                  param_buffer;          // CPU-side parameter data
+	uint32_t               param_buffer_size;     // Size of parameter buffer in bytes
+	bool                   param_buffer_dirty;    // True if parameters changed since last add to render list
+
+	bool                   has_system_buffer;
 } skr_material_t;
 
 typedef struct skr_compute_t {
-	const skr_shader_t*       shader;  // Reference to shader (not owned)
-	VkPipelineLayout          layout;
-	VkDescriptorSetLayout     descriptor_layout;
-	VkPipeline                pipeline;
-	// Staged bindings (updated by skr_compute_set_tex/buffer, applied on execute)
-	skr_tex_t*                textures[16];
-	skr_buffer_t*             buffers[16];
+	const skr_shader_t*   shader;  // Reference to shader (not owned)
+	VkPipelineLayout      layout;
+	VkDescriptorSetLayout descriptor_layout;
+	VkPipeline            pipeline;
+	
+	skr_material_bind_t*  binds;
+	uint32_t              bind_count;
 } skr_compute_t;
 
 typedef struct skr_render_item_t {
@@ -124,9 +132,14 @@ typedef struct skr_render_list_t {
 	uint8_t*           instance_data;
 	uint32_t           instance_data_used;
 	uint32_t           instance_data_capacity;
+	uint8_t*           material_data;
+	uint32_t           material_data_used;
+	uint32_t           material_data_capacity;
 	// GPU buffers (uploaded once per frame)
 	skr_buffer_t       instance_buffer;
 	bool               instance_buffer_valid;
+	skr_buffer_t       material_param_buffer;
+	bool               material_param_buffer_valid;
 	skr_buffer_t       system_buffer;
 	bool               system_buffer_valid;
 	bool               needs_sort;  // Dirty flag for sorting

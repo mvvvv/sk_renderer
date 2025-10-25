@@ -36,8 +36,8 @@ struct psIn {
 	uint   layer        : SV_RenderTargetArrayIndex;
 };
 
-Texture2D              tex              : register(t0);
-SamplerState           tex_sampler      : register(s0);
+Texture2D              tex              : register(t3);
+SamplerState           tex_sampler      : register(s3);
 Texture2D              shadow_map       : register(t14);
 SamplerComparisonState shadow_map_sampler : register(s14);
 

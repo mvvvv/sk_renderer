@@ -7,6 +7,7 @@
 #include "SPIRV/GlslangToSpv.h"
 
 #include <spirv-tools/optimizer.hpp>
+#include <spirv_reflect.h>
 
 ///////////////////////////////////////////
 
@@ -124,13 +125,20 @@ compile_result_ sksc_hlsl_to_spirv(const char *hlsl, const sksc_settings_t *sett
 	// Create the shader and set options
 	glslang::TShader shader(stage);
 	const char* shader_strings[1] = { hlsl };
-	shader.setStrings         (shader_strings, 1);
 	shader.setEntryPoint      (entry);
 	shader.setSourceEntryPoint(entry);
 	shader.setEnvInput        (glslang::EShSourceHlsl, stage, glslang::EShClientVulkan, 100);
 	shader.setEnvClient       (glslang::EShClientVulkan,      glslang::EShTargetVulkan_1_1);
 	shader.setEnvTarget       (glslang::EShTargetSpv,         glslang::EShTargetSpv_1_3);
 	shader.setEnvTargetHlslFunctionality1();
+
+	shader.setAutoMapBindings(true); // Necessary for shifts?
+	shader.setShiftBinding    (glslang::EResUbo,     0);   // b registers (CBVs)
+	shader.setShiftBinding    (glslang::EResTexture, 100); // t registers (textures)
+	shader.setShiftBinding    (glslang::EResSampler, 100); // s registers (samplers)
+	shader.setShiftBinding    (glslang::EResUav,     200); // u registers (UAVs)
+
+	shader.setStrings         (shader_strings, 1);
 
 	std::string preamble;
 	if (define_count > 0) {
@@ -202,6 +210,91 @@ compile_result_ sksc_hlsl_to_spirv(const char *hlsl, const sksc_settings_t *sett
 	std::string gen_messages = logger.getAllMessages();
 	if (gen_messages.length() > 0) {
 		sksc_log(log_level_info, gen_messages.c_str());
+	}
+
+	////////////////////////////////////////////////////////////////
+	// In this section, we are shifting the bind registers by manually
+	// inspecting and editing the SPIRV.
+	//
+	// Ideally we would do this with:
+	// shader.setShiftBinding    (glslang::EResUbo,     0);
+	// shader.setShiftBinding    (glslang::EResTexture, 100);
+	// shader.setShiftBinding    (glslang::EResSampler, 100);
+	// shader.setShiftBinding    (glslang::EResUav,     200);
+	//
+	// However, setShiftBinding wasn't working.
+
+	spv_reflect::ShaderModule reflection(spirv.size() * sizeof(uint32_t), spirv.data());
+	uint32_t binding_count = 0;
+	reflection.EnumerateDescriptorBindings(&binding_count, nullptr);
+	std::vector<SpvReflectDescriptorBinding*> bindings(binding_count);
+	reflection.EnumerateDescriptorBindings(&binding_count, bindings.data());
+	std::unordered_map<uint32_t, uint32_t> binding_remaps;
+
+	// Find the binds
+	for (SpvReflectDescriptorBinding* binding : bindings) {
+		uint32_t old_binding = binding->binding;
+		uint32_t new_binding = old_binding;
+		
+		switch (binding->descriptor_type) {
+			case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+			case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+				// b registers - no shift
+				new_binding = old_binding + 0;
+				break;
+				
+			case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+			case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:
+			case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+				// t/s registers - shift by 100
+				new_binding = old_binding + 100;
+				break;
+
+			case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+				// Check if it's read-only (StructuredBuffer) or read-write (RWStructuredBuffer)
+				if (binding->resource_type == SPV_REFLECT_RESOURCE_FLAG_SRV) {
+					// StructuredBuffer - t register
+					new_binding = old_binding + 100;
+				} else {
+					// RWStructuredBuffer - u register
+					new_binding = old_binding + 200;
+				}
+				break;
+				
+			case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+			case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+				// u registers - shift by 200
+				new_binding = old_binding + 200;
+				break;
+			default:break;
+		}
+		
+		if (old_binding != new_binding) {
+			binding_remaps[binding->spirv_id] = new_binding;
+		}
+	}
+
+	// Now manually patch the SPIR-V to update bindings
+	const size_t SPIRV_HEADER_SIZE = 5;
+	for (size_t i = SPIRV_HEADER_SIZE; i < spirv.size(); ) {
+		uint32_t word_count = spirv[i] >> 16;
+		uint32_t opcode     = spirv[i] & 0xFFFF;
+
+		// OpDecorate instruction (opcode 71)
+		if (opcode == 71 && word_count >= 4) {
+			uint32_t target_id = spirv[i + 1]; // The ID being decorated
+			uint32_t decoration_type = spirv[i + 2];
+			
+			// Binding decoration (33)
+			if (decoration_type == 33) {
+				auto it = binding_remaps.find(target_id);
+				if (it != binding_remaps.end()) {
+					spirv[i + 3] = it->second; // Patch the binding!
+				}
+			}
+		}
+		
+		i += word_count;
 	}
 
 	// Optimize the SPIRV we just generated

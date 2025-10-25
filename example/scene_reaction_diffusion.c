@@ -156,25 +156,20 @@ static scene_t* _scene_reaction_diffusion_create() {
 
 	// Set up compute bindings
 	if (skr_compute_is_valid(&scene->compute_ping) && skr_compute_is_valid(&scene->compute_pong)) {
-		skr_bind_t input_bind  = skr_compute_get_bind(&scene->compute_ping, "input");
-		skr_bind_t output_bind = skr_compute_get_bind(&scene->compute_ping, "output");
-		skr_bind_t params_bind = skr_compute_get_bind(&scene->compute_ping, "$Global");
-		skr_bind_t tex_bind    = skr_compute_get_bind(&scene->compute_ping, "out_tex");
+		skr_compute_set_buffer(&scene->compute_ping, "input",   &scene->compute_buffer_a);
+		skr_compute_set_buffer(&scene->compute_ping, "output",  &scene->compute_buffer_b);
+		skr_compute_set_buffer(&scene->compute_ping, "$Global", &scene->compute_params_buffer);
+		skr_compute_set_tex   (&scene->compute_ping, "out_tex", &scene->compute_output);
 
-		skr_compute_set_buffer(&scene->compute_ping, input_bind.slot,  &scene->compute_buffer_a);
-		skr_compute_set_buffer(&scene->compute_ping, output_bind.slot, &scene->compute_buffer_b);
-		skr_compute_set_buffer(&scene->compute_ping, params_bind.slot, &scene->compute_params_buffer);
-		skr_compute_set_tex   (&scene->compute_ping, tex_bind.slot,    &scene->compute_output);
-
-		skr_compute_set_buffer(&scene->compute_pong, input_bind.slot,  &scene->compute_buffer_b);
-		skr_compute_set_buffer(&scene->compute_pong, output_bind.slot, &scene->compute_buffer_a);
-		skr_compute_set_buffer(&scene->compute_pong, params_bind.slot, &scene->compute_params_buffer);
-		skr_compute_set_tex   (&scene->compute_pong, tex_bind.slot,    &scene->compute_output);
+		skr_compute_set_buffer(&scene->compute_pong, "input",   &scene->compute_buffer_b);
+		skr_compute_set_buffer(&scene->compute_pong, "output",  &scene->compute_buffer_a);
+		skr_compute_set_buffer(&scene->compute_pong, "$Global", &scene->compute_params_buffer);
+		skr_compute_set_tex   (&scene->compute_pong, "out_tex", &scene->compute_output);
 	}
 
 	// Bind texture to material
 	if (skr_material_is_valid(&scene->quad_material)) {
-		skr_material_set_tex(&scene->quad_material, 0, &scene->compute_output);
+		skr_material_set_tex(&scene->quad_material, "tex", &scene->compute_output);
 	}
 
 	return (scene_t*)scene;

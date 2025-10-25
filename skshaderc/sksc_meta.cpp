@@ -187,11 +187,6 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 		if (binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
 			const char* name = binding->name ? binding->name : "";
 			
-			// Check if readonly by looking at type flags
-			bool readonly = (binding->type_description->type_flags       & SPV_REFLECT_TYPE_FLAG_EXTERNAL_BLOCK) &&
-			               !(binding->type_description->decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE);
-			// Note: may need to adjust the readonly detection based on your SPIRV generation
-			
 			int64_t id = resource_list.index_where([](auto &tex, void *data) { 
 				return strcmp(tex.name, (char*)data) == 0; 
 			}, (void*)name);
@@ -201,7 +196,7 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 			sksc_shader_resource_t *tex = &resource_list[id];
 			tex->bind.slot          = binding->binding;
 			tex->bind.stage_bits   |= spirv_stage->stage;
-			tex->bind.register_type = readonly ? skr_register_read_buffer : skr_register_readwrite;
+			tex->bind.register_type = binding->resource_type == SPV_REFLECT_RESOURCE_FLAG_SRV ? skr_register_read_buffer : skr_register_readwrite;
 			strncpy(tex->name, name, sizeof(tex->name));
 		}
 	}

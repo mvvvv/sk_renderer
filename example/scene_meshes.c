@@ -60,6 +60,11 @@ static scene_t* _scene_meshes_create() {
 	scene->sphere_mesh = skr_mesh_create_sphere(16, 12, 1.0f, light_blue);
 	skr_mesh_set_name(&scene->sphere_mesh, "sphere");
 
+	// Create textures using utility functions
+	scene->checkerboard_texture = skr_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF000000, true);
+	scene->white_texture        = skr_tex_create_solid_color(0xFFFFFFFF);
+	skr_tex_set_name(&scene->white_texture, "white_1x1");
+
 	// Load shader
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
@@ -80,6 +85,7 @@ static scene_t* _scene_meshes_create() {
 					.reference    = 1,
 				},
 			});
+			skr_material_set_tex(&scene->cube_material, "tex", &scene->checkerboard_texture);
 
 			// Pyramid material: draws where stencil != 1 (outside sphere)
 			scene->pyramid_material = skr_material_create((skr_material_info_t){
@@ -92,6 +98,7 @@ static scene_t* _scene_meshes_create() {
 					.reference    = 1,
 				},
 			});
+			skr_material_set_tex(&scene->pyramid_material, "tex", &scene->white_texture);
 
 			// Sphere material: draws first and marks stencil
 			scene->sphere_material = skr_material_create((skr_material_info_t){
@@ -107,23 +114,8 @@ static scene_t* _scene_meshes_create() {
 					.reference    = 1,  // Mark with value 1
 				},
 			});
+			skr_material_set_tex(&scene->sphere_material, "tex", &scene->white_texture);
 		}
-	}
-
-	// Create textures using utility functions
-	scene->checkerboard_texture = skr_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF000000, true);
-	scene->white_texture = skr_tex_create_solid_color(0xFFFFFFFF);
-	skr_tex_set_name(&scene->white_texture, "white_1x1");
-
-	// Bind textures to materials
-	if (skr_material_is_valid(&scene->cube_material)) {
-		skr_material_set_tex(&scene->cube_material, 0, &scene->checkerboard_texture);
-	}
-	if (skr_material_is_valid(&scene->pyramid_material)) {
-		skr_material_set_tex(&scene->pyramid_material, 0, &scene->white_texture);
-	}
-	if (skr_material_is_valid(&scene->sphere_material)) {
-		skr_material_set_tex(&scene->sphere_material, 0, &scene->white_texture);
 	}
 
 	return (scene_t*)scene;

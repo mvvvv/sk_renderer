@@ -179,11 +179,7 @@ static scene_t* _scene_impostor_create() {
 		skr_tex_generate_mips(&scene->tree_texture, &scene->mipgen_shader);
 		skr_image_free(pixels);
 	}
-
-	// Bind tree texture to tree material
-	if (skr_material_is_valid(&scene->tree_material)) {
-		skr_material_set_tex(&scene->tree_material, 0, &scene->tree_texture);
-	}
+	skr_material_set_tex(&scene->tree_material, "tex", &scene->tree_texture);
 
 	// Load ground.png texture for terrain
 	pixels = skr_image_load("ground.jpg", &width, &height, NULL, 4);
@@ -196,11 +192,7 @@ static scene_t* _scene_impostor_create() {
 		skr_tex_generate_mips(&scene->ground_texture, NULL);
 		skr_image_free(pixels);
 	}
-
-	// Bind ground texture to terrain material
-	if (skr_material_is_valid(&scene->terrain_material)) {
-		skr_material_set_tex(&scene->terrain_material, 0, &scene->ground_texture);
-	}
+	skr_material_set_tex(&scene->terrain_material, "tex", &scene->ground_texture);
 
 	return (scene_t*)scene;
 }

@@ -18,21 +18,29 @@
 #define PARTICLE_COUNT 250000
 #define ATTRACTOR_COUNT 3
 
+
+// Create particle params buffer for rendering (colors)
+typedef struct {
+	HMM_Vec3 color_slow;
+	float    max_speed;
+	HMM_Vec3 color_fast;
+	float    _pad;
+} particle_params_t;
+
 // Orbital particles scene - displays particles orbiting around moving attractors
 typedef struct {
-	scene_t       base;
-
-	skr_mesh_t     pyramid_mesh;
-	skr_shader_t   shader;
-	skr_shader_t   compute_shader;
-	skr_material_t material;
-	skr_tex_t      white_texture;
-	skr_buffer_t   particle_params_buffer;
-	skr_compute_t  compute_ping;
-	skr_compute_t  compute_pong;
-	skr_buffer_t   particle_buffer_a;
-	skr_buffer_t   particle_buffer_b;
-	skr_buffer_t   compute_params_buffer;
+	scene_t           base;
+	skr_mesh_t        pyramid_mesh;
+	skr_shader_t      shader;
+	skr_shader_t      compute_shader;
+	skr_material_t    material;
+	skr_tex_t         white_texture;
+	particle_params_t particle_params;
+	skr_compute_t     compute_ping;
+	skr_compute_t     compute_pong;
+	skr_buffer_t      particle_buffer_a;
+	skr_buffer_t      particle_buffer_b;
+	skr_buffer_t      compute_params_buffer;
 
 	float   time;
 	int32_t compute_iteration;
@@ -137,11 +145,6 @@ static scene_t* _scene_orbital_particles_create() {
 	scene->white_texture = skr_tex_create(skr_tex_fmt_rgba32, skr_tex_flags_readable, default_sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &white_pixel);
 	skr_tex_set_name(&scene->white_texture, "white_1x1");
 
-	// Bind texture to material
-	if (skr_material_is_valid(&scene->material)) {
-		skr_material_set_tex(&scene->material, 0, &scene->white_texture);
-	}
-
 	// Load compute shader
 	void* compute_data = NULL;
 	size_t compute_size = 0;
@@ -172,10 +175,8 @@ static scene_t* _scene_orbital_particles_create() {
 	}
 
 	// Create particle buffers for ping-pong compute
-	scene->particle_buffer_a = skr_buffer_create(particles, PARTICLE_COUNT, sizeof(particle_t),
-		skr_buffer_type_storage, skr_use_compute_readwrite);
-	scene->particle_buffer_b = skr_buffer_create(particles, PARTICLE_COUNT, sizeof(particle_t),
-		skr_buffer_type_storage, skr_use_compute_readwrite);
+	scene->particle_buffer_a = skr_buffer_create(particles, PARTICLE_COUNT, sizeof(particle_t), skr_buffer_type_storage, skr_use_compute_readwrite);
+	scene->particle_buffer_b = skr_buffer_create(particles, PARTICLE_COUNT, sizeof(particle_t), skr_buffer_type_storage, skr_use_compute_readwrite);
 	free(particles);
 
 	// Create compute params buffer
@@ -196,40 +197,23 @@ static scene_t* _scene_orbital_particles_create() {
 		.strength       = 2.0f,
 		.particle_count = PARTICLE_COUNT
 	};
-	scene->compute_params_buffer = skr_buffer_create(&compute_params, 1, sizeof(compute_params_t),
-		skr_buffer_type_constant, skr_use_dynamic);
+	scene->compute_params_buffer = skr_buffer_create(&compute_params, 1, sizeof(compute_params_t), skr_buffer_type_constant, skr_use_dynamic);
 
 	// Set up compute bindings
-	if (skr_compute_is_valid(&scene->compute_ping) && skr_compute_is_valid(&scene->compute_pong)) {
-		skr_bind_t input_bind  = skr_compute_get_bind(&scene->compute_ping, "input");
-		skr_bind_t output_bind = skr_compute_get_bind(&scene->compute_ping, "output");
-		skr_bind_t params_bind = skr_compute_get_bind(&scene->compute_ping, "$Global");
+	skr_compute_set_buffer(&scene->compute_ping, "input",   &scene->particle_buffer_a);
+	skr_compute_set_buffer(&scene->compute_ping, "output",  &scene->particle_buffer_b);
+	skr_compute_set_buffer(&scene->compute_ping, "$Global", &scene->compute_params_buffer);
 
-		skr_compute_set_buffer(&scene->compute_ping, input_bind.slot,  &scene->particle_buffer_a);
-		skr_compute_set_buffer(&scene->compute_ping, output_bind.slot, &scene->particle_buffer_b);
-		skr_compute_set_buffer(&scene->compute_ping, params_bind.slot, &scene->compute_params_buffer);
+	skr_compute_set_buffer(&scene->compute_pong, "input",   &scene->particle_buffer_b);
+	skr_compute_set_buffer(&scene->compute_pong, "output",  &scene->particle_buffer_a);
+	skr_compute_set_buffer(&scene->compute_pong, "$Global", &scene->compute_params_buffer);
 
-		skr_compute_set_buffer(&scene->compute_pong, input_bind.slot,  &scene->particle_buffer_b);
-		skr_compute_set_buffer(&scene->compute_pong, output_bind.slot, &scene->particle_buffer_a);
-		skr_compute_set_buffer(&scene->compute_pong, params_bind.slot, &scene->compute_params_buffer);
-	}
-
-	// Create particle params buffer for rendering (colors)
-	typedef struct {
-		HMM_Vec3 color_slow;
-		float    max_speed;
-		HMM_Vec3 color_fast;
-		float    _pad;
-	} particle_params_t;
-
-	particle_params_t particle_params = {
+	scene->particle_params = (particle_params_t){
 		.color_slow = HMM_V3(0.818f, 0.0100f, 0.0177f),  // Red (sRGB 0.92, 0.1, 0.14 -> linear)
 		.max_speed  = 5.0f,
 		.color_fast = HMM_V3(0.955f, 0.758f, 0.0177f),   // Yellow (sRGB 0.98, 0.89, 0.14 -> linear)
 		._pad       = 0.0f
 	};
-	scene->particle_params_buffer = skr_buffer_create(&particle_params, 1, sizeof(particle_params_t),
-		skr_buffer_type_constant, skr_use_dynamic);
 
 	return (scene_t*)scene;
 }
@@ -244,7 +228,6 @@ static void _scene_orbital_particles_destroy(scene_t* base) {
 	skr_shader_destroy(&scene->compute_shader);
 	skr_shader_destroy(&scene->shader);
 	skr_tex_destroy(&scene->white_texture);
-	skr_buffer_destroy(&scene->particle_params_buffer);
 	skr_buffer_destroy(&scene->particle_buffer_a);
 	skr_buffer_destroy(&scene->particle_buffer_b);
 	skr_buffer_destroy(&scene->compute_params_buffer);
@@ -289,12 +272,12 @@ static void _scene_orbital_particles_render(scene_t* base, int32_t width, int32_
 	scene_orbital_particles_t* scene = (scene_orbital_particles_t*)base;
 
 	// Bind particle params buffer (colors) to slot 0
-	skr_material_set_buffer(&scene->material, 0, &scene->particle_params_buffer);
+	skr_material_set_params(&scene->material, &scene->particle_params, sizeof(scene->particle_params));
 
 	// Use particle buffer directly - no CPU roundtrip needed!
 	// The shader reads directly from the GPU buffer at slot 3
 	skr_buffer_t* current_buffer = (scene->compute_iteration % 2 == 0) ? &scene->particle_buffer_a : &scene->particle_buffer_b;
-	skr_material_set_buffer(&scene->material, 3, current_buffer);
+	skr_material_set_buffer(&scene->material, "particles", current_buffer);
 
 	// Draw with no instance data - shader reads from buffer binding
 	skr_render_list_add(ref_render_list, &scene->pyramid_mesh, &scene->material, NULL, 0, PARTICLE_COUNT);

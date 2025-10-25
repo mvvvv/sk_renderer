@@ -28,6 +28,14 @@ typedef struct {
 #define skr_MAX_COMMAND_RING    8   // Number of command buffers per thread
 #define skr_MAX_THREAD_POOLS    16  // Maximum concurrent threads
 
+#define SKR_BIND_MATERIAL 0
+#define SKR_BIND_SYSTEM 1
+#define SKR_BIND_INSTANCE 2
+
+#define SKR_BIND_SHIFT_BUFFER  0
+#define SKR_BIND_SHIFT_TEXTURE 100
+#define SKR_BIND_SHIFT_UAV     200
+
 // Deferred destruction system
 typedef struct skr_destroy_list_t {
 	void*    items;
@@ -107,11 +115,16 @@ typedef struct {
 	uint32_t                 pending_transition_count;
 
 	// Command system
-	VkQueue                    transfer_queue;
-	uint32_t                   transfer_queue_family;
-	bool                       has_dedicated_transfer;
-	_skr_thread_cmd_pool_t     thread_pools[skr_MAX_THREAD_POOLS];
-	pthread_mutex_t            thread_pool_mutex;
+	VkQueue                  transfer_queue;
+	uint32_t                 transfer_queue_family;
+	bool                     has_dedicated_transfer;
+	_skr_thread_cmd_pool_t   thread_pools[skr_MAX_THREAD_POOLS];
+	pthread_mutex_t          thread_pool_mutex;
+
+	// Default assets
+	skr_tex_t                default_tex_white;
+	skr_tex_t                default_tex_black;
+	skr_tex_t                default_tex_gray;
 
 	// Deferred destruction
 	skr_destroy_list_t       destroy_list;
@@ -130,8 +143,7 @@ VkSampler       _skr_sampler_create_vk (skr_tex_sampler_t settings);
 bool            _skr_format_has_stencil(VkFormat format);
 
 // Material descriptor caching
-void            _skr_material_rebuild_descriptors(skr_material_t* material);
-void            _skr_material_update_globals     (skr_material_t* material);
+void            _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);
 
 // Render list sorting
 void            _skr_render_list_sort(skr_render_list_t* list);
@@ -146,11 +158,12 @@ void                    _skr_command_end_submit    (const VkSemaphore* opt_wait_
 _skr_command_context_t  _skr_command_acquire       (void);
 void                    _skr_command_release       (VkCommandBuffer buffer);
 
-// Debug naming
+// Debug
 void            _skr_set_debug_name          (VkObjectType type, uint64_t handle, const char* name);
 void            _skr_append_vertex_format    (char* str, size_t str_size, const skr_vert_component_t* components, uint32_t component_count);
 void            _skr_append_material_config  (char* str, size_t str_size, const skr_material_info_t* mat_info);
 void            _skr_append_renderpass_config(char* str, size_t str_size, const skr_pipeline_renderpass_key_t* rp_key);
+void            _skr_log_descriptor_writes   (const VkWriteDescriptorSet* writes, const VkDescriptorBufferInfo* buffer_infos, const VkDescriptorImageInfo* image_infos, uint32_t write_ct, uint32_t buffer_ct, uint32_t image_ct);
 
 // Automatic layout transition system
 void            _skr_tex_transition                (VkCommandBuffer cmd, skr_tex_t* tex, VkImageLayout new_layout, VkPipelineStageFlags dst_stage, VkAccessFlags dst_access);

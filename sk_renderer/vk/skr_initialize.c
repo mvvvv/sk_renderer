@@ -446,6 +446,17 @@ bool skr_init(skr_settings_t settings) {
 		return false;
 	}
 
+	const skr_tex_sampler_t sampler = {
+		.sample  = skr_tex_sample_linear,
+		.address = skr_tex_address_clamp
+	};
+	uint32_t color = 0xFFFFFFFF;
+	_skr_vk.default_tex_white = skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color);
+	color = 0xFF808080;
+	_skr_vk.default_tex_gray  = skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color);
+	color = 0xFF000000;
+	_skr_vk.default_tex_black = skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color);
+
 	_skr_vk.initialized = true;
 	return true;
 }
@@ -454,6 +465,10 @@ void skr_shutdown() {
 	if (!_skr_vk.initialized) return;
 
 	vkDeviceWaitIdle(_skr_vk.device);
+
+	skr_tex_destroy(&_skr_vk.default_tex_white);
+	skr_tex_destroy(&_skr_vk.default_tex_gray);
+	skr_tex_destroy(&_skr_vk.default_tex_black);
 
 	// Shutdown upload system
 	_skr_upload_shutdown();

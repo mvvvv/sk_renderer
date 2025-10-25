@@ -115,3 +115,64 @@ void _skr_append_renderpass_config(char* str, size_t str_size, const skr_pipelin
 	size_t pos = strlen(str);
 	snprintf(str + pos, str_size - pos, "%s_%s_x%d", color_str, depth_str, rp_key->samples);
 }
+
+static const char* _skr_descriptor_type_name(VkDescriptorType type) {
+	switch (type) {
+		case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:         return "UniformBuffer";
+		case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:         return "StorageBuffer";
+		case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: return "Texture";
+		case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:          return "StorageImage";
+		default:                                        return "Unknown";
+	}
+}
+
+static void _skr_log_descriptor_writes(
+	const VkWriteDescriptorSet*   writes,
+	const VkDescriptorBufferInfo* buffer_infos,
+	const VkDescriptorImageInfo*  image_infos,
+	uint32_t write_ct,
+	uint32_t buffer_ct,
+	uint32_t image_ct)
+{
+	skr_logf(skr_log_info, "=== Descriptor Writes ===");
+	skr_logf(skr_log_info, "Total writes: %u | Buffers: %u | Images: %u", write_ct, buffer_ct, image_ct);
+
+	if (write_ct == 0) {
+		skr_log(skr_log_info, "(No descriptors to bind)");
+		return;
+	}
+
+	skr_log(skr_log_info, "");
+
+	for (uint32_t i = 0; i < write_ct; i++) {
+		const VkWriteDescriptorSet* w = &writes[i];
+		const char* type_name = _skr_descriptor_type_name(w->descriptorType);
+
+		skr_logf(skr_log_info, "  [%2u] Binding %-2u | %-16s | Count: %u",
+			i, w->dstBinding, type_name, w->descriptorCount);
+
+		// Show buffer details
+		if (w->pBufferInfo) {
+			for (uint32_t j = 0; j < w->descriptorCount; j++) {
+				const VkDescriptorBufferInfo* buf = &w->pBufferInfo[j];
+				skr_logf(skr_log_info, "       └─ Buffer: %p | Offset: %llu | Range: %llu",
+					(void*)buf->buffer, (unsigned long long)buf->offset, (unsigned long long)buf->range);
+			}
+		}
+
+		// Show image details
+		if (w->pImageInfo) {
+			for (uint32_t j = 0; j < w->descriptorCount; j++) {
+				const VkDescriptorImageInfo* img = &w->pImageInfo[j];
+				const char* layout_name =
+					img->imageLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? "ReadOnly" :
+					img->imageLayout == VK_IMAGE_LAYOUT_GENERAL ? "General" :
+					"Other";
+				skr_logf(skr_log_info, "       └─ Image: %p | Sampler: %p | Layout: %s",
+					(void*)img->imageView, (void*)img->sampler, layout_name);
+			}
+		}
+	}
+
+	skr_log(skr_log_info, "=========================");
+}

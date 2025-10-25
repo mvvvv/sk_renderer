@@ -367,6 +367,7 @@ void              skr_shutdown                     (void);
 void              skr_callback_log                 (void (*callback)(skr_log_ level, const char* text));
 void              skr_log                          (skr_log_ level, const char* text);
 void              skr_logf                         (skr_log_ level, const char* text, ...);
+uint64_t          skr_hash                         (const char *string);
 
 skr_buffer_t      skr_buffer_create                (const void *data, uint32_t size_count, uint32_t size_stride, skr_buffer_type_ type, skr_use_ use);
 void              skr_buffer_destroy               (      skr_buffer_t *buffer);
@@ -421,19 +422,34 @@ void              skr_compute_destroy              (      skr_compute_t* shader)
 skr_bind_t        skr_compute_get_bind             (const skr_compute_t* shader, const char* bind_name);
 void              skr_compute_execute              (      skr_compute_t* shader, uint32_t x, uint32_t y, uint32_t z);
 void              skr_compute_execute_indirect     (      skr_compute_t* shader, skr_buffer_t* indirect_args);
-void              skr_compute_set_tex              (      skr_compute_t* shader, int32_t bind, skr_tex_t*    texture);
-void              skr_compute_set_buffer           (      skr_compute_t* shader, int32_t bind, skr_buffer_t* buffer);
+void              skr_compute_set_tex              (      skr_compute_t* shader, const char* name, skr_tex_t*    texture);
+void              skr_compute_set_buffer           (      skr_compute_t* shader, const char* name, skr_buffer_t* buffer);
 
 skr_material_t    skr_material_create              (skr_material_info_t info);
 bool              skr_material_is_valid            (const skr_material_t* material);
-void              skr_material_set_tex             (      skr_material_t* material, int32_t bind, skr_tex_t*    texture);
-void              skr_material_set_buffer          (      skr_material_t* material, int32_t bind, skr_buffer_t* buffer);
+void              skr_material_set_tex             (      skr_material_t* material, const char* name, skr_tex_t*    texture);
+void              skr_material_set_buffer          (      skr_material_t* material, const char* name, skr_buffer_t* buffer);
+void              skr_material_set_params          (      skr_material_t* material, void* data, uint32_t size);
 void              skr_material_destroy             (      skr_material_t* material);
+// Material parameter setters (for $Global buffer variables)
+void              skr_material_set_float           (      skr_material_t* material, const char* name, float value);
+void              skr_material_set_vec2            (      skr_material_t* material, const char* name, skr_vec2_t value);
+void              skr_material_set_vec3            (      skr_material_t* material, const char* name, skr_vec3_t value);
+void              skr_material_set_vec4            (      skr_material_t* material, const char* name, skr_vec4_t value);
+void              skr_material_set_color           (      skr_material_t* material, const char* name, skr_vec4_t color);
+void              skr_material_set_int             (      skr_material_t* material, const char* name, int32_t value);
+void              skr_material_set_uint            (      skr_material_t* material, const char* name, uint32_t value);
+void              skr_material_set_matrix          (      skr_material_t* material, const char* name, skr_matrix_t value);
+float             skr_material_get_float           (const skr_material_t* material, const char* name);
+skr_vec2_t        skr_material_get_vec2            (const skr_material_t* material, const char* name);
+skr_vec3_t        skr_material_get_vec3            (const skr_material_t* material, const char* name);
+skr_vec4_t        skr_material_get_vec4            (const skr_material_t* material, const char* name);
+int32_t           skr_material_get_int             (const skr_material_t* material, const char* name);
 
 skr_render_list_t skr_render_list_create           ();
 void              skr_render_list_destroy          (skr_render_list_t* list);
 void              skr_render_list_clear            (skr_render_list_t* list);
-void              skr_render_list_add              (skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t instance_data_size, uint32_t instance_count);
+void              skr_render_list_add              (skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count);
 
 void              skr_renderer_frame_begin         ();
 void              skr_renderer_frame_end           ();

@@ -145,11 +145,7 @@ static scene_t* _scene_3d_texture_create() {
 		free(texture_data);
 		skr_tex_set_name(&scene->texture_3d, "3d_spheres");
 	}
-
-	// Bind texture to material
-	if (skr_material_is_valid(&scene->material)) {
-		skr_material_set_tex(&scene->material, 0, &scene->texture_3d);
-	}
+	skr_material_set_tex(&scene->material, "tex", &scene->texture_3d);
 
 	return (scene_t*)scene;
 }

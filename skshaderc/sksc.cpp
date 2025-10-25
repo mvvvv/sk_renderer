@@ -177,7 +177,7 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 		for (uint32_t i = 0; i < meta->resource_count; i++) {
 			sksc_shader_resource_t *tex = &meta->resources[i];
 			if (tex->bind.stage_bits & stage->stage) {
-				sksc_log(log_level_info, "|  %c%u : %s", tex->bind.register_type == skr_register_texture ? 't' : 'u', tex->bind.slot, tex->name);
+				sksc_log(log_level_info, "|  %c%u : %s", tex->bind.register_type == skr_register_texture || tex->bind.register_type == skr_register_read_buffer ? 't' : 'u', tex->bind.slot, tex->name);
 			}
 		}
 	}

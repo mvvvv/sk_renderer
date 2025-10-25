@@ -2,12 +2,10 @@
 
 #include "common.hlsli"
 
-cbuffer ParticleParams : register(b0, space0) {
-	float3 color_slow;
-	float  max_speed;
-	float3 color_fast;
-	float  _pad2;
-};
+float3 color_slow;
+float  max_speed;
+float3 color_fast;
+float  _pad2;
 
 struct Particle {
 	float3 position;

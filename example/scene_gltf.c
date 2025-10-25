@@ -389,10 +389,7 @@ static void _create_gpu_texture_and_bind(scene_gltf_t* scene, gltf_load_context_
 	for (int32_t m = 0; m < ctx->mesh_count; m++) {
 		if (ctx->meshes[m].texture_indices[tex_type] == tex_index) {
 			// Get the bind slot from the shader
-			skr_bind_t bind = skr_shader_get_bind(&scene->shader, bind_name);
-			if (bind.slot != UINT16_MAX) {
-				skr_material_set_tex(&scene->materials[m], bind.slot, &scene->textures[tex_index]);
-			}
+			skr_material_set_tex(&scene->materials[m], bind_name, &scene->textures[tex_index]);
 		}
 	}
 }
@@ -481,14 +478,10 @@ static void* _load_gltf_thread(void* arg) {
 				});
 
 				// Set default fallback textures for all PBR slots
-				skr_bind_t albedo_bind    = skr_shader_get_bind(&scene->shader, "albedo_tex");
-				skr_bind_t emission_bind  = skr_shader_get_bind(&scene->shader, "emission_tex");
-				skr_bind_t metal_bind     = skr_shader_get_bind(&scene->shader, "metal_tex");
-				skr_bind_t occlusion_bind = skr_shader_get_bind(&scene->shader, "occlusion_tex");
-				skr_material_set_tex(&scene->materials[i], albedo_bind.slot,    &scene->white_texture);
-				skr_material_set_tex(&scene->materials[i], emission_bind.slot,  &scene->black_texture);
-				skr_material_set_tex(&scene->materials[i], metal_bind.slot,     &scene->white_metal_texture);
-				skr_material_set_tex(&scene->materials[i], occlusion_bind.slot, &scene->white_texture);
+				skr_material_set_tex(&scene->materials[i], "albedo_tex",    &scene->white_texture);
+				skr_material_set_tex(&scene->materials[i], "emission_tex",  &scene->black_texture);
+				skr_material_set_tex(&scene->materials[i], "metal_tex",     &scene->white_metal_texture);
+				skr_material_set_tex(&scene->materials[i], "occlusion_tex", &scene->white_texture);
 
 				// Set PBR material parameters from GLTF data
 				// Material buffer structure matches pbr.hlsl: color, emission_factor, tex_trans, metallic, roughness, _pad
@@ -500,6 +493,7 @@ static void* _load_gltf_thread(void* arg) {
 					float roughness;
 					float _pad[2];
 				} pbr_material_params_t;
+
 
 				pbr_material_params_t params = {
 					.color           = {mesh_data->base_color_factor.x, mesh_data->base_color_factor.y, mesh_data->base_color_factor.z, mesh_data->base_color_factor.w},
@@ -520,8 +514,7 @@ static void* _load_gltf_thread(void* arg) {
 				);
 
 				// Get the material buffer bind slot from shader and bind it
-				skr_bind_t mat_bind = skr_shader_get_bind(&scene->shader, "$Global");
-				skr_material_set_buffer(&scene->materials[i], mat_bind.slot, &scene->material_buffers[i]);
+				skr_material_set_params(&scene->materials[i], &scene->material_buffers[i], sizeof(scene->material_buffers[i]));
 			}
 
 			scene->transforms[i] = mesh_data->transform;
@@ -609,14 +602,10 @@ static scene_t* _scene_gltf_create() {
 		});
 
 		// Set default textures
-		skr_bind_t albedo_bind    = skr_shader_get_bind(&scene->shader, "albedo_tex");
-		skr_bind_t emission_bind  = skr_shader_get_bind(&scene->shader, "emission_tex");
-		skr_bind_t metal_bind     = skr_shader_get_bind(&scene->shader, "metal_tex");
-		skr_bind_t occlusion_bind = skr_shader_get_bind(&scene->shader, "occlusion_tex");
-		skr_material_set_tex(&scene->placeholder_material, albedo_bind.slot,    &scene->white_texture);
-		skr_material_set_tex(&scene->placeholder_material, emission_bind.slot,  &scene->black_texture);
-		skr_material_set_tex(&scene->placeholder_material, metal_bind.slot,     &scene->white_texture);
-		skr_material_set_tex(&scene->placeholder_material, occlusion_bind.slot, &scene->white_texture);
+		skr_material_set_tex(&scene->placeholder_material, "albedo_tex",    &scene->white_texture);
+		skr_material_set_tex(&scene->placeholder_material, "emission_tex",  &scene->black_texture);
+		skr_material_set_tex(&scene->placeholder_material, "metal_tex",     &scene->white_texture);
+		skr_material_set_tex(&scene->placeholder_material, "occlusion_tex", &scene->white_texture);
 
 		// Create material buffer matching pbr.hlsl structure
 		typedef struct {
@@ -646,10 +635,7 @@ static scene_t* _scene_gltf_create() {
 		);
 
 		// Bind material buffer
-		skr_bind_t mat_bind = skr_shader_get_bind(&scene->shader, "$Global");
-		if (mat_bind.slot != UINT16_MAX) {
-			skr_material_set_buffer(&scene->placeholder_material, mat_bind.slot, &scene->placeholder_material_buffer);
-		}
+		skr_material_set_params(&scene->placeholder_material, &scene->placeholder_material_buffer, sizeof(scene->placeholder_material_buffer));
 	}
 
 	// Start loading GLTF in background thread
@@ -707,7 +693,7 @@ static scene_t* _scene_gltf_create() {
 					.write_mask = skr_write_rgba,
 					.cull       = skr_cull_none,
 				});
-				skr_material_set_tex(&scene->equirect_convert_material, 0, &scene->equirect_texture);
+				skr_material_set_tex(&scene->equirect_convert_material, "equirect_tex", &scene->equirect_texture);
 
 				// Convert equirectangular to cubemap using blit
 				skr_renderer_blit(&scene->equirect_convert_material, &scene->cubemap_texture, (skr_recti_t){0, 0, cube_size, cube_size});
@@ -836,12 +822,9 @@ static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, HMM
 		ref_system_buffer->time = scene->rotation;  // Use rotation as time for now
 
 		// Bind environment cubemap to all PBR materials
-		skr_bind_t env_bind = skr_shader_get_bind(&scene->shader, "environment_map");
-		if (env_bind.slot != UINT16_MAX) {
-			skr_material_set_tex(&scene->placeholder_material, env_bind.slot, &scene->cubemap_texture);
-			for (int32_t i = 0; i < scene->mesh_count; i++) {
-				skr_material_set_tex(&scene->materials[i], env_bind.slot, &scene->cubemap_texture);
-			}
+		skr_material_set_tex(&scene->placeholder_material, "environment_map", &scene->cubemap_texture);
+		for (int32_t i = 0; i < scene->mesh_count; i++) {
+			skr_material_set_tex(&scene->materials[i], "environment_map", &scene->cubemap_texture);
 		}
 	}
 

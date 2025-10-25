@@ -15,18 +15,25 @@
 
 skr_render_list_t skr_render_list_create() {
 	skr_render_list_t list = (skr_render_list_t){};
-	list.capacity               = 16;
-	list.items                  = malloc(sizeof(skr_render_item_t) * list.capacity);
-	list.instance_data_capacity = 1024;
-	list.instance_data          = malloc(list.instance_data_capacity);
-	if (!list.items || !list.instance_data) {
+	list.capacity                    = 16;
+	list.items                       = malloc(sizeof(skr_render_item_t) * list.capacity);
+	list.instance_data_capacity      = 1024;
+	list.instance_data               = malloc(list.instance_data_capacity);
+	list.material_data_capacity = 1024;
+	list.material_data         = malloc(list.material_data_capacity);
+	if (!list.items || !list.instance_data || !list.material_data) {
 		skr_log(skr_log_critical, "Failed to allocate render list");
+		free(list.items);
+		free(list.instance_data);
+		free(list.material_data);
 		list = (skr_render_list_t){};
 		return list;
 	}
 
-	// System buffer will be lazily created in skr_renderer_draw() when needed
+	// Buffers will be lazily created in skr_renderer_draw() when needed
 	list.system_buffer_valid = false;
+	list.instance_buffer_valid = false;
+	list.material_param_buffer_valid = false;
 
 	return list;
 }
@@ -37,10 +44,14 @@ void skr_render_list_destroy(skr_render_list_t* list) {
 	if (list->instance_buffer_valid) {
 		skr_buffer_destroy(&list->instance_buffer);
 	}
+	if (list->material_param_buffer_valid) {
+		skr_buffer_destroy(&list->material_param_buffer);
+	}
 	if (list->system_buffer_valid) {
 		skr_buffer_destroy(&list->system_buffer);
 	}
 	free(list->instance_data);
+	free(list->material_data);
 	free(list->items);
 	*list = (skr_render_list_t){};
 }
@@ -49,10 +60,11 @@ void skr_render_list_clear(skr_render_list_t* list) {
 	if (!list) return;
 	list->count = 0;
 	list->instance_data_used = 0;
+	list->material_data_used = 0;
 	list->needs_sort = false;
 }
 
-void skr_render_list_add(skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t instance_data_size, uint32_t instance_count) {
+void skr_render_list_add(skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count) {
 	if (!list || !mesh || !material) return;
 
 	// Grow if needed
@@ -72,11 +84,11 @@ void skr_render_list_add(skr_render_list_t* list, skr_mesh_t* mesh, skr_material
 	item->mesh               = mesh;
 	item->material           = material;
 	item->instance_offset    = list->instance_data_used;
-	item->instance_data_size = instance_data_size;
+	item->instance_data_size = single_instance_data_size;
 	item->instance_count     = instance_count;
 
 	// Copy instance data if provided
-	uint32_t total_size = instance_data_size * instance_count;
+	uint32_t total_size = single_instance_data_size * instance_count;
 	if (opt_instance_data && total_size > 0) {
 		// Resize instance data if needed
 		while (list->instance_data_used + total_size > list->instance_data_capacity) {
