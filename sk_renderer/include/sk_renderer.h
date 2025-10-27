@@ -434,8 +434,11 @@ void              skr_material_destroy             (      skr_material_t* materi
 // Material parameter setters (for $Global buffer variables)
 void              skr_material_set_float           (      skr_material_t* material, const char* name, float value);
 void              skr_material_set_vec2            (      skr_material_t* material, const char* name, skr_vec2_t value);
+void              skr_material_set_vec2i           (      skr_material_t* material, const char* name, skr_vec2i_t value);
 void              skr_material_set_vec3            (      skr_material_t* material, const char* name, skr_vec3_t value);
+void              skr_material_set_vec3i           (      skr_material_t* material, const char* name, skr_vec3i_t value);
 void              skr_material_set_vec4            (      skr_material_t* material, const char* name, skr_vec4_t value);
+void              skr_material_set_vec4i           (      skr_material_t* material, const char* name, skr_vec4i_t value);
 void              skr_material_set_color           (      skr_material_t* material, const char* name, skr_vec4_t color);
 void              skr_material_set_int             (      skr_material_t* material, const char* name, int32_t value);
 void              skr_material_set_uint            (      skr_material_t* material, const char* name, uint32_t value);

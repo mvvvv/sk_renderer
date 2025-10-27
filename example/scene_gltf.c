@@ -86,7 +86,6 @@ typedef struct scene_gltf_t {
 	skr_material_t       materials[MAX_GLTF_MESHES];
 	skr_mesh_t           meshes   [MAX_GLTF_MESHES];
 	skr_tex_t            textures [MAX_GLTF_TEXTURES];
-	skr_buffer_t         material_buffers[MAX_GLTF_MESHES];  // PBR parameter buffers
 	skr_tex_t            white_texture;
 	skr_tex_t            black_texture;           // Fallback for emission/occlusion
 	skr_tex_t            white_metal_texture;     // Fallback for metal/rough (white = full metal/rough)
@@ -100,7 +99,6 @@ typedef struct scene_gltf_t {
 	// Placeholder sphere while loading
 	skr_mesh_t           placeholder_mesh;
 	skr_material_t       placeholder_material;
-	skr_buffer_t         placeholder_material_buffer;
 
 	// Cubemap skybox
 	skr_tex_t            cubemap_texture;
@@ -478,43 +476,15 @@ static void* _load_gltf_thread(void* arg) {
 				});
 
 				// Set default fallback textures for all PBR slots
-				skr_material_set_tex(&scene->materials[i], "albedo_tex",    &scene->white_texture);
-				skr_material_set_tex(&scene->materials[i], "emission_tex",  &scene->black_texture);
-				skr_material_set_tex(&scene->materials[i], "metal_tex",     &scene->white_metal_texture);
-				skr_material_set_tex(&scene->materials[i], "occlusion_tex", &scene->white_texture);
-
-				// Set PBR material parameters from GLTF data
-				// Material buffer structure matches pbr.hlsl: color, emission_factor, tex_trans, metallic, roughness, _pad
-				typedef struct {
-					float color[4];
-					float emission_factor[4];
-					float tex_trans[4];
-					float metallic;
-					float roughness;
-					float _pad[2];
-				} pbr_material_params_t;
-
-
-				pbr_material_params_t params = {
-					.color           = {mesh_data->base_color_factor.x, mesh_data->base_color_factor.y, mesh_data->base_color_factor.z, mesh_data->base_color_factor.w},
-					.emission_factor = {mesh_data->emissive_factor.x, mesh_data->emissive_factor.y, mesh_data->emissive_factor.z, 1.0f},
-					.tex_trans       = {0.0f, 0.0f, 1.0f, 1.0f},
-					.metallic        = mesh_data->metallic_factor,
-					.roughness       = mesh_data->roughness_factor,
-					._pad            = {0.0f, 0.0f}
-				};
-
-				// Create constant buffer for material parameters
-				scene->material_buffers[i] = skr_buffer_create(
-					&params,
-					sizeof(params),
-					1,
-					skr_buffer_type_constant,
-					skr_use_static
-				);
-
-				// Get the material buffer bind slot from shader and bind it
-				skr_material_set_params(&scene->materials[i], &scene->material_buffers[i], sizeof(scene->material_buffers[i]));
+				skr_material_set_tex  (&scene->materials[i], "albedo_tex",      &scene->white_texture);
+				skr_material_set_tex  (&scene->materials[i], "emission_tex",    &scene->black_texture);
+				skr_material_set_tex  (&scene->materials[i], "metal_tex",       &scene->white_metal_texture);
+				skr_material_set_tex  (&scene->materials[i], "occlusion_tex",   &scene->white_texture);
+				skr_material_set_color(&scene->materials[i], "color",           (skr_vec4_t){mesh_data->base_color_factor.x, mesh_data->base_color_factor.y, mesh_data->base_color_factor.z, mesh_data->base_color_factor.w});
+				skr_material_set_color(&scene->materials[i], "emission_factor", (skr_vec4_t){mesh_data->emissive_factor.x, mesh_data->emissive_factor.y, mesh_data->emissive_factor.z, 1.0f});
+				skr_material_set_vec4 (&scene->materials[i], "tex_trans",       (skr_vec4_t){0.0f, 0.0f, 1.0f, 1.0f});
+				skr_material_set_float(&scene->materials[i], "metallic",        mesh_data->metallic_factor);
+				skr_material_set_float(&scene->materials[i], "roughness",       mesh_data->roughness_factor);
 			}
 
 			scene->transforms[i] = mesh_data->transform;
@@ -602,40 +572,15 @@ static scene_t* _scene_gltf_create() {
 		});
 
 		// Set default textures
-		skr_material_set_tex(&scene->placeholder_material, "albedo_tex",    &scene->white_texture);
-		skr_material_set_tex(&scene->placeholder_material, "emission_tex",  &scene->black_texture);
-		skr_material_set_tex(&scene->placeholder_material, "metal_tex",     &scene->white_texture);
-		skr_material_set_tex(&scene->placeholder_material, "occlusion_tex", &scene->white_texture);
-
-		// Create material buffer matching pbr.hlsl structure
-		typedef struct {
-			float color[4];
-			float emission_factor[4];
-			float tex_trans[4];
-			float metallic;
-			float roughness;
-			float _pad[2];
-		} pbr_material_params_t;
-
-		pbr_material_params_t params = {
-			.color           = {0.5f, 0.5f, 0.5f, 1.0f},
-			.emission_factor = {0.0f, 0.0f, 0.0f, 1.0f},
-			.tex_trans       = {0.0f, 0.0f, 1.0f, 1.0f},
-			.metallic        = 0.0f,
-			.roughness       = 0.8f,
-			._pad            = {0.0f, 0.0f}
-		};
-
-		scene->placeholder_material_buffer = skr_buffer_create(
-			&params,
-			sizeof(params),
-			1,
-			skr_buffer_type_constant,
-			skr_use_static
-		);
-
-		// Bind material buffer
-		skr_material_set_params(&scene->placeholder_material, &scene->placeholder_material_buffer, sizeof(scene->placeholder_material_buffer));
+		skr_material_set_tex  (&scene->placeholder_material, "albedo_tex",      &scene->white_texture);
+		skr_material_set_tex  (&scene->placeholder_material, "emission_tex",    &scene->black_texture);
+		skr_material_set_tex  (&scene->placeholder_material, "metal_tex",       &scene->white_texture);
+		skr_material_set_tex  (&scene->placeholder_material, "occlusion_tex",   &scene->white_texture);
+		skr_material_set_color(&scene->placeholder_material, "color",           (skr_vec4_t){0.5f, 0.5f, 0.5f, 1.0f});
+		skr_material_set_color(&scene->placeholder_material, "emission_factor", (skr_vec4_t){0.0f, 0.0f, 0.0f, 1.0f});
+		skr_material_set_vec4 (&scene->placeholder_material, "tex_trans",       (skr_vec4_t){0.0f, 0.0f, 1.0f, 1.0f});
+		skr_material_set_float(&scene->placeholder_material, "metallic",        0);
+		skr_material_set_float(&scene->placeholder_material, "roughness",       0.8f);
 	}
 
 	// Start loading GLTF in background thread
@@ -733,7 +678,7 @@ static scene_t* _scene_gltf_create() {
 					.cull         = skr_cull_none,
 					.queue_offset = 100,
 				});
-				skr_material_set_tex(&scene->skybox_material, 0, &scene->cubemap_texture);
+				skr_material_set_tex(&scene->skybox_material, "cubemap", &scene->cubemap_texture);
 			}
 
 			scene->skybox_mesh = skr_mesh_create_fullscreen_quad();
@@ -770,13 +715,11 @@ static void _scene_gltf_destroy(scene_t* base) {
 	// Destroy placeholder
 	skr_mesh_destroy    (&scene->placeholder_mesh);
 	skr_material_destroy(&scene->placeholder_material);
-	skr_buffer_destroy  (&scene->placeholder_material_buffer);
 
 	// Destroy renderer resources
 	for (int32_t i = 0; i < scene->mesh_count; i++) {
 		skr_mesh_destroy    (&scene->meshes   [i]);
 		skr_material_destroy(&scene->materials[i]);
-		skr_buffer_destroy  (&scene->material_buffers[i]);
 	}
 	for (int32_t i = 0; i < MAX_GLTF_TEXTURES; i++) {
 		if (skr_tex_is_valid(&scene->textures[i])) {

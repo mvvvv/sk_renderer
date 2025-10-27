@@ -8,6 +8,7 @@
 
 #include "skr_vulkan.h"
 #include "skr_conversions.h"
+#include "skr_pipeline.h"
 #include "../skr_log.h"
 
 #include <stdio.h>
@@ -848,248 +849,116 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		return;
 	}
 
-	skr_bind_t bind_source  = skr_shader_get_bind(fragment_shader, "src_tex");
-	skr_bind_t bind_globals = skr_shader_get_bind(fragment_shader, "$Global"); // optional
+	// Validate that shader has required 'src_tex' binding
+	skr_bind_t bind_source = skr_shader_get_bind(fragment_shader, "src_tex");
 	if ((bind_source.stage_bits & skr_stage_pixel) == 0) {
-		skr_log(skr_log_warning, "Mip shader missing 'src_tex'");
+		skr_log(skr_log_warning, "Mip shader missing 'src_tex' binding");
 		return;
 	}
 
+	// Create material from shader (handles pipeline registration automatically)
+	skr_material_t material = skr_material_create((skr_material_info_t){
+		.shader      = fragment_shader,
+		.cull        = skr_cull_none,
+		.depth_test  = skr_compare_always,
+		.write_mask  = skr_write_rgba,
+	});
+	if (!skr_material_is_valid(&material)) {
+		skr_log(skr_log_warning, "Failed to create material for mipmap generation");
+		return;
+	}
+
+	// Register render pass format with pipeline system (cached for reuse)
+	VkFormat format = _skr_to_vk_tex_fmt(tex->format);
+	skr_pipeline_renderpass_key_t rp_key = {
+		.color_format   = format,
+		.depth_format   = VK_FORMAT_UNDEFINED,
+		.resolve_format = VK_FORMAT_UNDEFINED,
+		.samples        = VK_SAMPLE_COUNT_1_BIT,
+		.depth_store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		.color_load_op  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,  // Full blit
+	};
+	int32_t renderpass_idx = _skr_pipeline_register_renderpass(&rp_key);
+	int32_t vert_idx       = _skr_pipeline_register_vertformat((skr_vert_type_t){});
+
+	// Get cached render pass
+	VkRenderPass render_pass = _skr_pipeline_get_renderpass(renderpass_idx);
+	if (render_pass == VK_NULL_HANDLE) {
+		skr_material_destroy(&material);
+		return;
+	}
+
+	// Acquire command buffer context
 	_skr_command_context_t ctx = _skr_command_acquire();
 	if (!ctx.cmd) {
 		skr_log(skr_log_warning, "Failed to acquire command buffer for mipmap generation");
+		skr_material_destroy(&material);
 		return;
 	}
-	VkCommandBuffer cmd = ctx.cmd;
 
-	// Create a simple render pass for rendering to a single color attachment
-	VkFormat     format = _skr_to_vk_tex_fmt(tex->format);
-	VkRenderPass render_pass = VK_NULL_HANDLE;
-	{
-		VkAttachmentDescription color_attachment = {
-			.format         = format,
-			.samples        = VK_SAMPLE_COUNT_1_BIT,
-			.loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-			.storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
-			.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		};
-
-		VkAttachmentReference color_ref = {
-			.attachment = 0,
-			.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		};
-
-		VkSubpassDescription subpass = {
-			.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS,
-			.colorAttachmentCount = 1,
-			.pColorAttachments    = &color_ref,
-		};
-
-		VkRenderPassCreateInfo rp_info = {
-			.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-			.attachmentCount = 1,
-			.pAttachments    = &color_attachment,
-			.subpassCount    = 1,
-			.pSubpasses      = &subpass,
-		};
-
-		if (vkCreateRenderPass(_skr_vk.device, &rp_info, NULL, &render_pass) != VK_SUCCESS) {
-			skr_log(skr_log_critical, "Failed to create render pass for mipmap generation");
-			_skr_command_release(cmd);
-			return;
-		}
+	// Determine view type for layer rendering
+	VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
+	if (tex->flags & skr_tex_flags_cubemap) {
+		view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+	} else if (tex->flags & skr_tex_flags_array) {
+		view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 	}
 
-	// Create pipeline for fullscreen triangle rendering
-	VkPipeline            pipeline          = VK_NULL_HANDLE;
-	VkPipelineLayout      pipeline_layout   = VK_NULL_HANDLE;
-	VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
-	{
-		descriptor_layout = _skr_shader_make_layout(fragment_shader->meta, skr_stage_pixel);
-
-		VkPipelineLayoutCreateInfo pipeline_layout_info = {
-			.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-			.setLayoutCount = 1,
-			.pSetLayouts    = &descriptor_layout,
-		};
-
-		if (vkCreatePipelineLayout(_skr_vk.device, &pipeline_layout_info, NULL, &pipeline_layout) != VK_SUCCESS) {
-			skr_log(skr_log_critical, "Failed to create pipeline layout for mipmap generation");
-			vkDestroyDescriptorSetLayout(_skr_vk.device, descriptor_layout, NULL);
-			vkDestroyRenderPass         (_skr_vk.device, render_pass, NULL);
-			_skr_command_release(cmd);
-			return;
-		}
-
-		// Create graphics pipeline
-		VkPipelineShaderStageCreateInfo shader_stages[2] = {
-			{
-				.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-				.stage  = VK_SHADER_STAGE_VERTEX_BIT,
-				.module = fragment_shader->vertex_stage.shader,
-				.pName  = "vs",
-			},
-			{
-				.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-				.stage  = VK_SHADER_STAGE_FRAGMENT_BIT,
-				.module = fragment_shader->pixel_stage.shader,
-				.pName  = "ps",
-			},
-		};
-
-		VkPipelineVertexInputStateCreateInfo vertex_input = {
-			.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		};
-
-		VkPipelineInputAssemblyStateCreateInfo input_assembly = {
-			.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-			.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-		};
-
-		VkPipelineViewportStateCreateInfo viewport_state = {
-			.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-			.viewportCount = 1,
-			.scissorCount  = 1,
-		};
-
-		VkPipelineRasterizationStateCreateInfo rasterizer = {
-			.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-			.polygonMode = VK_POLYGON_MODE_FILL,
-			.cullMode    = VK_CULL_MODE_NONE,
-			.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-			.lineWidth   = 1.0f,
-		};
-
-		VkPipelineMultisampleStateCreateInfo multisampling = {
-			.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-			.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-		};
-
-		VkPipelineColorBlendAttachmentState color_blend_attachment = {
-			.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-			                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-			.blendEnable    = VK_FALSE,
-		};
-
-		VkPipelineColorBlendStateCreateInfo color_blending = {
-			.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-			.attachmentCount = 1,
-			.pAttachments    = &color_blend_attachment,
-		};
-
-		VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-		VkPipelineDynamicStateCreateInfo dynamic_state = {
-			.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-			.dynamicStateCount = 2,
-			.pDynamicStates    = dynamic_states,
-		};
-
-		VkGraphicsPipelineCreateInfo pipeline_info = {
-			.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-			.stageCount          = 2,
-			.pStages             = shader_stages,
-			.pVertexInputState   = &vertex_input,
-			.pInputAssemblyState = &input_assembly,
-			.pViewportState      = &viewport_state,
-			.pRasterizationState = &rasterizer,
-			.pMultisampleState   = &multisampling,
-			.pColorBlendState    = &color_blending,
-			.pDynamicState       = &dynamic_state,
-			.layout              = pipeline_layout,
-			.renderPass          = render_pass,
-			.subpass             = 0,
-		};
-
-		if (vkCreateGraphicsPipelines(_skr_vk.device, _skr_vk.pipeline_cache, 1, &pipeline_info, NULL, &pipeline) != VK_SUCCESS) {
-			skr_log(skr_log_critical, "Failed to create pipeline for mipmap generation");
-			vkDestroyPipelineLayout     (_skr_vk.device, pipeline_layout,   NULL);
-			vkDestroyDescriptorSetLayout(_skr_vk.device, descriptor_layout, NULL);
-			vkDestroyRenderPass         (_skr_vk.device, render_pass,       NULL);
-			_skr_command_release(cmd);
-			return;
-		}
+	// Get cached pipeline (lazy creation via 3D cache: material × renderpass × vertformat)
+	VkPipeline pipeline = _skr_pipeline_get(material.pipeline_material_idx, renderpass_idx, vert_idx);
+	if (pipeline == VK_NULL_HANDLE) {
+		skr_log(skr_log_warning, "Failed to get pipeline for mipmap generation");
+		_skr_command_release(ctx.cmd);
+		skr_material_destroy(&material);
+		return;
 	}
 
-	// Create a uniform buffer for mipgen parameters
-	typedef struct {
-		uint32_t src_size[2];
-		uint32_t dst_size[2];
-		uint32_t src_mip_level;
-		uint32_t mip_max;
-		uint32_t _pad[2];
-	} mipgen_params_t;
+	// Pre-populate parameter buffers for all mip levels
+	// Use material API to set values (handles different $Global layouts per shader)
+	int32_t      num_mips      = mip_levels - 1;
+	uint8_t*     all_params    = NULL;
+	skr_buffer_t params_buffer = {0};
 
-	// Pre-populate parameters for all mip levels
-	int32_t num_mips = mip_levels - 1;
-	mipgen_params_t* all_params = calloc(num_mips, sizeof(mipgen_params_t));
+	if (material.param_buffer_size > 0) {
+		all_params = calloc(num_mips, material.param_buffer_size);
 
+		for (int32_t mip = 1; mip < mip_levels; mip++) {
+			uint32_t mip_width  = tex->size.x >> mip;
+			uint32_t mip_height = tex->size.y >> mip;
+			if (mip_width  == 0) mip_width  = 1;
+			if (mip_height == 0) mip_height = 1;
+
+			uint32_t prev_mip_width  = tex->size.x >> (mip - 1);
+			uint32_t prev_mip_height = tex->size.y >> (mip - 1);
+			if (prev_mip_width  == 0) prev_mip_width  = 1;
+			if (prev_mip_height == 0) prev_mip_height = 1;
+
+			// Use material API to populate values (handles different shader layouts)
+			skr_material_set_vec2i(&material, "src_size", (skr_vec2i_t){prev_mip_width, prev_mip_height});
+			skr_material_set_vec2i(&material, "dst_size", (skr_vec2i_t){mip_width, mip_height});
+			skr_material_set_uint (&material, "src_mip_level", mip - 1);
+			skr_material_set_uint (&material, "mip_max",       mip_levels);
+
+			// Copy material's parameter buffer for this mip (preserves other values)
+			memcpy(all_params + (mip - 1) * material.param_buffer_size,
+			       material.param_buffer,
+			       material.param_buffer_size);
+		}
+
+		// Create GPU buffer with all mip parameters
+		params_buffer = skr_buffer_create(all_params, num_mips, material.param_buffer_size,
+		                                  skr_buffer_type_constant, skr_use_static);
+		free(all_params);
+	}
+
+	// Generate each mip level by rendering from previous mip
 	for (int32_t mip = 1; mip < mip_levels; mip++) {
 		uint32_t mip_width  = tex->size.x >> mip;
 		uint32_t mip_height = tex->size.y >> mip;
 		if (mip_width  == 0) mip_width  = 1;
 		if (mip_height == 0) mip_height = 1;
 
-		uint32_t prev_mip_width  = tex->size.x >> (mip - 1);
-		uint32_t prev_mip_height = tex->size.y >> (mip - 1);
-		if (prev_mip_width  == 0) prev_mip_width  = 1;
-		if (prev_mip_height == 0) prev_mip_height = 1;
-
-		all_params[mip - 1].src_size[0] = prev_mip_width;
-		all_params[mip - 1].src_size[1] = prev_mip_height;
-		all_params[mip - 1].dst_size[0] = mip_width;
-		all_params[mip - 1].dst_size[1] = mip_height;
-		all_params[mip - 1].src_mip_level = mip - 1;
-		all_params[mip - 1].mip_max = mip_levels;
-	}
-
-	// Create a buffer large enough for all mip levels
-	skr_buffer_t params_buffer = skr_buffer_create(all_params, num_mips, sizeof(mipgen_params_t), skr_buffer_type_constant, skr_use_static);
-	free(all_params);
-
-	// Note: Per-mip resources (framebuffers, image views) will be added to the
-	// command buffer's destroy list as we create them, so they'll be cleaned up
-	// automatically when the command buffer fence signals
-
-	// Mip 0 is already in SHADER_READ_ONLY_OPTIMAL from texture creation
-	// No barrier needed for the first mip level
-	VkImageMemoryBarrier barrier = {
-		.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image               = tex->image,
-		.subresourceRange    = {
-			.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-			.baseMipLevel   = 0,
-			.levelCount     = 1,
-			.baseArrayLayer = 0,
-			.layerCount     = tex->layer_count,
-		},
-	};
-
-	// Generate each mip level by rendering
-	for (int32_t mip = 1; mip < mip_levels; mip++) {
-		uint32_t mip_width  = tex->size.x >> mip;
-		uint32_t mip_height = tex->size.y >> mip;
-		if (mip_width  == 0) mip_width  = 1;
-		if (mip_height == 0) mip_height = 1;
-
-		uint32_t prev_mip_width  = tex->size.x >> (mip - 1);
-		uint32_t prev_mip_height = tex->size.y >> (mip - 1);
-		if (prev_mip_width  == 0) prev_mip_width  = 1;
-		if (prev_mip_height == 0) prev_mip_height = 1;
-
-		// Determine view type
-		VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
-		if (tex->flags & skr_tex_flags_cubemap) {
-			view_type = VK_IMAGE_VIEW_TYPE_CUBE;
-		} else if (tex->flags & skr_tex_flags_array) {
-			view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-		}
-
-		// Create image view for this specific mip level
+		// Create image view for this mip level (target)
 		VkImageView mip_view = VK_NULL_HANDLE;
 		{
 			VkImageViewCreateInfo view_info = {
@@ -1106,10 +975,9 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				},
 			};
 			if (vkCreateImageView(_skr_vk.device, &view_info, NULL, &mip_view) != VK_SUCCESS) {
-				skr_log(skr_log_warning, "Failed to create image view for mip level");
+				skr_log(skr_log_warning, "Failed to create target mip image view");
 				continue;
 			}
-			// Add to destroy list for cleanup when command buffer fence signals
 			_skr_destroy_list_add_image_view(ctx.destroy_list, mip_view);
 		}
 
@@ -1129,46 +997,10 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				skr_log(skr_log_warning, "Failed to create framebuffer for mip level");
 				continue;
 			}
-			// Add to destroy list for cleanup when command buffer fence signals
 			_skr_destroy_list_add_framebuffer(ctx.destroy_list, framebuffer);
 		}
 
-		// Transition current mip to color attachment
-		barrier.srcAccessMask       = 0;
-		barrier.dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		barrier.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-		barrier.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		barrier.subresourceRange.baseMipLevel = mip;
-		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-		                     0, 0, NULL, 0, NULL, 1, &barrier);
-
-		// Begin render pass
-		VkRenderPassBeginInfo rp_begin = {
-			.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-			.renderPass      = render_pass,
-			.framebuffer     = framebuffer,
-			.renderArea      = {{0, 0}, {mip_width, mip_height}},
-			.clearValueCount = 0,
-		};
-		vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
-
-		// Bind pipeline
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-		// Set viewport and scissor
-		VkViewport viewport = {0, 0, (float)mip_width, (float)mip_height, 0.0f, 1.0f};
-		VkRect2D   scissor  = {{0, 0}, {mip_width, mip_height}};
-		vkCmdSetViewport(cmd, 0, 1, &viewport);
-		vkCmdSetScissor (cmd, 0, 1, &scissor);
-
-		// Push descriptors (use offset for this specific mip level)
-		VkDescriptorBufferInfo buffer_info = {
-			.buffer = params_buffer.buffer,
-			.offset = (mip - 1) * sizeof(mipgen_params_t),
-			.range  = sizeof(mipgen_params_t),
-		};
-
-		// Create image view for the previous mip level we're sampling from
+		// Create image view for the previous mip level (source)
 		VkImageView src_view = VK_NULL_HANDLE;
 		{
 			VkImageViewCreateInfo src_view_info = {
@@ -1188,65 +1020,126 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				skr_log(skr_log_warning, "Failed to create source mip image view");
 				continue;
 			}
-			// Add to destroy list for cleanup when command buffer fence signals
 			_skr_destroy_list_add_image_view(ctx.destroy_list, src_view);
 		}
 
-		VkDescriptorImageInfo image_info = {
+		// Transition current mip to color attachment (automatic tracking handles UNDEFINED vs previous layout)
+		VkImageMemoryBarrier barrier = {
+			.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			.srcAccessMask       = 0,
+			.dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
+			.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image               = tex->image,
+			.subresourceRange    = {
+				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel   = mip,
+				.levelCount     = 1,
+				.baseArrayLayer = 0,
+				.layerCount     = tex->layer_count,
+			},
+		};
+		vkCmdPipelineBarrier(ctx.cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		                     0, 0, NULL, 0, NULL, 1, &barrier);
+
+		// Begin render pass
+		vkCmdBeginRenderPass(ctx.cmd, &(VkRenderPassBeginInfo){
+			.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+			.renderPass      = render_pass,
+			.framebuffer     = framebuffer,
+			.renderArea      = {{0, 0}, {mip_width, mip_height}},
+			.clearValueCount = 0,
+		}, VK_SUBPASS_CONTENTS_INLINE);
+
+		// Bind pipeline
+		vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+		// Set viewport and scissor
+		VkViewport viewport = {0, 0, (float)mip_width, (float)mip_height, 0.0f, 1.0f};
+		VkRect2D   scissor  = {{0, 0}, {mip_width, mip_height}};
+		vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
+		vkCmdSetScissor (ctx.cmd, 0, 1, &scissor);
+
+		// Build descriptor writes using material system
+		VkWriteDescriptorSet   writes      [32];
+		VkDescriptorBufferInfo buffer_infos[16];
+		VkDescriptorImageInfo  image_infos [16];
+		uint32_t write_ct  = 0;
+		uint32_t buffer_ct = 0;
+		uint32_t image_ct  = 0;
+
+		// Handle material parameters if present ($Global buffer with per-mip offset)
+		if (skr_buffer_is_valid(&params_buffer)) {
+			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
+				.buffer = params_buffer.buffer,
+				.offset = (mip - 1) * material.param_buffer_size,  // Offset for this mip
+				.range  = material.param_buffer_size,
+			};
+			writes[write_ct++] = (VkWriteDescriptorSet){
+				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,
+				.descriptorCount = 1,
+				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.pBufferInfo     = &buffer_infos[buffer_ct++],
+			};
+		}
+
+		// Manually add source texture binding (since we create it per-mip)
+		image_infos[image_ct] = (VkDescriptorImageInfo){
 			.sampler     = tex->sampler,
 			.imageView   = src_view,
 			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		};
-
-		VkWriteDescriptorSet writes[2] = { {
-				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstBinding      = bind_globals.slot,
-				.descriptorCount = 1,
-				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-				.pBufferInfo     = &buffer_info,
-			}, {
-				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstBinding      = bind_source.slot,
-				.descriptorCount = 1,
-				.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.pImageInfo      = &image_info,
-			},
+		writes[write_ct++] = (VkWriteDescriptorSet){
+			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstBinding      = bind_source.slot,
+			.descriptorCount = 1,
+			.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			.pImageInfo      = &image_infos[image_ct++],
 		};
-		// TODO TBH, this all needs to be re-written as a material! And re-use all the new binding code!!
-		skr_log(skr_log_critical, "this all needs to be re-written as a material! And re-use all the new binding code!!");
 
-		_skr_log_descriptor_writes(writes, &buffer_info, &image_info, 2, 1, 1);
+		// Add any other material bindings (textures/buffers, including globals)
+		const int32_t ignore_slots[] = {
+			SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,  // Already handled above
+			bind_source.slot                             // Source texture (per-mip, handled above)
+		};
+		_skr_material_add_writes(
+			material.binds, material.bind_count,
+			ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
+			writes,       sizeof(writes      )/sizeof(writes      [0]),
+			buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
+			image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
+			&write_ct, &buffer_ct, &image_ct
+		);
 
-		vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 2, writes);
+		// Push descriptors and draw
+		if (write_ct > 0) {
+			vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			                          _skr_pipeline_get_layout(material.pipeline_material_idx),
+			                          0, write_ct, writes);
+		}
 
 		// Draw fullscreen triangle (with instances for each layer/face)
-		vkCmdDraw(cmd, 3, tex->layer_count, 0, 0);
+		vkCmdDraw(ctx.cmd, 3, tex->layer_count, 0, 0);
 
 		// End render pass
-		vkCmdEndRenderPass(cmd);
+		vkCmdEndRenderPass(ctx.cmd);
 
 		// Transition current mip to shader read for next iteration
-		barrier.srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		barrier.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
-		barrier.oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		barrier.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		barrier.subresourceRange.baseMipLevel = mip;
-		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		barrier.oldLayout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		vkCmdPipelineBarrier(ctx.cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 		                     0, 0, NULL, 0, NULL, 1, &barrier);
 	}
 
-	// Add the pipeline objects to the destroy list so they're cleaned up with the command buffer
-	_skr_destroy_list_add_render_pass          (ctx.destroy_list, render_pass);
-	_skr_destroy_list_add_pipeline             (ctx.destroy_list, pipeline);
-	_skr_destroy_list_add_pipeline_layout      (ctx.destroy_list, pipeline_layout);
-	_skr_destroy_list_add_descriptor_set_layout(ctx.destroy_list, descriptor_layout);
 	skr_buffer_destroy(&params_buffer);
-	
-	// Submit command buffer
-	// Note: framebuffers, image views, and pipeline objects will be automatically destroyed
-	// when the command buffer fence signals (via the destroy list)
-	_skr_command_release(cmd);
+	skr_material_destroy(&material);
 
+	_skr_command_release(ctx.cmd);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

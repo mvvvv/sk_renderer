@@ -35,24 +35,24 @@ StructuredBuffer<Inst> inst : register(t2);
 ///////////////////////////////////////////
 
 // Albedo/diffuse texture
-Texture2D    albedo_tex   : register(t0);
-SamplerState albedo_tex_s : register(s0);
+Texture2D    albedo_tex   : register(t1);
+SamplerState albedo_tex_s : register(s1);
 
 // Emission texture
-Texture2D    emission_tex : register(t1);
-SamplerState emission_tex_s : register(s1);
+Texture2D    emission_tex   : register(t0);
+SamplerState emission_tex_s : register(s0);
 
 // Metallic-roughness texture (R=occlusion, G=roughness, B=metallic)
-Texture2D    metal_tex    : register(t2);
-SamplerState metal_tex_s  : register(s2);
+Texture2D    metal_tex    : register(t3);
+SamplerState metal_tex_s  : register(s3);
 
 // Occlusion texture (packed in metal texture R channel, but can be separate)
-Texture2D    occlusion_tex : register(t3);
-SamplerState occlusion_tex_s : register(s3);
+Texture2D    occlusion_tex   : register(t4);
+SamplerState occlusion_tex_s : register(s4);
 
 // Environment cubemap for IBL
-TextureCube  environment_map : register(t4);
-SamplerState environment_map_s : register(s4);
+TextureCube  environment_map   : register(t5);
+SamplerState environment_map_s : register(s5);
 
 ///////////////////////////////////////////
 // Vertex/Pixel Shader I/O
