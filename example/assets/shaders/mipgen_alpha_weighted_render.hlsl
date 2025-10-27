@@ -2,13 +2,11 @@
 // Alpha-weighted mipmap generation fragment shader
 // Properly handles transparent textures by weighting colors by alpha
 
-cbuffer MipGenParams : register(b0) {
-	uint2 src_size;      // Source mip dimensions
-	uint2 dst_size;      // Destination mip dimensions
-	uint  src_mip_level; // Source mip level to read from
-	uint  mip_max;
-	uint  _pad[2];
-};
+uint2 src_size;      // Source mip dimensions
+uint2 dst_size;      // Destination mip dimensions
+uint  src_mip_level; // Source mip level to read from
+uint  mip_max;
+uint  _pad[2];
 
 Texture2D<float4> src_tex     : register(t1);  // Source texture (read from previous mip)
 SamplerState      src_sampler : register(s1);  // Linear sampler for source

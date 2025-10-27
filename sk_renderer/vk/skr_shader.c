@@ -158,3 +158,89 @@ void skr_shader_set_name(skr_shader_t* shader, const char* name) {
 		_skr_set_debug_name(VK_OBJECT_TYPE_SHADER_MODULE, (uint64_t)shader->compute_stage.shader, stage_name);
 	}
 }
+
+VkDescriptorSetLayout _skr_shader_make_layout(const sksc_shader_meta_t* meta, skr_stage_ stage_mask) {
+	if (meta->buffer_count == 0 && meta->resource_count == 0) {
+		return VK_NULL_HANDLE;
+	}
+
+	VkDescriptorSetLayoutBinding bindings[32];
+	uint32_t                     binding_count = 0;
+
+	// Add buffer bindings
+	for (uint32_t i = 0; i < meta->buffer_count; i++) {
+		skr_bind_t bind = meta->buffers[i].bind;
+		bind.stage_bits = bind.stage_bits & stage_mask;
+		if (!bind.stage_bits) continue;
+
+		// Determine descriptor type based on register type
+		VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+		switch (bind.register_type) {
+			case skr_register_constant:      desc_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;         break;
+			case skr_register_texture:       desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; break;
+			case skr_register_read_buffer:   desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         break; // (StructuredBuffer)
+			case skr_register_readwrite:     desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         break; // (RWStructuredBuffer)
+			case skr_register_readwrite_tex: desc_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          break; // (RWTexture)
+			default:                         desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM; break;
+		}
+
+		VkShaderStageFlags stages = 0;
+		if (bind.stage_bits & skr_stage_vertex ) stages |= VK_SHADER_STAGE_VERTEX_BIT;
+		if (bind.stage_bits & skr_stage_pixel  ) stages |= VK_SHADER_STAGE_FRAGMENT_BIT;
+		if (bind.stage_bits & skr_stage_compute) stages |= VK_SHADER_STAGE_COMPUTE_BIT;
+
+		bindings[binding_count++] = (VkDescriptorSetLayoutBinding){
+			.binding            = bind.slot,
+			.descriptorType     = desc_type,
+			.descriptorCount    = 1,
+			.stageFlags         = stages,
+			.pImmutableSamplers = NULL,
+		};
+	}
+
+	// Add resource bindings (textures and storage buffers)
+	for (uint32_t i = 0; i < meta->resource_count; i++) {
+		skr_bind_t bind = meta->resources[i].bind;
+		bind.stage_bits = bind.stage_bits & stage_mask;
+		if (!bind.stage_bits) continue;
+
+		// Determine descriptor type based on register type
+		VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+		switch (bind.register_type) {
+			case skr_register_constant:      desc_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;         break;
+			case skr_register_texture:       desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; break;
+			case skr_register_read_buffer:   desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         break; // (StructuredBuffer)
+			case skr_register_readwrite:     desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         break; // (RWStructuredBuffer)
+			case skr_register_readwrite_tex: desc_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          break; // (RWTexture)
+			default:                         desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM; break;
+		}
+
+		VkShaderStageFlags stages = 0;
+		if (bind.stage_bits & skr_stage_vertex ) stages |= VK_SHADER_STAGE_VERTEX_BIT;
+		if (bind.stage_bits & skr_stage_pixel  ) stages |= VK_SHADER_STAGE_FRAGMENT_BIT;
+		if (bind.stage_bits & skr_stage_compute) stages |= VK_SHADER_STAGE_COMPUTE_BIT;
+
+		bindings[binding_count++] = (VkDescriptorSetLayoutBinding){
+			.binding            = bind.slot,
+			.descriptorType     = desc_type,
+			.descriptorCount    = 1,
+			.stageFlags         = stages,
+			.pImmutableSamplers = NULL,
+		};
+	}
+
+	VkDescriptorSetLayoutCreateInfo layout_info = {
+		.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+		.bindingCount = binding_count,
+		.pBindings    = bindings,
+	};
+
+	VkDescriptorSetLayout layout;
+	if (vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &layout) != VK_SUCCESS) {
+		skr_log(skr_log_warning, "Failed to create descriptor set layout");
+		return VK_NULL_HANDLE;
+	}
+
+	return layout;
+}

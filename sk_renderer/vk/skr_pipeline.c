@@ -69,7 +69,6 @@ static _skr_pipeline_cache_t _skr_pipeline_cache = {0};
 ///////////////////////////////////////////////////////////////////////////////
 
 static VkRenderPass          _skr_pipeline_create_renderpass       (const skr_pipeline_renderpass_key_t* key);
-static VkDescriptorSetLayout _skr_pipeline_create_descriptor_layout(const sksc_shader_meta_t* meta);
 static VkPipelineLayout      _skr_pipeline_create_layout           (VkDescriptorSetLayout descriptor_layout);
 static VkPipeline            _skr_pipeline_create                  (int32_t material_idx, int32_t renderpass_idx, int32_t vertformat_idx);
 
@@ -136,8 +135,8 @@ int32_t _skr_pipeline_register_material(const skr_material_info_t* info) {
 
 	// Register new material
 	_skr_pipeline_cache.materials[free_slot].info              = *info;
-	_skr_pipeline_cache.materials[free_slot].descriptor_layout = _skr_pipeline_create_descriptor_layout(info->shader->meta);
-	_skr_pipeline_cache.materials[free_slot].layout            = _skr_pipeline_create_layout           (_skr_pipeline_cache.materials[free_slot].descriptor_layout);
+	_skr_pipeline_cache.materials[free_slot].descriptor_layout = _skr_shader_make_layout    (info->shader->meta, skr_stage_vertex | skr_stage_pixel | skr_stage_compute);
+	_skr_pipeline_cache.materials[free_slot].layout            = _skr_pipeline_create_layout(_skr_pipeline_cache.materials[free_slot].descriptor_layout);
 	_skr_pipeline_cache.materials[free_slot].active            = true;
 
 	if (free_slot >= _skr_pipeline_cache.material_count) {
@@ -472,77 +471,6 @@ static VkRenderPass _skr_pipeline_create_renderpass(const skr_pipeline_renderpas
 	_skr_set_debug_name(VK_OBJECT_TYPE_RENDER_PASS, (uint64_t)render_pass, name);
 
 	return render_pass;
-}
-
-static VkDescriptorSetLayout _skr_pipeline_create_descriptor_layout(const sksc_shader_meta_t* meta) {
-	if (!meta || (meta->buffer_count == 0 && meta->resource_count == 0)) {
-		return VK_NULL_HANDLE;
-	}
-
-	VkDescriptorSetLayoutBinding bindings[32];
-	uint32_t binding_count = 0;
-
-	// Add buffer bindings
-	for (uint32_t i = 0; i < meta->buffer_count; i++) {
-		skr_bind_t bind = meta->buffers[i].bind;
-
-		VkShaderStageFlags stages = 0;
-		if (bind.stage_bits & skr_stage_vertex ) stages |= VK_SHADER_STAGE_VERTEX_BIT;
-		if (bind.stage_bits & skr_stage_pixel  ) stages |= VK_SHADER_STAGE_FRAGMENT_BIT;
-		if (bind.stage_bits & skr_stage_compute) stages |= VK_SHADER_STAGE_COMPUTE_BIT;
-
-		bindings[binding_count++] = (VkDescriptorSetLayoutBinding){
-			.binding            = meta->buffers[i].bind.slot,
-			.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.descriptorCount    = 1,
-			.stageFlags         = stages,
-			.pImmutableSamplers = NULL,
-		};
-	}
-
-	// Add resource bindings (textures and storage buffers)
-	for (uint32_t i = 0; i < meta->resource_count; i++) {
-		VkDescriptorType desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
-		skr_bind_t bind = meta->resources[i].bind;
-
-		// Determine descriptor type based on register type
-		switch (bind.register_type) {
-			case skr_register_constant:      desc_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;         break;
-			case skr_register_texture:       desc_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; break;
-			case skr_register_read_buffer:   desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         break; // (StructuredBuffer)
-			case skr_register_readwrite:     desc_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         break; // (RWStructuredBuffer)
-			case skr_register_readwrite_tex: desc_type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;          break; // (RWTexture)
-			default:                         desc_type = VK_DESCRIPTOR_TYPE_MAX_ENUM; break;
-		}
-
-		VkShaderStageFlags stages = 0;
-		if (bind.stage_bits & skr_stage_vertex ) stages |= VK_SHADER_STAGE_VERTEX_BIT;
-		if (bind.stage_bits & skr_stage_pixel  ) stages |= VK_SHADER_STAGE_FRAGMENT_BIT;
-		if (bind.stage_bits & skr_stage_compute) stages |= VK_SHADER_STAGE_COMPUTE_BIT;
-
-		bindings[binding_count++] = (VkDescriptorSetLayoutBinding){
-			.binding            = bind.slot,
-			.descriptorType     = desc_type,
-			.descriptorCount    = 1,
-			.stageFlags         = stages,
-			.pImmutableSamplers = NULL,
-		};
-	}
-
-	VkDescriptorSetLayoutCreateInfo layout_info = {
-		.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
-		.bindingCount = binding_count,
-		.pBindings    = bindings,
-	};
-
-	VkDescriptorSetLayout layout;
-	if (vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &layout) != VK_SUCCESS) {
-		skr_log(skr_log_warning, "Failed to create descriptor set layout");
-		return VK_NULL_HANDLE;
-	}
-
-	return layout;
 }
 
 static VkPipelineLayout _skr_pipeline_create_layout(VkDescriptorSetLayout descriptor_layout) {

@@ -848,7 +848,12 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		return;
 	}
 
-	skr_log(skr_log_info, "Using render-based mipmap generation with custom shader");
+	skr_bind_t bind_source  = skr_shader_get_bind(fragment_shader, "src_tex");
+	skr_bind_t bind_globals = skr_shader_get_bind(fragment_shader, "$Global"); // optional
+	if ((bind_source.stage_bits & skr_stage_pixel) == 0) {
+		skr_log(skr_log_warning, "Mip shader missing 'src_tex'");
+		return;
+	}
 
 	_skr_command_context_t ctx = _skr_command_acquire();
 	if (!ctx.cmd) {
@@ -858,7 +863,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 	VkCommandBuffer cmd = ctx.cmd;
 
 	// Create a simple render pass for rendering to a single color attachment
-	VkFormat format = _skr_to_vk_tex_fmt(tex->format);
+	VkFormat     format = _skr_to_vk_tex_fmt(tex->format);
 	VkRenderPass render_pass = VK_NULL_HANDLE;
 	{
 		VkAttachmentDescription color_attachment = {
@@ -899,41 +904,11 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 	}
 
 	// Create pipeline for fullscreen triangle rendering
-	VkPipeline pipeline = VK_NULL_HANDLE;
-	VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+	VkPipeline            pipeline          = VK_NULL_HANDLE;
+	VkPipelineLayout      pipeline_layout   = VK_NULL_HANDLE;
 	VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
 	{
-		// Create descriptor set layout for texture + sampler + buffer
-		VkDescriptorSetLayoutBinding bindings[2] = {
-			{
-				.binding            = 0,
-				.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-				.descriptorCount    = 1,
-				.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
-				.pImmutableSamplers = NULL,
-			},
-			{
-				.binding            = 1,
-				.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.descriptorCount    = 1,
-				.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT,
-				.pImmutableSamplers = NULL,
-			},
-		};
-
-		VkDescriptorSetLayoutCreateInfo layout_info = {
-			.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
-			.bindingCount = 2,
-			.pBindings    = bindings,
-		};
-
-		if (vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &descriptor_layout) != VK_SUCCESS) {
-			skr_log(skr_log_critical, "Failed to create descriptor set layout for mipmap generation");
-			vkDestroyRenderPass(_skr_vk.device, render_pass, NULL);
-			_skr_command_release(cmd);
-			return;
-		}
+		descriptor_layout = _skr_shader_make_layout(fragment_shader->meta, skr_stage_pixel);
 
 		VkPipelineLayoutCreateInfo pipeline_layout_info = {
 			.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -944,7 +919,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		if (vkCreatePipelineLayout(_skr_vk.device, &pipeline_layout_info, NULL, &pipeline_layout) != VK_SUCCESS) {
 			skr_log(skr_log_critical, "Failed to create pipeline layout for mipmap generation");
 			vkDestroyDescriptorSetLayout(_skr_vk.device, descriptor_layout, NULL);
-			vkDestroyRenderPass(_skr_vk.device, render_pass, NULL);
+			vkDestroyRenderPass         (_skr_vk.device, render_pass, NULL);
 			_skr_command_release(cmd);
 			return;
 		}
@@ -1225,18 +1200,22 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 
 		VkWriteDescriptorSet writes[2] = { {
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstBinding      = 0,
+				.dstBinding      = bind_globals.slot,
 				.descriptorCount = 1,
 				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 				.pBufferInfo     = &buffer_info,
 			}, {
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstBinding      = 1,
+				.dstBinding      = bind_source.slot,
 				.descriptorCount = 1,
 				.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 				.pImageInfo      = &image_info,
 			},
 		};
+		// TODO TBH, this all needs to be re-written as a material! And re-use all the new binding code!!
+		skr_log(skr_log_critical, "this all needs to be re-written as a material! And re-use all the new binding code!!");
+
+		_skr_log_descriptor_writes(writes, &buffer_info, &image_info, 2, 1, 1);
 
 		vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 2, writes);
 

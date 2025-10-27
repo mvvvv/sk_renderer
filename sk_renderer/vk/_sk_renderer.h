@@ -138,6 +138,7 @@ extern _skr_vk_t _skr_vk;
 
 VkFramebuffer   _skr_create_framebuffer(VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve);
 VkSampler       _skr_sampler_create_vk (skr_tex_sampler_t settings);
+VkDescriptorSetLayout _skr_shader_make_layout(const sksc_shader_meta_t* meta, skr_stage_ stage_mask);
 
 // Format helpers
 bool            _skr_format_has_stencil(VkFormat format);

@@ -2,13 +2,11 @@
 // High-quality cubemap mipmap generation for IBL
 // Uses wider kernel sampling to create proper roughness blur
 
-cbuffer MipGenParams : register(b0) {
-	uint2 src_size;      // Source mip dimensions
-	uint2 dst_size;      // Destination mip dimensions
-	uint  src_mip_level; // Source mip level to read from
-	uint  mip_max;
-	uint  _pad[2];
-};
+uint2 src_size;      // Source mip dimensions
+uint2 dst_size;      // Destination mip dimensions
+uint  src_mip_level; // Source mip level to read from
+uint  mip_max;
+uint  _pad[2];
 
 TextureCube<float4> src_tex     : register(t1);  // Source cubemap texture
 SamplerState        src_sampler : register(s1);  // Linear sampler for source

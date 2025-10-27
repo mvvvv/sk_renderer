@@ -126,7 +126,7 @@ static const char* _skr_descriptor_type_name(VkDescriptorType type) {
 	}
 }
 
-static void _skr_log_descriptor_writes(
+void _skr_log_descriptor_writes(
 	const VkWriteDescriptorSet*   writes,
 	const VkDescriptorBufferInfo* buffer_infos,
 	const VkDescriptorImageInfo*  image_infos,
