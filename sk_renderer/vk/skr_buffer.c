@@ -36,11 +36,10 @@ static uint32_t _skr_find_memory_type(uint32_t type_filter, VkMemoryPropertyFlag
 skr_buffer_t skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_stride,
                                 skr_buffer_type_ type, skr_use_ use) {
 	skr_buffer_t buffer = {0};
-	buffer.size         = size_count * size_stride;
-	buffer.type         = type;
-	buffer.use          = use;
+	buffer.size = size_count * size_stride;
+	buffer.type = type;
+	buffer.use  = use;
 
-	// Determine buffer usage flags
 	VkBufferUsageFlags usage = _skr_to_vk_buffer_usage(type);
 
 	// Add transfer dst for initial data upload (unless dynamic)
@@ -63,22 +62,15 @@ skr_buffer_t skr_buffer_create(const void* data, uint32_t size_count, uint32_t s
 	VkMemoryRequirements mem_requirements;
 	vkGetBufferMemoryRequirements(_skr_vk.device, buffer.buffer, &mem_requirements);
 
-	VkMemoryPropertyFlags mem_properties;
-	if (use == skr_use_dynamic) {
-		// Dynamic buffers use host-visible, host-coherent memory
-		mem_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-	} else {
-		// Static buffers use device-local memory
-		mem_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-	}
+	VkMemoryPropertyFlags mem_properties = use == skr_use_dynamic
+		? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+		: VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-	VkMemoryAllocateInfo alloc_info = {
+	if (vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
 		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.allocationSize  = mem_requirements.size,
 		.memoryTypeIndex = _skr_find_memory_type(mem_requirements.memoryTypeBits, mem_properties),
-	};
-
-	if (vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, &buffer.memory) != VK_SUCCESS) {
+	}, NULL, &buffer.memory) != VK_SUCCESS) {
 		skr_log(skr_log_critical, "Failed to allocate buffer memory");
 		vkDestroyBuffer(_skr_vk.device, buffer.buffer, NULL);
 		buffer.buffer = VK_NULL_HANDLE;
@@ -122,36 +114,16 @@ skr_buffer_t skr_buffer_create(const void* data, uint32_t size_count, uint32_t s
 			memcpy(mapped, data, buffer.size);
 			vkUnmapMemory(_skr_vk.device, staging_memory);
 
-			// Copy staging buffer to device buffer
-			VkCommandBuffer cmd;
-			vkAllocateCommandBuffers(_skr_vk.device, &(VkCommandBufferAllocateInfo){
-				.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-				.commandPool        = _skr_vk.command_pool,
-				.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-				.commandBufferCount = 1,
-			}, &cmd);
+			_skr_command_context_t ctx = _skr_command_acquire();
 
-			vkBeginCommandBuffer(cmd, &(VkCommandBufferBeginInfo){
-				.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-				.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-			});
-
-			vkCmdCopyBuffer(cmd, staging_buffer, buffer.buffer, 1, &(VkBufferCopy){
+			vkCmdCopyBuffer(ctx.cmd, staging_buffer, buffer.buffer, 1, &(VkBufferCopy){
 				.size = buffer.size,
 			});
 
-			vkEndCommandBuffer(cmd);
+			_skr_destroy_list_add_buffer(ctx.destroy_list, staging_buffer);
+			_skr_destroy_list_add_memory(ctx.destroy_list, staging_memory);
 
-			vkQueueSubmit(_skr_vk.graphics_queue, 1, &(VkSubmitInfo){
-				.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-				.commandBufferCount = 1,
-				.pCommandBuffers    = &cmd,
-			}, VK_NULL_HANDLE);
-			vkQueueWaitIdle(_skr_vk.graphics_queue);
-
-			vkFreeCommandBuffers(_skr_vk.device, _skr_vk.command_pool, 1, &cmd);
-			vkDestroyBuffer     (_skr_vk.device, staging_buffer, NULL);
-			vkFreeMemory        (_skr_vk.device, staging_memory, NULL);
+			_skr_command_release(ctx.cmd);
 		}
 	}
  

@@ -70,7 +70,6 @@ static _skr_thread_cmd_pool_t* _skr_get_thread_pool() {
 			_skr_vk.thread_pools[i].active_cmd     = VK_NULL_HANDLE;
 			_skr_vk.thread_pools[i].cmd_ring_index = 0;
 			_skr_vk.thread_pools[i].ref_count      = 0;
-			_skr_vk.thread_pools[i].in_command     = false;
 
 			pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
 			return &_skr_vk.thread_pools[i];
@@ -150,28 +149,18 @@ static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_thread_cmd_pool_t*
 
 _skr_command_context_t _skr_command_begin() {
 	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
-	if (!pool) return (_skr_command_context_t){ .cmd = VK_NULL_HANDLE, .destroy_list = NULL };
+	assert(pool);
+	assert(pool->ref_count == 0 && "Ref count should be 0 at batch start");
 
-	assert(!pool->in_command     && "Already inside command_begin/end");
-	assert( pool->ref_count == 0 && "Ref count should be 0 at batch start");
-
-	pool->in_command = true;
-	pool->ref_count  = 0;
-
-	// Get a command buffer from the ring for batched operations
-	pool->active_cmd = _skr_command_ring_begin(pool);
-
-	return (_skr_command_context_t){
-		.cmd          = pool->active_cmd->cmd,
-		.destroy_list = &pool->active_cmd->destroy_list,
-	};
+	return _skr_command_acquire();
 }
 
 bool _skr_command_try_get_active(_skr_command_context_t* out_ctx) {
 	*out_ctx = (_skr_command_context_t){};
 
 	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
-	if (!pool) return false;
+	assert(pool);
+	
 	if (pool->active_cmd) {
 		*out_ctx = (_skr_command_context_t){
 			.cmd          = pool->active_cmd->cmd,
@@ -182,46 +171,29 @@ bool _skr_command_try_get_active(_skr_command_context_t* out_ctx) {
 	return false;
 }
 
-VkCommandBuffer _skr_command_end() {
-	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
-	if (!pool) return VK_NULL_HANDLE;
-
-	assert(pool->in_command     && "Not inside command_begin/end");
-	assert(pool->ref_count == 0 && "Unbalanced acquire/release - ref count should be 0");
-
-	pool->in_command = false;
-
-	return pool->active_cmd->cmd;
-}
-
 _skr_command_context_t _skr_command_acquire() {
 	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
-	if (!pool) return (_skr_command_context_t){ .cmd = VK_NULL_HANDLE, .destroy_list = NULL };
+	assert(pool);
 
-	pool->ref_count++;
-	if (pool->in_command) {
-		return (_skr_command_context_t){
-			.cmd          = pool->active_cmd->cmd,
-			.destroy_list = &pool->active_cmd->destroy_list,
-		};
-	} else {
+	if (pool->ref_count == 0)
 		pool->active_cmd = _skr_command_ring_begin(pool);
-		return (_skr_command_context_t){
-			.cmd          = pool->active_cmd->cmd,
-			.destroy_list = &pool->active_cmd->destroy_list,
-		};
-	}
+	
+	pool->ref_count++;
+	return (_skr_command_context_t){
+		.cmd          = pool->active_cmd->cmd,
+		.destroy_list = &pool->active_cmd->destroy_list,
+	};
 }
 
 void _skr_command_release(VkCommandBuffer buffer) {
 	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
-	if (!pool) return;
+	assert(pool);
 
 	pool->ref_count--;
 	assert(pool->ref_count       >= 0      && "Unbalanced acquire/release");
 	assert(pool->active_cmd->cmd == buffer && "Shouldn't release someone else's buffer!");
 
-	if (pool->in_command == false) {
+	if (pool->ref_count == 0) {
 		// Outside a batch: submit the command buffer from the ring
 		// The ring will handle waiting when it needs to reuse a slot
 		vkEndCommandBuffer(pool->active_cmd->cmd);
@@ -234,14 +206,22 @@ void _skr_command_release(VkCommandBuffer buffer) {
 	}
 }
 
-void _skr_command_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSemaphore* opt_signal_semaphore, VkFence* out_opt_fence) {
+VkCommandBuffer _skr_command_end() {
 	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
-	if (!pool) return;
+	assert(pool);
 
-	assert(pool->in_command     && "Not inside command_begin/end");
+	pool->ref_count--;
 	assert(pool->ref_count == 0 && "Unbalanced acquire/release - ref count should be 0");
 
-	pool->in_command = false;
+	return pool->active_cmd->cmd;
+}
+
+void _skr_command_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSemaphore* opt_signal_semaphore, VkFence* out_opt_fence) {
+	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
+	assert(pool);
+
+	pool->ref_count--;
+	assert(pool->ref_count == 0 && "Unbalanced acquire/release - ref count should be 0");
 
 	// End the command buffer
 	vkEndCommandBuffer(pool->active_cmd->cmd);

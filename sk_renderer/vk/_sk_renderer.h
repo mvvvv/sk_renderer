@@ -64,7 +64,6 @@ typedef struct {
 	uint64_t                   thread_id;
 	int32_t                    ref_count;
 	bool                       alive;
-	bool                       in_command;
 } _skr_thread_cmd_pool_t;
 
 typedef struct {

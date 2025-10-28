@@ -946,8 +946,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		}
 
 		// Create GPU buffer with all mip parameters
-		params_buffer = skr_buffer_create(all_params, num_mips, material.param_buffer_size,
-		                                  skr_buffer_type_constant, skr_use_static);
+		params_buffer = skr_buffer_create(all_params, num_mips, material.param_buffer_size, skr_buffer_type_constant, skr_use_static);
 		free(all_params);
 	}
 
