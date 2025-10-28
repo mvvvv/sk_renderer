@@ -8,80 +8,87 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <threads.h>
 #include <string.h>
 #include <stdlib.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool _skr_upload_init() {
+thread_local _skr_vk_thread_t _skr_thread;
+
+///////////////////////////////////////////////////////////////////////////////
+
+bool _skr_command_init() {
 	skr_logf(skr_log_info, "Using %s queue (family %d)", _skr_vk.has_dedicated_transfer ? "transfer" : "graphics", _skr_vk.transfer_queue_family);
 
 	memset(_skr_vk.thread_pools, 0, sizeof(_skr_vk.thread_pools));
 	return true;
 }
 
-void _skr_upload_shutdown() {
+///////////////////////////////////////////////////////////////////////////////
+
+void _skr_command_shutdown() {
 	vkDeviceWaitIdle(_skr_vk.device);
 
 	// Destroy thread command pools and per-thread command ring fences
-	for (uint32_t i = 0; i < skr_MAX_THREAD_POOLS; i++) {
+	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
+	for (uint32_t i = 0; i < _skr_vk.thread_pool_ct; i++) {
 		for (uint32_t c = 0; c < skr_MAX_COMMAND_RING; c++) {
 			// Execute and free any remaining destroy lists
-			_skr_destroy_list_execute(&_skr_vk.thread_pools[i].cmd_ring[c].destroy_list);
-			_skr_destroy_list_free(&_skr_vk.thread_pools[i].cmd_ring[c].destroy_list);
+			_skr_destroy_list_execute(&_skr_vk.thread_pools[i]->cmd_ring[c].destroy_list);
+			_skr_destroy_list_free   (&_skr_vk.thread_pools[i]->cmd_ring[c].destroy_list);
 
-			vkDestroyFence(_skr_vk.device, _skr_vk.thread_pools[i].cmd_ring[c].fence, NULL);
+			vkDestroyFence(_skr_vk.device, _skr_vk.thread_pools[i]->cmd_ring[c].fence, NULL);
 		}
 
-		if (_skr_vk.thread_pools[i].cmd_pool != VK_NULL_HANDLE)
-			vkDestroyCommandPool(_skr_vk.device, _skr_vk.thread_pools[i].cmd_pool, NULL);
+		if (_skr_vk.thread_pools[i]->cmd_pool != VK_NULL_HANDLE)
+			vkDestroyCommandPool(_skr_vk.device, _skr_vk.thread_pools[i]->cmd_pool, NULL);
+
+		*_skr_vk.thread_pools[i] = (_skr_vk_thread_t){};
+		_skr_vk.thread_pools [i] = NULL;
+		_skr_vk.thread_pool_ct   = 0;
 	}
-}
-
-static _skr_thread_cmd_pool_t* _skr_get_thread_pool() {
-	pthread_t thread_self = (uint64_t)pthread_self();
-
-	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
-
-	// Find existing pool for this thread
-	for (uint32_t i = 0; i < skr_MAX_THREAD_POOLS; i++) {
-		if (_skr_vk.thread_pools[i].alive && pthread_equal(_skr_vk.thread_pools[i].thread_id, thread_self)) {
-			pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
-			return &_skr_vk.thread_pools[i];
-		}
-	}
-
-	// Create new pool for this thread
-	for (uint32_t i = 0; i < skr_MAX_THREAD_POOLS; i++) {
-		if (!_skr_vk.thread_pools[i].alive) {
-			VkCommandPoolCreateInfo pool_info = {
-				.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-				.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-				.queueFamilyIndex = _skr_vk.graphics_queue_family,  // Use graphics queue for main commands
-			};
-			if (vkCreateCommandPool(_skr_vk.device, &pool_info, NULL, &_skr_vk.thread_pools[i].cmd_pool) != VK_SUCCESS) {
-				pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
-				skr_log(skr_log_warning, "Failed to create thread command pool");
-				return NULL;
-			}
-
-			_skr_vk.thread_pools[i].alive          = true;
-			_skr_vk.thread_pools[i].thread_id      = thread_self;
-			_skr_vk.thread_pools[i].active_cmd     = VK_NULL_HANDLE;
-			_skr_vk.thread_pools[i].cmd_ring_index = 0;
-			_skr_vk.thread_pools[i].ref_count      = 0;
-
-			pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
-			return &_skr_vk.thread_pools[i];
-		}
-	}
-
 	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
-	skr_logf(skr_log_warning, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
-	return NULL;
 }
 
-static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_thread_cmd_pool_t* pool) {
+///////////////////////////////////////////////////////////////////////////////
+
+static _skr_vk_thread_t* _skr_command_get_thread() {
+	if (!_skr_thread.alive) {
+		if (_skr_vk.thread_pool_ct >= skr_MAX_THREAD_POOLS) {
+			skr_logf(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
+			return NULL;
+		}
+
+		skr_logf(skr_log_info, "Using thread #%d", _skr_vk.thread_pool_ct);
+
+		// Set up data for this thread
+		VkCommandPoolCreateInfo pool_info = {
+			.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+			.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+			.queueFamilyIndex = _skr_vk.graphics_queue_family,  // Use graphics queue for main commands
+		};
+		if (vkCreateCommandPool(_skr_vk.device, &pool_info, NULL, &_skr_thread.cmd_pool) != VK_SUCCESS) {
+			skr_log(skr_log_warning, "Failed to create thread command pool");
+			return NULL;
+		}
+		_skr_thread.alive          = true;
+		_skr_thread.active_cmd     = VK_NULL_HANDLE;
+		_skr_thread.cmd_ring_index = 0;
+		_skr_thread.ref_count      = 0;
+
+		// Register it in a list, so we can clean it all up on shutdown
+		pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
+		_skr_vk.thread_pools[_skr_vk.thread_pool_ct] = &_skr_thread;
+		_skr_vk.thread_pool_ct++;
+		pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
+	}
+	return &_skr_thread;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_vk_thread_t* pool) {
 	// Find available slot in the per-thread command ring
 	_skr_command_ring_slot_t* slot      = NULL;
 	uint32_t                  start_idx = pool->cmd_ring_index;
@@ -148,17 +155,19 @@ static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_thread_cmd_pool_t*
 ///////////////////////////////////////////////////////////////////////////////
 
 _skr_command_context_t _skr_command_begin() {
-	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
+	_skr_vk_thread_t* pool = _skr_command_get_thread();
 	assert(pool);
 	assert(pool->ref_count == 0 && "Ref count should be 0 at batch start");
 
 	return _skr_command_acquire();
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 bool _skr_command_try_get_active(_skr_command_context_t* out_ctx) {
 	*out_ctx = (_skr_command_context_t){};
 
-	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
+	_skr_vk_thread_t* pool = _skr_command_get_thread();
 	assert(pool);
 	
 	if (pool->active_cmd) {
@@ -171,8 +180,10 @@ bool _skr_command_try_get_active(_skr_command_context_t* out_ctx) {
 	return false;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 _skr_command_context_t _skr_command_acquire() {
-	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
+	_skr_vk_thread_t* pool = _skr_command_get_thread();
 	assert(pool);
 
 	if (pool->ref_count == 0)
@@ -185,8 +196,10 @@ _skr_command_context_t _skr_command_acquire() {
 	};
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 void _skr_command_release(VkCommandBuffer buffer) {
-	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
+	_skr_vk_thread_t* pool = _skr_command_get_thread();
 	assert(pool);
 
 	pool->ref_count--;
@@ -206,8 +219,10 @@ void _skr_command_release(VkCommandBuffer buffer) {
 	}
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 VkCommandBuffer _skr_command_end() {
-	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
+	_skr_vk_thread_t* pool = _skr_command_get_thread();
 	assert(pool);
 
 	pool->ref_count--;
@@ -216,8 +231,10 @@ VkCommandBuffer _skr_command_end() {
 	return pool->active_cmd->cmd;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 void _skr_command_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSemaphore* opt_signal_semaphore, VkFence* out_opt_fence) {
-	_skr_thread_cmd_pool_t* pool = _skr_get_thread_pool();
+	_skr_vk_thread_t* pool = _skr_command_get_thread();
 	assert(pool);
 
 	pool->ref_count--;

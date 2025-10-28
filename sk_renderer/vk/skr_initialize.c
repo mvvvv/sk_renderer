@@ -441,7 +441,7 @@ bool skr_init(skr_settings_t settings) {
 	_skr_pipeline_init();
 
 	// Initialize async upload system
-	if (!_skr_upload_init()) {
+	if (!_skr_command_init()) {
 		skr_log(skr_log_critical, "Failed to initialize upload system");
 		return false;
 	}
@@ -471,7 +471,7 @@ void skr_shutdown() {
 	skr_tex_destroy(&_skr_vk.default_tex_black);
 
 	// Shutdown upload system
-	_skr_upload_shutdown();
+	_skr_command_shutdown();
 
 	// Shutdown pipeline system
 	_skr_pipeline_shutdown();

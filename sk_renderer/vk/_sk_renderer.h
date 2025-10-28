@@ -64,7 +64,7 @@ typedef struct {
 	uint64_t                   thread_id;
 	int32_t                    ref_count;
 	bool                       alive;
-} _skr_thread_cmd_pool_t;
+} _skr_vk_thread_t;
 
 typedef struct {
 	VkDescriptorSet sets[64];      // Pool of descriptor sets
@@ -117,7 +117,8 @@ typedef struct {
 	VkQueue                  transfer_queue;
 	uint32_t                 transfer_queue_family;
 	bool                     has_dedicated_transfer;
-	_skr_thread_cmd_pool_t   thread_pools[skr_MAX_THREAD_POOLS];
+	_skr_vk_thread_t*        thread_pools[skr_MAX_THREAD_POOLS];
+	uint32_t                 thread_pool_ct;
 	pthread_mutex_t          thread_pool_mutex;
 
 	// Default assets
@@ -148,16 +149,6 @@ void            _skr_material_add_writes(const skr_material_bind_t* binds, uint3
 // Render list sorting
 void            _skr_render_list_sort(skr_render_list_t* list);
 
-// Async upload system
-bool                    _skr_upload_init           (void);
-void                    _skr_upload_shutdown       (void);
-_skr_command_context_t  _skr_command_begin         (void);
-bool                    _skr_command_try_get_active(_skr_command_context_t* out_ctx);
-VkCommandBuffer         _skr_command_end           (void);  // Ends and returns command buffer (caller must submit)
-void                    _skr_command_end_submit    (const VkSemaphore* opt_wait_semaphore, const VkSemaphore* opt_signal_semaphore, VkFence* out_opt_fence);  // Ends and submits with optional semaphores/fence
-_skr_command_context_t  _skr_command_acquire       (void);
-void                    _skr_command_release       (VkCommandBuffer buffer);
-
 // Debug
 void            _skr_set_debug_name          (VkObjectType type, uint64_t handle, const char* name);
 void            _skr_append_vertex_format    (char* str, size_t str_size, const skr_vert_component_t* components, uint32_t component_count);
@@ -173,6 +164,16 @@ void            _skr_tex_transition_queue_family   (VkCommandBuffer cmd, skr_tex
 void            _skr_tex_transition_notify_layout  (skr_tex_t* tex, VkImageLayout new_layout);  // Called after render pass implicit transitions
 bool            _skr_tex_needs_transition          (const skr_tex_t* tex, uint8_t type); // Check if texture needs transition for given type (0=shader_read, 1=storage)
 void            _skr_tex_transition_enqueue        (skr_tex_t* tex, uint8_t type); // Deferred texture transition queue (to avoid in-renderpass barriers) type: 0=shader_read, 1=storage
+
+// Command buffer management
+bool                    _skr_command_init          (void);
+void                    _skr_command_shutdown      (void);
+_skr_command_context_t  _skr_command_begin         (void);
+bool                    _skr_command_try_get_active(_skr_command_context_t* out_ctx);
+VkCommandBuffer         _skr_command_end           (void);  // Ends and returns command buffer (caller must submit)
+void                    _skr_command_end_submit    (const VkSemaphore* opt_wait_semaphore, const VkSemaphore* opt_signal_semaphore, VkFence* out_opt_fence);  // Ends and submits with optional semaphores/fence
+_skr_command_context_t  _skr_command_acquire       (void);
+void                    _skr_command_release       (VkCommandBuffer buffer);
 
 // Deferred destruction API
 skr_destroy_list_t _skr_destroy_list_create     (void);

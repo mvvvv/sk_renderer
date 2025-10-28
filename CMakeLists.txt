@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 project(sk_renderer VERSION 0.1.0 LANGUAGES CXX C)
 
+# For thread_local
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 include(FetchContent)
 
 ###############################################################################
