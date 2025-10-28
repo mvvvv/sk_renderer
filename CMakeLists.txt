@@ -63,7 +63,7 @@ target_sources            (sk_renderer PRIVATE
 	sk_renderer/vk/skr_pipeline.h
 	sk_renderer/vk/skr_pipeline.c
 	sk_renderer/vk/skr_compute.c
-	sk_renderer/vk/skr_upload.c
+	sk_renderer/vk/skr_command.c
 	sk_renderer/vk/skr_conversions.c
 	sk_renderer/vk/skr_debug.c
 	sk_renderer/vk/skr_destroy_list.c

@@ -120,9 +120,8 @@ skr_buffer_t skr_buffer_create(const void* data, uint32_t size_count, uint32_t s
 				.size = buffer.size,
 			});
 
-			_skr_destroy_list_add_buffer(ctx.destroy_list, staging_buffer);
-			_skr_destroy_list_add_memory(ctx.destroy_list, staging_memory);
-
+			_skr_command_destroy_buffer(ctx.destroy_list, staging_buffer);
+			_skr_command_destroy_memory(ctx.destroy_list, staging_memory);
 			_skr_command_release(ctx.cmd);
 		}
 	}
@@ -166,14 +165,8 @@ void skr_buffer_destroy(skr_buffer_t* buffer) {
 		buffer->mapped = NULL;
 	}
 
-	_skr_command_context_t ctx;
-	if (_skr_command_try_get_active(&ctx)){
-		_skr_destroy_list_add_buffer(ctx.destroy_list, buffer->buffer);
-		_skr_destroy_list_add_memory(ctx.destroy_list, buffer->memory);
-	} else {
-		vkDestroyBuffer(_skr_vk.device, buffer->buffer, NULL);
-		vkFreeMemory   (_skr_vk.device, buffer->memory, NULL);
-	}
+	_skr_command_destroy_buffer(NULL, buffer->buffer);
+	_skr_command_destroy_memory(NULL, buffer->memory);
 
 	memset(buffer, 0, sizeof(skr_buffer_t));
 }

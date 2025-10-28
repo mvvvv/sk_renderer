@@ -193,20 +193,12 @@ void _skr_pipeline_unregister_material(int32_t material_idx) {
 	if (material_idx < 0 || material_idx >= SKR_MAX_MATERIALS) return;
 	if (!_skr_pipeline_cache.materials[material_idx].active) return;
 
-	// Check if there's an active command buffer for deferred destruction
-	_skr_command_context_t ctx;
-	bool has_active_cmd = _skr_command_try_get_active(&ctx);
-
 	// Destroy all pipelines using this material
 	for (int32_t r = 0; r < SKR_MAX_RENDERPASSES; r++) {
 		for (int32_t v = 0; v < SKR_MAX_VERTFORMATS; v++) {
 			if (_skr_pipeline_cache.pipelines[material_idx][r][v].created &&
 			    _skr_pipeline_cache.pipelines[material_idx][r][v].pipeline != VK_NULL_HANDLE) {
-				if (has_active_cmd) {
-					_skr_destroy_list_add_pipeline(ctx.destroy_list, _skr_pipeline_cache.pipelines[material_idx][r][v].pipeline);
-				} else {
-					vkDestroyPipeline(_skr_vk.device, _skr_pipeline_cache.pipelines[material_idx][r][v].pipeline, NULL);
-				}
+				_skr_command_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[material_idx][r][v].pipeline);
 				_skr_pipeline_cache.pipelines[material_idx][r][v].pipeline = VK_NULL_HANDLE;
 				_skr_pipeline_cache.pipelines[material_idx][r][v].created  = false;
 			}
@@ -214,20 +206,8 @@ void _skr_pipeline_unregister_material(int32_t material_idx) {
 	}
 
 	// Destroy material resources
-	if (_skr_pipeline_cache.materials[material_idx].layout != VK_NULL_HANDLE) {
-		if (has_active_cmd) {
-			_skr_destroy_list_add_pipeline_layout(ctx.destroy_list, _skr_pipeline_cache.materials[material_idx].layout);
-		} else {
-			vkDestroyPipelineLayout(_skr_vk.device, _skr_pipeline_cache.materials[material_idx].layout, NULL);
-		}
-	}
-	if (_skr_pipeline_cache.materials[material_idx].descriptor_layout != VK_NULL_HANDLE) {
-		if (has_active_cmd) {
-			_skr_destroy_list_add_descriptor_set_layout(ctx.destroy_list, _skr_pipeline_cache.materials[material_idx].descriptor_layout);
-		} else {
-			vkDestroyDescriptorSetLayout(_skr_vk.device, _skr_pipeline_cache.materials[material_idx].descriptor_layout, NULL);
-		}
-	}
+	_skr_command_destroy_pipeline_layout      (NULL, _skr_pipeline_cache.materials[material_idx].layout);
+	_skr_command_destroy_descriptor_set_layout(NULL, _skr_pipeline_cache.materials[material_idx].descriptor_layout);
 
 	_skr_pipeline_cache.materials[material_idx].active = false;
 }

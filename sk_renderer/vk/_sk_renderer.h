@@ -168,6 +168,7 @@ void            _skr_tex_transition_enqueue        (skr_tex_t* tex, uint8_t type
 // Command buffer management
 bool                    _skr_command_init          (void);
 void                    _skr_command_shutdown      (void);
+_skr_vk_thread_t*       _skr_command_get_thread    (void);
 _skr_command_context_t  _skr_command_begin         (void);
 bool                    _skr_command_try_get_active(_skr_command_context_t* out_ctx);
 VkCommandBuffer         _skr_command_end           (void);  // Ends and returns command buffer (caller must submit)
@@ -182,23 +183,23 @@ void               _skr_destroy_list_execute    (skr_destroy_list_t* list);
 void               _skr_destroy_list_clear      (skr_destroy_list_t* list);
 
 // Add functions for each Vulkan resource type
-void _skr_destroy_list_add_buffer               (skr_destroy_list_t* list, VkBuffer                 handle);
-void _skr_destroy_list_add_image                (skr_destroy_list_t* list, VkImage                  handle);
-void _skr_destroy_list_add_image_view           (skr_destroy_list_t* list, VkImageView              handle);
-void _skr_destroy_list_add_sampler              (skr_destroy_list_t* list, VkSampler                handle);
-void _skr_destroy_list_add_framebuffer          (skr_destroy_list_t* list, VkFramebuffer            handle);
-void _skr_destroy_list_add_render_pass          (skr_destroy_list_t* list, VkRenderPass             handle);
-void _skr_destroy_list_add_pipeline             (skr_destroy_list_t* list, VkPipeline               handle);
-void _skr_destroy_list_add_pipeline_layout      (skr_destroy_list_t* list, VkPipelineLayout         handle);
-void _skr_destroy_list_add_pipeline_cache       (skr_destroy_list_t* list, VkPipelineCache          handle);
-void _skr_destroy_list_add_descriptor_set_layout(skr_destroy_list_t* list, VkDescriptorSetLayout    handle);
-void _skr_destroy_list_add_descriptor_pool      (skr_destroy_list_t* list, VkDescriptorPool         handle);
-void _skr_destroy_list_add_shader_module        (skr_destroy_list_t* list, VkShaderModule           handle);
-void _skr_destroy_list_add_command_pool         (skr_destroy_list_t* list, VkCommandPool            handle);
-void _skr_destroy_list_add_fence                (skr_destroy_list_t* list, VkFence                  handle);
-void _skr_destroy_list_add_semaphore            (skr_destroy_list_t* list, VkSemaphore              handle);
-void _skr_destroy_list_add_query_pool           (skr_destroy_list_t* list, VkQueryPool              handle);
-void _skr_destroy_list_add_swapchain            (skr_destroy_list_t* list, VkSwapchainKHR           handle);
-void _skr_destroy_list_add_surface              (skr_destroy_list_t* list, VkSurfaceKHR             handle);
-void _skr_destroy_list_add_debug_messenger      (skr_destroy_list_t* list, VkDebugUtilsMessengerEXT handle);
-void _skr_destroy_list_add_memory               (skr_destroy_list_t* list, VkDeviceMemory           handle);
+void _skr_command_destroy_buffer               (skr_destroy_list_t* opt_list, VkBuffer                 handle);
+void _skr_command_destroy_image                (skr_destroy_list_t* opt_list, VkImage                  handle);
+void _skr_command_destroy_image_view           (skr_destroy_list_t* opt_list, VkImageView              handle);
+void _skr_command_destroy_sampler              (skr_destroy_list_t* opt_list, VkSampler                handle);
+void _skr_command_destroy_framebuffer          (skr_destroy_list_t* opt_list, VkFramebuffer            handle);
+void _skr_command_destroy_render_pass          (skr_destroy_list_t* opt_list, VkRenderPass             handle);
+void _skr_command_destroy_pipeline             (skr_destroy_list_t* opt_list, VkPipeline               handle);
+void _skr_command_destroy_pipeline_layout      (skr_destroy_list_t* opt_list, VkPipelineLayout         handle);
+void _skr_command_destroy_pipeline_cache       (skr_destroy_list_t* opt_list, VkPipelineCache          handle);
+void _skr_command_destroy_descriptor_set_layout(skr_destroy_list_t* opt_list, VkDescriptorSetLayout    handle);
+void _skr_command_destroy_descriptor_pool      (skr_destroy_list_t* opt_list, VkDescriptorPool         handle);
+void _skr_command_destroy_shader_module        (skr_destroy_list_t* opt_list, VkShaderModule           handle);
+void _skr_command_destroy_command_pool         (skr_destroy_list_t* opt_list, VkCommandPool            handle);
+void _skr_command_destroy_fence                (skr_destroy_list_t* opt_list, VkFence                  handle);
+void _skr_command_destroy_semaphore            (skr_destroy_list_t* opt_list, VkSemaphore              handle);
+void _skr_command_destroy_query_pool           (skr_destroy_list_t* opt_list, VkQueryPool              handle);
+void _skr_command_destroy_swapchain            (skr_destroy_list_t* opt_list, VkSwapchainKHR           handle);
+void _skr_command_destroy_surface              (skr_destroy_list_t* opt_list, VkSurfaceKHR             handle);
+void _skr_command_destroy_debug_messenger      (skr_destroy_list_t* opt_list, VkDebugUtilsMessengerEXT handle);
+void _skr_command_destroy_memory               (skr_destroy_list_t* opt_list, VkDeviceMemory           handle);

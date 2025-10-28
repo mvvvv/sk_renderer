@@ -44,11 +44,11 @@ typedef enum {
 	#define MAKE_ENUM(name, type, func, owner) skr_destroy_type_##name,
 	FOREACH_DESTROY_TYPE(MAKE_ENUM)
 	#undef MAKE_ENUM
-} skr_destroy_type_t;
+} skr_destroy_type_;
 
 typedef struct {
-	skr_destroy_type_t type;
-	uint64_t           handle;
+	skr_destroy_type_ type;
+	uint64_t          handle;
 } skr_destroy_item_t;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -83,34 +83,39 @@ static void _skr_destroy_list_ensure_capacity(skr_destroy_list_t* list, uint32_t
 	list->capacity = new_capacity;
 }
 
+static void _skr_destroy_list_add(skr_destroy_list_t* list, uint64_t handle, skr_destroy_type_ type){
+	_skr_destroy_list_ensure_capacity(list, list->count + 1);
+
+	skr_destroy_item_t* items = (skr_destroy_item_t*)list->items;
+	items[list->count++] = (skr_destroy_item_t){
+		.type   = type,
+		.handle = handle,
+	};
+}
+
+static void _skr_destroy_list_destroy(uint64_t handle, skr_destroy_type_ type) {
+	switch (type) {
+		#define MAKE_CASE(name, vk_type, destroy_func, owner) case skr_destroy_type_##name: destroy_func(_skr_vk.owner, (vk_type)handle, NULL); break;
+		FOREACH_DESTROY_TYPE(MAKE_CASE)
+		#undef MAKE_CASE
+	}
+}
+
 #define MAKE_ADD_FUNCTION(name, vk_type, func, owner) \
-void _skr_destroy_list_add_##name(skr_destroy_list_t* list, vk_type handle) { \
-	_skr_destroy_list_ensure_capacity(list, list->count + 1); \
-	skr_destroy_item_t* items = (skr_destroy_item_t*)list->items; \
-	items[list->count++] = (skr_destroy_item_t){ \
-		.type   = skr_destroy_type_##name, \
-		.handle = (uint64_t)handle, \
-	}; \
+void _skr_command_destroy_##name(skr_destroy_list_t* opt_list, vk_type handle) { \
+	if (handle == VK_NULL_HANDLE) return; \
+	if (opt_list == NULL) { _skr_command_ring_slot_t* active = _skr_command_get_thread()->active_cmd; opt_list = active ? &active->destroy_list : NULL; } \
+	if (opt_list == NULL) { _skr_destroy_list_destroy(          (uint64_t)handle, skr_destroy_type_##name); } \
+	else                  { _skr_destroy_list_add    (opt_list, (uint64_t)handle, skr_destroy_type_##name); } \
 }
 FOREACH_DESTROY_TYPE(MAKE_ADD_FUNCTION)
 #undef MAKE_ADD_FUNCTION
 
 void _skr_destroy_list_execute(skr_destroy_list_t* list) {
-	if (!list || list->count == 0) return;
-
-	skr_destroy_item_t* items = (skr_destroy_item_t*)list->items;
-
 	// Execute in reverse order (LIFO - last in, first out)
-	for (int32_t i = list->count - 1; i >= 0; i--) {
-		skr_destroy_item_t* item = &items[i];
-		if (item->handle == (uint64_t)VK_NULL_HANDLE) continue;
-
-		switch (item->type) {
-			#define MAKE_CASE(name, vk_type, destroy_func, owner) case skr_destroy_type_##name: destroy_func(_skr_vk.owner, (vk_type)item->handle, NULL); break;
-			FOREACH_DESTROY_TYPE(MAKE_CASE)
-			#undef MAKE_CASE
-		}
-	}
+	skr_destroy_item_t* items = (skr_destroy_item_t*)list->items;
+	for (int32_t i = list->count - 1; i >= 0; i--)
+		_skr_destroy_list_destroy(items[i].handle, items[i].type);
 }
 
 void _skr_destroy_list_clear(skr_destroy_list_t* list) {

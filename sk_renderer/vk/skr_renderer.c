@@ -507,8 +507,8 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 			vkCmdEndRenderPass(ctx.cmd);
 
 			// Queue per-layer resources for deferred destruction
-			_skr_destroy_list_add_framebuffer(ctx.destroy_list, framebuffer);
-			_skr_destroy_list_add_image_view (ctx.destroy_list, layer_view);
+			_skr_command_destroy_framebuffer(ctx.destroy_list, framebuffer);
+			_skr_command_destroy_image_view (ctx.destroy_list, layer_view);
 		}
 	} else {
 		// Regular 2D texture - use cached framebuffer

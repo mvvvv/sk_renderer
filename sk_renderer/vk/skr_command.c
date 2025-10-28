@@ -53,7 +53,7 @@ void _skr_command_shutdown() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static _skr_vk_thread_t* _skr_command_get_thread() {
+_skr_vk_thread_t* _skr_command_get_thread() {
 	if (!_skr_thread.alive) {
 		if (_skr_vk.thread_pool_ct >= skr_MAX_THREAD_POOLS) {
 			skr_logf(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);

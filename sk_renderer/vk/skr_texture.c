@@ -977,7 +977,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				skr_log(skr_log_warning, "Failed to create target mip image view");
 				continue;
 			}
-			_skr_destroy_list_add_image_view(ctx.destroy_list, mip_view);
+			_skr_command_destroy_image_view(ctx.destroy_list, mip_view);
 		}
 
 		// Create framebuffer for this mip level
@@ -996,7 +996,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				skr_log(skr_log_warning, "Failed to create framebuffer for mip level");
 				continue;
 			}
-			_skr_destroy_list_add_framebuffer(ctx.destroy_list, framebuffer);
+			_skr_command_destroy_framebuffer(ctx.destroy_list, framebuffer);
 		}
 
 		// Create image view for the previous mip level (source)
@@ -1019,7 +1019,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				skr_log(skr_log_warning, "Failed to create source mip image view");
 				continue;
 			}
-			_skr_destroy_list_add_image_view(ctx.destroy_list, src_view);
+			_skr_command_destroy_image_view(ctx.destroy_list, src_view);
 		}
 
 		// Transition current mip to color attachment (automatic tracking handles UNDEFINED vs previous layout)

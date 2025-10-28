@@ -134,18 +134,10 @@ skr_bind_t skr_compute_get_bind(const skr_compute_t* compute, const char* bind_n
 void skr_compute_destroy(skr_compute_t* compute) {
 	if (!compute) return;
 
-	_skr_command_context_t ctx;
-	if (_skr_command_try_get_active(&ctx)) {
-		// Deferred deletion: queue resources to command's destroy list
-		if (compute->pipeline          != VK_NULL_HANDLE) _skr_destroy_list_add_pipeline             (ctx.destroy_list, compute->pipeline);
-		if (compute->layout            != VK_NULL_HANDLE) _skr_destroy_list_add_pipeline_layout      (ctx.destroy_list, compute->layout);
-		if (compute->descriptor_layout != VK_NULL_HANDLE) _skr_destroy_list_add_descriptor_set_layout(ctx.destroy_list, compute->descriptor_layout);
-	} else {
-		// No active command: destroy immediately
-		if (compute->pipeline          != VK_NULL_HANDLE) vkDestroyPipeline            (_skr_vk.device, compute->pipeline,          NULL);
-		if (compute->layout            != VK_NULL_HANDLE) vkDestroyPipelineLayout      (_skr_vk.device, compute->layout,            NULL);
-		if (compute->descriptor_layout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(_skr_vk.device, compute->descriptor_layout, NULL);
-	}
+	_skr_command_destroy_pipeline             (NULL, compute->pipeline);
+	_skr_command_destroy_pipeline_layout      (NULL, compute->layout);
+	_skr_command_destroy_descriptor_set_layout(NULL, compute->descriptor_layout);
+
 
 	free(compute->binds);
 

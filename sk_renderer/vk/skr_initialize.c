@@ -61,7 +61,7 @@ static bool _skr_vk_create_debug_messenger() {
 		.pfnUserCallback = _skr_vk_debug_callback,
 	};
 	if (vkCreateDebugUtilsMessengerEXT(_skr_vk.instance, &create_info, NULL, &_skr_vk.debug_messenger) == VK_SUCCESS) {
-		_skr_destroy_list_add_debug_messenger(&_skr_vk.destroy_list, _skr_vk.debug_messenger);
+		_skr_command_destroy_debug_messenger(&_skr_vk.destroy_list, _skr_vk.debug_messenger);
 		return true;
 	}
 	return false;
@@ -358,7 +358,7 @@ bool skr_init(skr_settings_t settings) {
 		skr_log(skr_log_critical, "Failed to create command pool");
 		return false;
 	}
-	_skr_destroy_list_add_command_pool(&_skr_vk.destroy_list, _skr_vk.command_pool);
+	_skr_command_destroy_command_pool(&_skr_vk.destroy_list, _skr_vk.command_pool);
 
 	// Allocate command buffers (one per frame in flight)
 	VkCommandBufferAllocateInfo alloc_info = {
@@ -384,7 +384,7 @@ bool skr_init(skr_settings_t settings) {
 			skr_logf(skr_log_critical, "Failed to create frame fence %d", i);
 			return false;
 		}
-		_skr_destroy_list_add_fence(&_skr_vk.destroy_list, _skr_vk.frame_fences[i]);
+		_skr_command_destroy_fence(&_skr_vk.destroy_list, _skr_vk.frame_fences[i]);
 	}
 
 	// Create timestamp query pool (2 queries per frame in flight)
@@ -398,7 +398,7 @@ bool skr_init(skr_settings_t settings) {
 		skr_log(skr_log_critical, "Failed to create timestamp query pool");
 		return false;
 	}
-	_skr_destroy_list_add_query_pool(&_skr_vk.destroy_list, _skr_vk.timestamp_pool);
+	_skr_command_destroy_query_pool(&_skr_vk.destroy_list, _skr_vk.timestamp_pool);
 
 	for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++) {
 		_skr_vk.timestamps_valid[i] = false;
@@ -413,7 +413,7 @@ bool skr_init(skr_settings_t settings) {
 		skr_log(skr_log_critical, "Failed to create pipeline cache");
 		return false;
 	}
-	_skr_destroy_list_add_pipeline_cache(&_skr_vk.destroy_list, _skr_vk.pipeline_cache);
+	_skr_command_destroy_pipeline_cache(&_skr_vk.destroy_list, _skr_vk.pipeline_cache);
 
 	// Create descriptor pool for compute shaders
 	VkDescriptorPoolSize pool_sizes[] = {
@@ -435,7 +435,7 @@ bool skr_init(skr_settings_t settings) {
 		skr_log(skr_log_critical, "Failed to create descriptor pool");
 		return false;
 	}
-	_skr_destroy_list_add_descriptor_pool(&_skr_vk.destroy_list, _skr_vk.descriptor_pool);
+	_skr_command_destroy_descriptor_pool(&_skr_vk.destroy_list, _skr_vk.descriptor_pool);
 
 	// Initialize pipeline cache system
 	_skr_pipeline_init();
