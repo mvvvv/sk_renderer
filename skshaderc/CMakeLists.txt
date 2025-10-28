@@ -26,7 +26,6 @@
 # file.
 
 cmake_minimum_required(VERSION 3.10)
-set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 set(CMAKE_CXX_STANDARD 17)
 project(skshaderc VERSION 1.0 DESCRIPTION "Shader compiler for sk_renderer" LANGUAGES CXX)
 
@@ -123,21 +122,54 @@ target_sources(skshaderc PRIVATE
 )
 target_include_directories(skshaderc PRIVATE ../sk_renderer/include)
 
-set(SKSHADERC_EXE_NAME "skshaderc_exe")
-set_target_properties(skshaderc PROPERTIES OUTPUT_NAME ${SKSHADERC_EXE_NAME})
 set_target_properties(skshaderc PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 
-#if (NOT MSVC AND NOT APPLE)
-#    add_custom_command(TARGET skshaderc POST_BUILD
-#        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:skshaderc> $<TARGET_FILE_DIR:skshaderc>/$<TARGET_FILE_BASE_NAME:skshaderc>.dbg
-#        COMMAND ${CMAKE_STRIP} --strip-debug $<TARGET_FILE:skshaderc>
-#        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE_DIR:skshaderc>/$<TARGET_FILE_BASE_NAME:skshaderc>.dbg $<TARGET_FILE:skshaderc>
-#    )
-#endif()
+if (NOT MSVC AND NOT APPLE)
+    add_custom_command(TARGET skshaderc POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:skshaderc> $<TARGET_FILE_DIR:skshaderc>/$<TARGET_FILE_BASE_NAME:skshaderc>.dbg
+        COMMAND ${CMAKE_STRIP} --strip-debug $<TARGET_FILE:skshaderc>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE_DIR:skshaderc>/$<TARGET_FILE_BASE_NAME:skshaderc>.dbg $<TARGET_FILE:skshaderc>
+    )
+endif()
 
 set(SKSHADERC_EXE_PATH $<TARGET_FILE:skshaderc> PARENT_SCOPE)
+
+###############################################################################
+# Install skshaderc binary to bin/tools/{platform}/ for distribution
+###############################################################################
+
+# Determine the platform-specific installation directory
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+	if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
+		set(SKSHADERC_INSTALL_SUBDIR "tools/win32_x64")
+	elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
+		set(SKSHADERC_INSTALL_SUBDIR "tools/win32_arm64")
+	endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+	set(SKSHADERC_INSTALL_SUBDIR "tools/mac")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+	if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+		set(SKSHADERC_INSTALL_SUBDIR "tools/linux_x64")
+	elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+		set(SKSHADERC_INSTALL_SUBDIR "tools/linux_arm64")
+	endif()
+endif()
+
+# Add a custom target to copy the binary to bin/ in the repository root
+if(DEFINED SKSHADERC_INSTALL_SUBDIR)
+	set(SKSHADERC_BIN_DIR "${CMAKE_SOURCE_DIR}/bin/${SKSHADERC_INSTALL_SUBDIR}")
+	add_custom_command(TARGET skshaderc POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E make_directory "${SKSHADERC_BIN_DIR}"
+		COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:skshaderc> "${SKSHADERC_BIN_DIR}/"
+		COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.distribute.txt" "${CMAKE_SOURCE_DIR}/bin/CMakeLists.txt"
+		COMMENT "Installing skshaderc to ${SKSHADERC_BIN_DIR}"
+	)
+	message(STATUS "skshaderc will be copied to: ${SKSHADERC_BIN_DIR}")
+else()
+	message(WARNING "Unknown platform for skshaderc installation: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
 
 # functions for compiling shaders easily
 function(SKSHADERC_COMPILE_ASSETS TARGET OUT_PATH COMMAND_STRING OUT_LIST)

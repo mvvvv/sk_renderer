@@ -37,20 +37,30 @@ else()
 endif()
 
 # functions for compiling shaders easily
-function(SKSHADERC_COMPILE_ASSETS TARGET COMMAND_STRING OUT_LIST)
+function(SKSHADERC_COMPILE_ASSETS TARGET OUT_PATH COMMAND_STRING OUT_LIST)
     message(STATUS "sk_gpu compiling shader assets with args '${SKSHADERC_EXE_PATH} ${COMMAND_STRING}'")
-    set(SKSHADERC_COMPILE_COMMANDS ${COMMAND_STRING})
+    set(SKSHADERC_COMPILE_COMMANDS "-o ${OUT_PATH} -e ${COMMAND_STRING}")
     separate_arguments(SKSHADERC_COMPILE_COMMANDS)
 
     set(SHADER_LIST)
+    set(COMPILED_SHADERS)
+
     foreach(SHADER IN LISTS ARGN)
+        get_filename_component(SHADER_NAME ${SHADER} NAME)
+        set(COMPILED_SHADER "${OUT_PATH}/${SHADER_NAME}.sks")
+
         add_custom_command(
-            TARGET ${TARGET} PRE_BUILD
+            OUTPUT ${COMPILED_SHADER}
             COMMAND ${WINE} ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
             VERBATIM
         )
         list(APPEND SHADER_LIST ${SHADER})
+        list(APPEND COMPILED_SHADERS ${COMPILED_SHADER})
     endforeach(SHADER)
+
+    add_custom_target(${TARGET}_shaders DEPENDS ${COMPILED_SHADERS})
+    add_dependencies(${TARGET} ${TARGET}_shaders)
 
     set(${OUT_LIST} ${SHADER_LIST} PARENT_SCOPE)
 endfunction()

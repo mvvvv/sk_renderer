@@ -16,10 +16,14 @@ bool app_read_file(const char* filename, void** out_data, size_t* out_size) {
 #ifdef __ANDROID__
 	// Use SDL's RWops to read from Android assets
 	SDL_RWops* rw = SDL_RWFromFile(filename, "rb");
-	if (!rw) return false;
+	if (!rw) {
+		skr_logf(skr_log_critical, "Failed to open file '%s': %s", filename, SDL_GetError());
+		return false;
+	}
 
 	Sint64 size = SDL_RWsize(rw);
 	if (size < 0) {
+		skr_logf(skr_log_critical, "Failed to get size of file '%s': %s", filename, SDL_GetError());
 		SDL_RWclose(rw);
 		return false;
 	}
@@ -27,6 +31,7 @@ bool app_read_file(const char* filename, void** out_data, size_t* out_size) {
 	*out_size = (size_t)size;
 	*out_data = malloc(*out_size);
 	if (*out_data == NULL) {
+		skr_logf(skr_log_critical, "Failed to allocate %zu bytes for file '%s'", *out_size, filename);
 		SDL_RWclose(rw);
 		*out_size = 0;
 		return false;
@@ -35,7 +40,15 @@ bool app_read_file(const char* filename, void** out_data, size_t* out_size) {
 	size_t bytes_read = SDL_RWread(rw, *out_data, 1, *out_size);
 	SDL_RWclose(rw);
 
-	return bytes_read == *out_size;
+	if (bytes_read != *out_size) {
+		skr_logf(skr_log_critical, "Failed to read file '%s': expected %zu bytes, got %zu", filename, *out_size, bytes_read);
+		free(*out_data);
+		*out_data = NULL;
+		*out_size = 0;
+		return false;
+	}
+
+	return true;
 #else
 	// Try to open the file directly first
 	FILE* fp = fopen(filename, "rb");
@@ -44,7 +57,10 @@ bool app_read_file(const char* filename, void** out_data, size_t* out_size) {
 	if (fp == NULL) {
 		char exe_path[1024];
 		ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-		if (len == -1) return false;
+		if (len == -1) {
+			skr_logf(skr_log_critical, "Failed to read executable path for file '%s'", filename);
+			return false;
+		}
 		exe_path[len] = '\0';
 
 		char* last_slash = strrchr(exe_path, '/');
@@ -55,7 +71,10 @@ bool app_read_file(const char* filename, void** out_data, size_t* out_size) {
 		snprintf(full_path, sizeof(full_path), "%s/%s", exe_path, filename);
 
 		fp = fopen(full_path, "rb");
-		if (fp == NULL) return false;
+		if (fp == NULL) {
+			skr_logf(skr_log_critical, "Failed to open file '%s' (tried '%s' and '%s')", filename, filename, full_path);
+			return false;
+		}
 	}
 
 	fseek(fp, 0L, SEEK_END);
@@ -64,6 +83,7 @@ bool app_read_file(const char* filename, void** out_data, size_t* out_size) {
 
 	*out_data = malloc(*out_size);
 	if (*out_data == NULL) {
+		skr_logf(skr_log_critical, "Failed to allocate %zu bytes for file '%s'", *out_size, filename);
 		*out_size = 0;
 		fclose(fp);
 		return false;

@@ -176,7 +176,7 @@ add_custom_command(
 # Assemble the base APK, resources and assets
 add_custom_command(
 	DEPENDS
-		${CMAKE_SOURCE_DIR}/assets
+		${CMAKE_BINARY_DIR}/assets
 		${APK_TEMP}/obj/classes.dex
 		${APK_TEMP}/obj/apk_resources.zip
 		${APK_TEMP}/obj/AndroidManifest.xml
@@ -186,7 +186,7 @@ add_custom_command(
 	COMMAND ${AAPT2} link # Link all the files into an APK
 		-o ${APK_BASE}
 		--manifest ${APK_TEMP}/obj/AndroidManifest.xml
-		-A ${CMAKE_SOURCE_DIR}/assets
+		-A ${CMAKE_BINARY_DIR}/assets
 		-I ${ANDROID_SDK_ROOT}/platforms/android-${CMAKE_SYSTEM_VERSION}/android.jar
 		${APK_TEMP}/obj/apk_resources.zip
 	COMMAND cd ${APK_TEMP}/obj

@@ -1,9 +1,20 @@
 cmake_minimum_required(VERSION 3.10)
 project(sk_renderer VERSION 0.1.0 LANGUAGES CXX C)
 
-add_subdirectory(skshaderc)
-
 include(FetchContent)
+
+###############################################################################
+# skshaderc shader compiler
+###############################################################################
+
+if(ANDROID)
+	# For Android builds, use pre-built skshaderc from bin/
+	# (Build the host binary first with a native build)
+	add_subdirectory(${CMAKE_SOURCE_DIR}/bin bin_tools)
+else()
+	# Native builds: build skshaderc from source
+	add_subdirectory(skshaderc)
+endif()
 
 ###############################################################################
 # sk_renderer library
@@ -117,11 +128,11 @@ target_sources            (sk_renderer_test PRIVATE
 )
 
 if(ANDROID)
-	set(ASSET_PATH ${CMAKE_BINARY_DIR}/asssets/shaders/) # Is this right?
+	set(ASSET_PATH ${CMAKE_BINARY_DIR}/assets)
 else()
-	set(ASSET_PATH ${CMAKE_BINARY_DIR}/shaders/)
+	set(ASSET_PATH ${CMAKE_BINARY_DIR})
 endif()
-skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH} ""
+skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH}/shaders ""
     example/assets/shaders/bloom_composite.hlsl
     example/assets/shaders/bloom_downsample.hlsl
     example/assets/shaders/bloom_upsample.hlsl
@@ -175,5 +186,5 @@ endif()
 # Copy Assets to the folder with the executable, so the primary project targets
 # can just run without helpers too.
 add_custom_command(TARGET sk_renderer_test POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/example/assets $<TARGET_FILE_DIR:${PROJECT_NAME}>
+	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/example/assets ${ASSET_PATH}
 	COMMENT "Copying App Assets")
