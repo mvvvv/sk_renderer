@@ -236,33 +236,31 @@ skr_surface_t skr_surface_create(void* vk_surface_khr) {
 void skr_surface_destroy(skr_surface_t* surface) {
 	if (!surface) return;
 
-	vkDeviceWaitIdle(_skr_vk.device);
+	//vkDeviceWaitIdle(_skr_vk.device);
 
 	// Destroy per-frame synchronization objects
-	for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++) {
-		if (surface->semaphore_acquire[i]) vkDestroySemaphore(_skr_vk.device, surface->semaphore_acquire[i], NULL);
-	}
+	for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++)
+		_skr_command_destroy_semaphore(NULL, surface->semaphore_acquire[i]);
 
 	// Destroy per-image synchronization objects
 	if (surface->semaphore_submit) {
-		for (uint32_t i = 0; i < surface->image_count; i++) {
-			if (surface->semaphore_submit[i]) vkDestroySemaphore(_skr_vk.device, surface->semaphore_submit[i], NULL);
-		}
+		for (uint32_t i = 0; i < surface->image_count; i++)
+			_skr_command_destroy_semaphore(NULL, surface->semaphore_submit[i]);
 		free(surface->semaphore_submit);
 	}
 
 	// Destroy image views and cached framebuffers
 	if (surface->images) {
 		for (uint32_t i = 0; i < surface->image_count; i++) {
-			if (surface->images[i].framebuffer)       vkDestroyFramebuffer(_skr_vk.device, surface->images[i].framebuffer,       NULL);
-			if (surface->images[i].framebuffer_depth) vkDestroyFramebuffer(_skr_vk.device, surface->images[i].framebuffer_depth, NULL);
-			if (surface->images[i].view)              vkDestroyImageView  (_skr_vk.device, surface->images[i].view,              NULL);
+			_skr_command_destroy_framebuffer(NULL, surface->images[i].framebuffer);
+			_skr_command_destroy_framebuffer(NULL, surface->images[i].framebuffer_depth);
+			_skr_command_destroy_image_view (NULL, surface->images[i].view);
 		}
 		free(surface->images);
 	}
 
-	if (surface->swapchain) vkDestroySwapchainKHR(_skr_vk.device, surface->swapchain, NULL);
-	if (surface->surface)   vkDestroySurfaceKHR  (_skr_vk.instance, surface->surface, NULL);
+	_skr_command_destroy_surface  (NULL, surface->surface  );
+	_skr_command_destroy_swapchain(NULL, surface->swapchain);
 }
 
 void skr_surface_resize(skr_surface_t* surface) {

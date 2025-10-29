@@ -34,10 +34,10 @@ skr_shader_stage_t _skr_shader_stage_create(const void* shader_data, size_t shad
 }
 
 void _skr_shader_stage_destroy(skr_shader_stage_t* stage) {
-	if (!stage || stage->shader == VK_NULL_HANDLE) return;
+	if (!stage) return;
 
-	vkDestroyShaderModule(_skr_vk.device, stage->shader, NULL);
-	memset(stage, 0, sizeof(skr_shader_stage_t));
+	_skr_command_destroy_shader_module(NULL, stage->shader);
+	*stage = (skr_shader_stage_t){};
 }
 
 skr_shader_stage_t _skr_shader_file_create_stage(const sksc_shader_file_t* file, skr_stage_ stage) {

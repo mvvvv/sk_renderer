@@ -11,6 +11,7 @@
 #include <threads.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -33,56 +34,62 @@ void _skr_command_shutdown() {
 	// Destroy thread command pools and per-thread command ring fences
 	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
 	for (uint32_t i = 0; i < _skr_vk.thread_pool_ct; i++) {
+		_skr_vk_thread_t *thread = _skr_vk.thread_pools[i];
+
 		for (uint32_t c = 0; c < skr_MAX_COMMAND_RING; c++) {
 			// Execute and free any remaining destroy lists
-			_skr_destroy_list_execute(&_skr_vk.thread_pools[i]->cmd_ring[c].destroy_list);
-			_skr_destroy_list_free   (&_skr_vk.thread_pools[i]->cmd_ring[c].destroy_list);
+			_skr_destroy_list_execute(&thread->cmd_ring[c].destroy_list);
+			_skr_destroy_list_free   (&thread->cmd_ring[c].destroy_list);
 
-			vkDestroyFence(_skr_vk.device, _skr_vk.thread_pools[i]->cmd_ring[c].fence, NULL);
+			vkDestroyFence(_skr_vk.device, thread->cmd_ring[c].fence, NULL);
 		}
 
-		if (_skr_vk.thread_pools[i]->cmd_pool != VK_NULL_HANDLE)
-			vkDestroyCommandPool(_skr_vk.device, _skr_vk.thread_pools[i]->cmd_pool, NULL);
+		if (thread->cmd_pool != VK_NULL_HANDLE)
+			vkDestroyCommandPool(_skr_vk.device, thread->cmd_pool, NULL);
 
-		*_skr_vk.thread_pools[i] = (_skr_vk_thread_t){};
-		_skr_vk.thread_pools [i] = NULL;
-		_skr_vk.thread_pool_ct   = 0;
+		*thread = (_skr_vk_thread_t){};
+		_skr_vk.thread_pools[i] = NULL;
 	}
+	_skr_vk.thread_pool_ct = 0;
 	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
 _skr_vk_thread_t* _skr_command_get_thread() {
-	if (!_skr_thread.alive) {
-		if (_skr_vk.thread_pool_ct >= skr_MAX_THREAD_POOLS) {
-			skr_logf(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
-			return NULL;
-		}
+	if (_skr_thread.alive) return &_skr_thread;
 
-		skr_logf(skr_log_info, "Using thread #%d", _skr_vk.thread_pool_ct);
-
-		// Set up data for this thread
-		VkCommandPoolCreateInfo pool_info = {
-			.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-			.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-			.queueFamilyIndex = _skr_vk.graphics_queue_family,  // Use graphics queue for main commands
-		};
-		if (vkCreateCommandPool(_skr_vk.device, &pool_info, NULL, &_skr_thread.cmd_pool) != VK_SUCCESS) {
-			skr_log(skr_log_warning, "Failed to create thread command pool");
-			return NULL;
-		}
-		_skr_thread.alive          = true;
-		_skr_thread.active_cmd     = VK_NULL_HANDLE;
-		_skr_thread.cmd_ring_index = 0;
-		_skr_thread.ref_count      = 0;
-
-		// Register it in a list, so we can clean it all up on shutdown
-		pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
-		_skr_vk.thread_pools[_skr_vk.thread_pool_ct] = &_skr_thread;
-		_skr_vk.thread_pool_ct++;
-		pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
+	if (_skr_vk.thread_pool_ct >= skr_MAX_THREAD_POOLS) {
+		skr_logf(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
+		return NULL;
 	}
+
+	// Set up data for this thread
+	VkResult vr = vkCreateCommandPool(_skr_vk.device, &(VkCommandPoolCreateInfo){
+		.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+		.queueFamilyIndex = _skr_vk.graphics_queue_family,  // Use graphics queue for main commands
+	}, NULL, &_skr_thread.cmd_pool);
+	SKR_VK_CHECK(vr, "vkCreateCommandPool", NULL);
+
+	_skr_thread.alive          = true;
+	_skr_thread.active_cmd     = VK_NULL_HANDLE;
+	_skr_thread.cmd_ring_index = 0;
+	_skr_thread.ref_count      = 0;
+
+	// Register it in a list, so we can clean it all up on shutdown
+	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
+	_skr_thread.thread_idx = _skr_vk.thread_pool_ct;
+	_skr_vk.thread_pools[_skr_vk.thread_pool_ct] = &_skr_thread;
+	_skr_vk.thread_pool_ct++;
+	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
+
+	char name[64];
+	snprintf(name,sizeof(name), "CommandPool_thr%d", _skr_thread.thread_idx);
+	_skr_set_debug_name(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)_skr_thread.cmd_pool, name);
+
+	skr_logf(skr_log_info, "Using thread #%d", _skr_vk.thread_pool_ct);
+
 	return &_skr_thread;
 }
 
@@ -93,8 +100,9 @@ static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_vk_thread_t* pool)
 	_skr_command_ring_slot_t* slot      = NULL;
 	uint32_t                  start_idx = pool->cmd_ring_index;
 
+	uint32_t idx;
 	for (uint32_t i = 0; i < skr_MAX_COMMAND_RING; i++) {
-		uint32_t                  idx  = (start_idx + i) % skr_MAX_COMMAND_RING;
+		idx = (start_idx + i) % skr_MAX_COMMAND_RING;
 		_skr_command_ring_slot_t* curr = &pool->cmd_ring[idx];
 
 		// Use this slot if available
@@ -108,7 +116,7 @@ static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_vk_thread_t* pool)
 
 	// If no slots available, wait for oldest one
 	if (!slot) {
-		uint32_t                  idx  = start_idx;
+		idx = start_idx;
 		_skr_command_ring_slot_t* curr = &pool->cmd_ring[idx];
 
 		vkWaitForFences(_skr_vk.device, 1, &curr->fence, VK_TRUE, UINT64_MAX);
@@ -123,7 +131,7 @@ static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_vk_thread_t* pool)
 		if (fence_status == VK_SUCCESS) {
 			// Fence is signaled, execute the destroy list
 			_skr_destroy_list_execute(&slot->destroy_list);
-			_skr_destroy_list_clear(&slot->destroy_list);
+			_skr_destroy_list_clear  (&slot->destroy_list);
 		}
 	}
 
@@ -139,6 +147,13 @@ static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_vk_thread_t* pool)
 			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 		}, NULL, &slot->fence);
 		slot->destroy_list = _skr_destroy_list_create();
+
+		char name[64];
+		snprintf(name,sizeof(name), "CommandBuffer_thr%d_%d", pool->thread_idx, idx);
+		_skr_set_debug_name(VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)slot->cmd, name);
+
+		snprintf(name,sizeof(name), "Command_Fence_thr%d_%d", pool->thread_idx, idx);
+		_skr_set_debug_name(VK_OBJECT_TYPE_FENCE, (uint64_t)slot->fence, name);
 	} else {
 		vkResetCommandBuffer(slot->cmd, 0);
 		vkResetFences       (_skr_vk.device, 1, &slot->fence);

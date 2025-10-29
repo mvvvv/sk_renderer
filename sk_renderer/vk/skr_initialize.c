@@ -31,9 +31,11 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL _skr_vk_debug_callback(
 	const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
 	void*                                       user_data) {
 
-	if (callback_data->messageIdNumber == -60244330) return VK_FALSE;
-	if (callback_data->messageIdNumber == 533026821) return VK_FALSE; // gl_Layer ?
-	if (callback_data->messageIdNumber == 115483881) return VK_FALSE; // Geometry shader req, might need attention
+	if (callback_data->messageIdNumber == -1744492148) return VK_FALSE; // vkCreateGraphicsPipelines: pCreateInfos[] Inside the fragment shader, it writes to output Location X but there is no VkSubpassDescription::pColorAttachments[X] and this write is unused. Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
+	if (callback_data->messageIdNumber == -937765618 ) return VK_FALSE; // vkCreateGraphicsPipelines: pCreateInfos[].pVertexInputState Vertex attribute at location X not consumed by shader.
+	if (callback_data->messageIdNumber == -60244330  ) return VK_FALSE;
+	if (callback_data->messageIdNumber ==  533026821 ) return VK_FALSE; // gl_Layer ?
+	if (callback_data->messageIdNumber ==  115483881 ) return VK_FALSE; // Geometry shader req, might need attention
 
 	const char *severity_str = severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT ? "VERBOSE" :
 							   severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT    ? "INFO"    :
@@ -60,11 +62,12 @@ static bool _skr_vk_create_debug_messenger() {
 						   VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
 		.pfnUserCallback = _skr_vk_debug_callback,
 	};
-	if (vkCreateDebugUtilsMessengerEXT(_skr_vk.instance, &create_info, NULL, &_skr_vk.debug_messenger) == VK_SUCCESS) {
-		_skr_command_destroy_debug_messenger(&_skr_vk.destroy_list, _skr_vk.debug_messenger);
-		return true;
-	}
-	return false;
+
+	VkResult vr = vkCreateDebugUtilsMessengerEXT(_skr_vk.instance, &create_info, NULL, &_skr_vk.debug_messenger);
+	SKR_VK_CHECK(vr, "vkCreateDebugUtilsMessengerEXT", false);
+
+	_skr_command_destroy_debug_messenger(&_skr_vk.destroy_list, _skr_vk.debug_messenger);
+	return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -84,10 +87,8 @@ bool skr_init(skr_settings_t settings) {
 	_skr_vk.destroy_list              = _skr_destroy_list_create();
 
 	// Initialize volk
-	if (volkInitialize() != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to initialize volk");
-		return false;
-	}
+	VkResult vr = volkInitialize();
+	SKR_VK_CHECK(vr, volkInitialize, false);
 
 	// Create instance
 	VkApplicationInfo app_info = {
@@ -373,28 +374,22 @@ bool skr_init(skr_settings_t settings) {
 		return false;
 	}
 
-	// Create per-frame fences
-	VkFenceCreateInfo fence_info = {
-		.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		.flags = VK_FENCE_CREATE_SIGNALED_BIT, // Start signaled so first frame doesn't wait
-	};
-
 	for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++) {
-		if (vkCreateFence(_skr_vk.device, &fence_info, NULL, &_skr_vk.frame_fences[i]) != VK_SUCCESS) {
+		if (vkCreateFence(_skr_vk.device, &(VkFenceCreateInfo){
+			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+			.flags = VK_FENCE_CREATE_SIGNALED_BIT, // Start signaled so first frame doesn't wait
+		}, NULL, &_skr_vk.frame_fences[i]) != VK_SUCCESS) {
 			skr_logf(skr_log_critical, "Failed to create frame fence %d", i);
 			return false;
 		}
 		_skr_command_destroy_fence(&_skr_vk.destroy_list, _skr_vk.frame_fences[i]);
 	}
 
-	// Create timestamp query pool (2 queries per frame in flight)
-	VkQueryPoolCreateInfo query_pool_info = {
+	if (vkCreateQueryPool(_skr_vk.device, &(VkQueryPoolCreateInfo){
 		.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
 		.queryType  = VK_QUERY_TYPE_TIMESTAMP,
 		.queryCount = 2 * SKR_MAX_FRAMES_IN_FLIGHT,
-	};
-
-	if (vkCreateQueryPool(_skr_vk.device, &query_pool_info, NULL, &_skr_vk.timestamp_pool) != VK_SUCCESS) {
+	}, NULL, &_skr_vk.timestamp_pool) != VK_SUCCESS) {
 		skr_log(skr_log_critical, "Failed to create timestamp query pool");
 		return false;
 	}
@@ -404,12 +399,9 @@ bool skr_init(skr_settings_t settings) {
 		_skr_vk.timestamps_valid[i] = false;
 	}
 
-	// Create pipeline cache
-	VkPipelineCacheCreateInfo cache_info = {
+	if (vkCreatePipelineCache(_skr_vk.device, &(VkPipelineCacheCreateInfo){
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-	};
-
-	if (vkCreatePipelineCache(_skr_vk.device, &cache_info, NULL, &_skr_vk.pipeline_cache) != VK_SUCCESS) {
+	}, NULL, &_skr_vk.pipeline_cache) != VK_SUCCESS) {
 		skr_log(skr_log_critical, "Failed to create pipeline cache");
 		return false;
 	}
@@ -437,10 +429,8 @@ bool skr_init(skr_settings_t settings) {
 	}
 	_skr_command_destroy_descriptor_pool(&_skr_vk.destroy_list, _skr_vk.descriptor_pool);
 
-	// Initialize pipeline cache system
 	_skr_pipeline_init();
 
-	// Initialize async upload system
 	if (!_skr_command_init()) {
 		skr_log(skr_log_critical, "Failed to initialize upload system");
 		return false;
@@ -470,19 +460,15 @@ void skr_shutdown() {
 	skr_tex_destroy(&_skr_vk.default_tex_gray);
 	skr_tex_destroy(&_skr_vk.default_tex_black);
 
-	// Shutdown upload system
-	_skr_command_shutdown();
-
-	// Shutdown pipeline system
+	_skr_command_shutdown ();
 	_skr_pipeline_shutdown();
 
-	// Execute destroy list (destroys resources in reverse order of creation)
 	_skr_destroy_list_execute(&_skr_vk.destroy_list);
 	_skr_destroy_list_free   (&_skr_vk.destroy_list);
 
 	// Destroy device and instance directly (special cases not in destroy list)
-	if (_skr_vk.device   != VK_NULL_HANDLE) { vkDestroyDevice                (_skr_vk.device, NULL); }
-	if (_skr_vk.instance != VK_NULL_HANDLE) { vkDestroyInstance              (_skr_vk.instance, NULL); }
+	if (_skr_vk.device   != VK_NULL_HANDLE) { vkDestroyDevice  (_skr_vk.device,   NULL); }
+	if (_skr_vk.instance != VK_NULL_HANDLE) { vkDestroyInstance(_skr_vk.instance, NULL); }
 
 	memset(&_skr_vk, 0, sizeof(_skr_vk));
 }

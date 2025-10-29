@@ -26,10 +26,10 @@
 // Helpers
 ///////////////////////////////////////////////////////////////////////////////
 
-static VkFramebuffer _skr_get_or_create_framebuffer(skr_tex_t* cache_target, VkRenderPass render_pass,
-                                                     skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve,
-                                                     bool has_depth) {
-	VkFramebuffer* cached_fb = has_depth ? &cache_target->framebuffer_depth : &cache_target->framebuffer;
+static VkFramebuffer _skr_get_or_create_framebuffer(skr_tex_t* cache_target, VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve, bool has_depth) {
+	VkFramebuffer* cached_fb = has_depth
+		? &cache_target->framebuffer_depth
+		: &cache_target->framebuffer;
 
 	// Check if we have a cached framebuffer for this render pass
 	if (*cached_fb != VK_NULL_HANDLE && cache_target->framebuffer_pass == render_pass) {
@@ -38,7 +38,7 @@ static VkFramebuffer _skr_get_or_create_framebuffer(skr_tex_t* cache_target, VkR
 
 	// Destroy old cached framebuffer if render pass changed
 	if (*cached_fb != VK_NULL_HANDLE) {
-		vkDestroyFramebuffer(_skr_vk.device, *cached_fb, NULL);
+		_skr_command_destroy_framebuffer(NULL, *cached_fb);
 	}
 
 	// Create and cache new framebuffer

@@ -688,12 +688,13 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 
 void skr_tex_destroy(skr_tex_t* tex) {
 	if (!tex) return;
-	if (tex->framebuffer       != VK_NULL_HANDLE) vkDestroyFramebuffer(_skr_vk.device, tex->framebuffer,       NULL);
-	if (tex->framebuffer_depth != VK_NULL_HANDLE) vkDestroyFramebuffer(_skr_vk.device, tex->framebuffer_depth, NULL);
-	if (tex->sampler           != VK_NULL_HANDLE) vkDestroySampler    (_skr_vk.device, tex->sampler,           NULL);
-	if (tex->view              != VK_NULL_HANDLE) vkDestroyImageView  (_skr_vk.device, tex->view,              NULL);
-	if (tex->image             != VK_NULL_HANDLE) vkDestroyImage      (_skr_vk.device, tex->image,             NULL);
-	if (tex->memory            != VK_NULL_HANDLE) vkFreeMemory        (_skr_vk.device, tex->memory,            NULL);
+
+	_skr_command_destroy_framebuffer(NULL, tex->framebuffer);
+	_skr_command_destroy_framebuffer(NULL, tex->framebuffer_depth);
+	_skr_command_destroy_sampler    (NULL, tex->sampler);
+	_skr_command_destroy_image_view (NULL, tex->view);
+	_skr_command_destroy_image      (NULL, tex->image);
+	_skr_command_destroy_memory     (NULL, tex->memory);
 	*tex = (skr_tex_t){};
 }
 

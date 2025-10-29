@@ -77,8 +77,6 @@ static void _switch_scene(app_t* app, int32_t new_index) {
 	if (new_index < 0 || new_index >= app->scene_count) return;
 	if (new_index == app->scene_index) return;
 
-	vkDeviceWaitIdle(skr_get_vk_device());
-
 	// Destroy current scene
 	if (app->scene_current) {
 		scene_destroy(app->scene_types[app->scene_index], app->scene_current);

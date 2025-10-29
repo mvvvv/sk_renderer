@@ -36,6 +36,9 @@ typedef struct {
 #define SKR_BIND_SHIFT_TEXTURE 100
 #define SKR_BIND_SHIFT_UAV     200
 
+#define SKR_VK_CHECK(vkResult, fnName, returnVal) { VkResult __vr = (vkResult); if (__vr != VK_SUCCESS) { skr_logf(skr_log_critical, "%s: 0x%X", fnName, (uint32_t)__vr); return returnVal; } }
+#define SKR_VK_CHECK_NO_RET(vkResult, fnName) { VkResult __vr = (vkResult); if (_vr != VK_SUCCESS) { skr_logf(skr_log_critical, "%s: 0x%X", fnName, (uint32_t)__vr); } }
+
 // Deferred destruction system
 typedef struct skr_destroy_list_t {
 	void*    items;
@@ -61,7 +64,7 @@ typedef struct {
 	_skr_command_ring_slot_t*  active_cmd; 
 	_skr_command_ring_slot_t   cmd_ring[skr_MAX_COMMAND_RING];
 	uint32_t                   cmd_ring_index;
-	uint64_t                   thread_id;
+	uint32_t                   thread_idx;
 	int32_t                    ref_count;
 	bool                       alive;
 } _skr_vk_thread_t;

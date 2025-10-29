@@ -79,6 +79,10 @@ void _skr_pipeline_init() {
 }
 
 void _skr_pipeline_shutdown() {
+	// This happens during shutdown, so it's safe, and preferable to directly
+	// destroy Vulkan asssets, instead of using the deferred asset destroy 
+	// system.
+
 	// Destroy all pipelines
 	for (int32_t m = 0; m < SKR_MAX_MATERIALS; m++) {
 		for (int32_t r = 0; r < SKR_MAX_RENDERPASSES; r++) {
@@ -219,19 +223,14 @@ void _skr_pipeline_unregister_renderpass(int32_t renderpass_idx) {
 	// Destroy all pipelines using this render pass
 	for (int32_t m = 0; m < SKR_MAX_MATERIALS; m++) {
 		for (int32_t v = 0; v < SKR_MAX_VERTFORMATS; v++) {
-			if (_skr_pipeline_cache.pipelines[m][renderpass_idx][v].created &&
-			    _skr_pipeline_cache.pipelines[m][renderpass_idx][v].pipeline != VK_NULL_HANDLE) {
-				vkDestroyPipeline(_skr_vk.device, _skr_pipeline_cache.pipelines[m][renderpass_idx][v].pipeline, NULL);
+			if (_skr_pipeline_cache.pipelines[m][renderpass_idx][v].created) {
+				_skr_command_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[m][renderpass_idx][v].pipeline);
 				_skr_pipeline_cache.pipelines[m][renderpass_idx][v].pipeline = VK_NULL_HANDLE;
 				_skr_pipeline_cache.pipelines[m][renderpass_idx][v].created  = false;
 			}
 		}
 	}
-
-	// Destroy render pass (we own it now)
-	if (_skr_pipeline_cache.renderpasses[renderpass_idx].render_pass != VK_NULL_HANDLE) {
-		vkDestroyRenderPass(_skr_vk.device, _skr_pipeline_cache.renderpasses[renderpass_idx].render_pass, NULL);
-	}
+	_skr_command_destroy_render_pass(NULL, _skr_pipeline_cache.renderpasses[renderpass_idx].render_pass);
 
 	_skr_pipeline_cache.renderpasses[renderpass_idx].active = false;
 }
@@ -273,9 +272,8 @@ void _skr_pipeline_unregister_vertformat(int32_t vertformat_idx) {
 	// Destroy all pipelines using this vertex format
 	for (int32_t m = 0; m < SKR_MAX_MATERIALS; m++) {
 		for (int32_t r = 0; r < SKR_MAX_RENDERPASSES; r++) {
-			if (_skr_pipeline_cache.pipelines[m][r][vertformat_idx].created &&
-			    _skr_pipeline_cache.pipelines[m][r][vertformat_idx].pipeline != VK_NULL_HANDLE) {
-				vkDestroyPipeline(_skr_vk.device, _skr_pipeline_cache.pipelines[m][r][vertformat_idx].pipeline, NULL);
+			if (_skr_pipeline_cache.pipelines[m][r][vertformat_idx].created) {
+				_skr_command_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[m][r][vertformat_idx].pipeline);
 				_skr_pipeline_cache.pipelines[m][r][vertformat_idx].pipeline = VK_NULL_HANDLE;
 				_skr_pipeline_cache.pipelines[m][r][vertformat_idx].created  = false;
 			}

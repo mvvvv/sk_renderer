@@ -541,11 +541,11 @@ static scene_t* _scene_gltf_create() {
 	scene->rotation  = 0.0f;
 
 	// Create fallback textures
-	scene->white_texture = skr_tex_create_solid_color(0xFFFFFFFF);
-	skr_tex_set_name(&scene->white_texture, "gltf_white_fallback");
-	scene->black_texture = skr_tex_create_solid_color(0xFF000000);
-	skr_tex_set_name(&scene->black_texture, "gltf_black_fallback");
+	scene->white_texture       = skr_tex_create_solid_color(0xFFFFFFFF);
+	scene->black_texture       = skr_tex_create_solid_color(0xFF000000);
 	scene->white_metal_texture = skr_tex_create_solid_color(0xFFFFFFFF);
+	skr_tex_set_name(&scene->white_texture,       "gltf_white_fallback");
+	skr_tex_set_name(&scene->black_texture,       "gltf_black_fallback");
 	skr_tex_set_name(&scene->white_metal_texture, "gltf_metal_fallback");
 
 	// Create placeholder sphere
