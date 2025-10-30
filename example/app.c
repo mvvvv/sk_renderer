@@ -95,7 +95,11 @@ app_t* app_create() {
 
 	app->msaa             = 4;
 	app->offscreen_format = skr_tex_fmt_rgba32;//skr_tex_fmt_bgra32;
+	#if ANDROID
+	app->depth_format     = skr_tex_fmt_depth16;  // Use depth+stencil for stencil masking demo
+	#else
 	app->depth_format     = skr_tex_fmt_depth16s8;  // Use depth+stencil for stencil masking demo
+	#endif
 
 	// Initialize standard vertex types
 	skr_vertex_types_init();
