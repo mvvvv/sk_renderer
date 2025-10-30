@@ -115,23 +115,15 @@ static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_vk_thread_t* pool)
 
 	// If no slots available, wait for oldest one
 	if (!slot) {
-		idx = start_idx;
-		_skr_command_ring_slot_t* curr = &pool->cmd_ring[idx];
-
-		vkWaitForFences(_skr_vk.device, 1, &curr->fence, VK_TRUE, UINT64_MAX);
-		slot         = curr;
+		idx         = start_idx;
+		slot        = &pool->cmd_ring[start_idx];
 		slot->alive = true;
-		pool->cmd_ring_index = (idx + 1) % skr_MAX_COMMAND_RING;
-	}
+		vkWaitForFences(_skr_vk.device, 1, &slot->fence, VK_TRUE, UINT64_MAX);
+		pool->cmd_ring_index = (start_idx + 1) % skr_MAX_COMMAND_RING;
 
-	// Check fence and execute destroy list if fence is signaled
-	if (slot->fence != VK_NULL_HANDLE) {
-		VkResult fence_status = vkGetFenceStatus(_skr_vk.device, slot->fence);
-		if (fence_status == VK_SUCCESS) {
-			// Fence is signaled, execute the destroy list
-			_skr_destroy_list_execute(&slot->destroy_list);
-			_skr_destroy_list_clear  (&slot->destroy_list);
-		}
+		// Fence is done, make sure we free its assets too
+		_skr_destroy_list_execute(&slot->destroy_list);
+		_skr_destroy_list_clear  (&slot->destroy_list);
 	}
 
 	// Allocate command buffer if needed
