@@ -15,16 +15,19 @@
 
 skr_render_list_t skr_render_list_create() {
 	skr_render_list_t list = (skr_render_list_t){};
-	list.capacity                    = 16;
-	list.items                       = malloc(sizeof(skr_render_item_t) * list.capacity);
-	list.instance_data_capacity      = 1024;
-	list.instance_data               = malloc(list.instance_data_capacity);
-	list.material_data_capacity = 1024;
-	list.material_data         = malloc(list.material_data_capacity);
-	if (!list.items || !list.instance_data || !list.material_data) {
+	list.capacity                       = 16;
+	list.items                          = malloc(sizeof(skr_render_item_t) * list.capacity);
+	list.instance_data_capacity         = 1024;
+	list.instance_data                  = malloc(list.instance_data_capacity);
+	list.instance_data_sorted_capacity  = 1024;
+	list.instance_data_sorted           = malloc(list.instance_data_sorted_capacity);
+	list.material_data_capacity         = 1024;
+	list.material_data                  = malloc(list.material_data_capacity);
+	if (!list.items || !list.instance_data || !list.instance_data_sorted || !list.material_data) {
 		skr_log(skr_log_critical, "Failed to allocate render list");
 		free(list.items);
 		free(list.instance_data);
+		free(list.instance_data_sorted);
 		free(list.material_data);
 		list = (skr_render_list_t){};
 		return list;
@@ -51,6 +54,7 @@ void skr_render_list_destroy(skr_render_list_t* list) {
 		skr_buffer_destroy(&list->system_buffer);
 	}
 	free(list->instance_data);
+	free(list->instance_data_sorted);
 	free(list->material_data);
 	free(list->items);
 	*list = (skr_render_list_t){};
@@ -135,4 +139,69 @@ void _skr_render_list_sort(skr_render_list_t* list) {
 
 	qsort(list->items, list->count, sizeof(skr_render_item_t), _skr_render_item_compare);
 	list->needs_sort = false;
+
+	// After sorting, instance_offset values no longer match the sorted order
+	// Rebuild instance data in sorted order
+	if (list->instance_data_used > 0) {
+		// Keep sorted buffer same size as instance_data buffer
+		if (list->instance_data_sorted_capacity != list->instance_data_capacity) {
+			free(list->instance_data_sorted);
+			list->instance_data_sorted          = malloc(list->instance_data_capacity);
+			list->instance_data_sorted_capacity = list->instance_data_capacity;
+			if (!list->instance_data_sorted) {
+				skr_log(skr_log_critical, "Failed to allocate render list sorted instance data");
+				list->instance_data_sorted_capacity = 0;
+				return;
+			}
+		}
+
+		// Copy instance data in sorted order and update offsets
+		// Batch consecutive runs to minimize memcpy calls
+		uint32_t sorted_offset = 0;
+		uint32_t i = 0;
+		while (i < list->count) {
+			skr_render_item_t* item = &list->items[i];
+			uint32_t           size = item->instance_data_size * item->instance_count;
+
+			if (size > 0) {
+				// Find run of consecutive items in source buffer
+				uint32_t run_start_src    = item->instance_offset;
+				uint32_t run_start_dst    = sorted_offset;
+				uint32_t run_size         = size;
+				uint32_t run_items        = 1;
+
+				item->instance_offset = sorted_offset;
+				sorted_offset += size;
+
+				// Check if next items are consecutive in source
+				while (i + run_items < list->count) {
+					skr_render_item_t* next_item = &list->items[i + run_items];
+					uint32_t           next_size = next_item->instance_data_size * next_item->instance_count;
+
+					if (next_size > 0 && next_item->instance_offset == run_start_src + run_size) {
+						next_item->instance_offset = sorted_offset;
+						sorted_offset += next_size;
+						run_size      += next_size;
+						run_items++;
+					} else {
+						break;
+					}
+				}
+
+				// Copy the entire run at once
+				memcpy(&list->instance_data_sorted[run_start_dst],
+				       &list->instance_data[run_start_src],
+				       run_size);
+
+				i += run_items;
+			} else {
+				i++;
+			}
+		}
+
+		// Swap the buffers
+		uint8_t* temp         = list->instance_data;
+		list->instance_data   = list->instance_data_sorted;
+		list->instance_data_sorted = temp;
+	}
 }

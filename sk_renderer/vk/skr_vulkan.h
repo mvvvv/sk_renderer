@@ -132,6 +132,8 @@ typedef struct skr_render_list_t {
 	uint8_t*           instance_data;
 	uint32_t           instance_data_used;
 	uint32_t           instance_data_capacity;
+	uint8_t*           instance_data_sorted;          // Reordered instance data after sort
+	uint32_t           instance_data_sorted_capacity;
 	uint8_t*           material_data;
 	uint32_t           material_data_used;
 	uint32_t           material_data_capacity;
