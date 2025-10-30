@@ -120,7 +120,7 @@ typedef struct {
 	VkQueue                  transfer_queue;
 	uint32_t                 transfer_queue_family;
 	bool                     has_dedicated_transfer;
-	_skr_vk_thread_t*        thread_pools[skr_MAX_THREAD_POOLS];
+	_skr_vk_thread_t         thread_pools[skr_MAX_THREAD_POOLS];
 	uint32_t                 thread_pool_ct;
 	pthread_mutex_t          thread_pool_mutex;
 

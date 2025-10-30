@@ -15,7 +15,7 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-thread_local _skr_vk_thread_t _skr_thread;
+thread_local int32_t _skr_thread_idx = -1;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -34,7 +34,7 @@ void _skr_command_shutdown() {
 	// Destroy thread command pools and per-thread command ring fences
 	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
 	for (uint32_t i = 0; i < _skr_vk.thread_pool_ct; i++) {
-		_skr_vk_thread_t *thread = _skr_vk.thread_pools[i];
+		_skr_vk_thread_t *thread = &_skr_vk.thread_pools[i];
 
 		for (uint32_t c = 0; c < skr_MAX_COMMAND_RING; c++) {
 			// Execute and free any remaining destroy lists
@@ -48,7 +48,6 @@ void _skr_command_shutdown() {
 			vkDestroyCommandPool(_skr_vk.device, thread->cmd_pool, NULL);
 
 		*thread = (_skr_vk_thread_t){};
-		_skr_vk.thread_pools[i] = NULL;
 	}
 	_skr_vk.thread_pool_ct = 0;
 	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
@@ -57,40 +56,40 @@ void _skr_command_shutdown() {
 ///////////////////////////////////////////////////////////////////////////////
 
 _skr_vk_thread_t* _skr_command_get_thread() {
-	if (_skr_thread.alive) return &_skr_thread;
+	if (_skr_thread_idx >= 0) {
+		return &_skr_vk.thread_pools[_skr_thread_idx];
+	}
 
 	if (_skr_vk.thread_pool_ct >= skr_MAX_THREAD_POOLS) {
 		skr_logf(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
 		return NULL;
 	}
 
-	// Set up data for this thread
+	_skr_vk_thread_t thread = {
+		.alive = true,
+	};
 	VkResult vr = vkCreateCommandPool(_skr_vk.device, &(VkCommandPoolCreateInfo){
 		.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 		.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
 		.queueFamilyIndex = _skr_vk.graphics_queue_family,  // Use graphics queue for main commands
-	}, NULL, &_skr_thread.cmd_pool);
+	}, NULL, &thread.cmd_pool);
 	SKR_VK_CHECK(vr, "vkCreateCommandPool", NULL);
 
-	_skr_thread.alive          = true;
-	_skr_thread.active_cmd     = VK_NULL_HANDLE;
-	_skr_thread.cmd_ring_index = 0;
-	_skr_thread.ref_count      = 0;
-
-	// Register it in a list, so we can clean it all up on shutdown
+	// Register it in the array, copy and reserve atomically
 	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
-	_skr_thread.thread_idx = _skr_vk.thread_pool_ct;
-	_skr_vk.thread_pools[_skr_vk.thread_pool_ct] = &_skr_thread;
+	_skr_thread_idx   = _skr_vk.thread_pool_ct;
+	thread.thread_idx = _skr_thread_idx;
+	_skr_vk.thread_pools[_skr_thread_idx] = thread; 
 	_skr_vk.thread_pool_ct++;
 	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
 
 	char name[64];
-	snprintf(name,sizeof(name), "CommandPool_thr%d", _skr_thread.thread_idx);
-	_skr_set_debug_name(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)_skr_thread.cmd_pool, name);
+	snprintf(name,sizeof(name), "CommandPool_thr%d", _skr_thread_idx);
+	_skr_set_debug_name(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)thread.cmd_pool, name);
 
-	skr_logf(skr_log_info, "Using thread #%d", _skr_vk.thread_pool_ct);
+	skr_logf(skr_log_info, "Using thread #%d", _skr_thread_idx);
 
-	return &_skr_thread;
+	return &_skr_vk.thread_pools[_skr_thread_idx];
 }
 
 ///////////////////////////////////////////////////////////////////////////////
