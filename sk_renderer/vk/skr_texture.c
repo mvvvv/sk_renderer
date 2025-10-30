@@ -124,58 +124,6 @@ static staging_buffer_t _skr_create_staging_buffer(VkDeviceSize size) {
 	return result;
 }
 
-static void _skr_destroy_staging_buffer(staging_buffer_t* staging) {
-	if (!staging) return;
-	if (staging->mapped_data) vkUnmapMemory(_skr_vk.device, staging->memory);
-	if (staging->buffer)      vkDestroyBuffer(_skr_vk.device, staging->buffer, NULL);
-	if (staging->memory)      vkFreeMemory(_skr_vk.device, staging->memory, NULL);
-	*staging = (staging_buffer_t){0};
-}
-
-// Begin a one-time command buffer for immediate operations
-static VkCommandBuffer _skr_begin_single_time_commands(void) {
-	VkCommandBuffer cmd;
-	VkCommandBufferAllocateInfo alloc_info = {
-		.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		.commandPool        = _skr_vk.command_pool,
-		.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandBufferCount = 1,
-	};
-
-	if (vkAllocateCommandBuffers(_skr_vk.device, &alloc_info, &cmd) != VK_SUCCESS) {
-		return VK_NULL_HANDLE;
-	}
-
-	VkCommandBufferBeginInfo begin_info = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-	};
-
-	if (vkBeginCommandBuffer(cmd, &begin_info) != VK_SUCCESS) {
-		vkFreeCommandBuffers(_skr_vk.device, _skr_vk.command_pool, 1, &cmd);
-		return VK_NULL_HANDLE;
-	}
-
-	return cmd;
-}
-
-// End and submit a one-time command buffer, wait for completion
-static void _skr_end_single_time_commands(VkCommandBuffer cmd) {
-	if (!cmd) return;
-
-	vkEndCommandBuffer(cmd);
-
-	VkSubmitInfo submit_info = {
-		.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.commandBufferCount = 1,
-		.pCommandBuffers    = &cmd,
-	};
-
-	vkQueueSubmit(_skr_vk.graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-	vkQueueWaitIdle(_skr_vk.graphics_queue);
-	vkFreeCommandBuffers(_skr_vk.device, _skr_vk.command_pool, 1, &cmd);
-}
-
 // Transition image layout with a pipeline barrier (low-level helper)
 static void _skr_transition_image_layout(VkCommandBuffer cmd, VkImage image, VkImageAspectFlags aspect_mask,
                                           uint32_t base_mip, uint32_t mip_count, uint32_t layer_count,
@@ -589,24 +537,15 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 		// Copy texture data to staging buffer
 		memcpy(staging.mapped_data, opt_tex_data, data_size);
 
-		// Create command buffer and upload
-		VkCommandBuffer cmd = _skr_begin_single_time_commands();
-		if (!cmd) {
-			skr_log(skr_log_critical, "Failed to create command buffer for texture upload");
-			_skr_destroy_staging_buffer(&staging);
-			vkFreeMemory  (_skr_vk.device, tex.memory, NULL);
-			vkDestroyImage(_skr_vk.device, tex.image,  NULL);
-			tex.image  = VK_NULL_HANDLE;
-			tex.memory = VK_NULL_HANDLE;
-			return tex;
-		}
+		// Create command buffer and upload (async with deferred cleanup)
+		_skr_command_context_t ctx = _skr_command_acquire();
 
 		// Transition: UNDEFINED -> TRANSFER_DST (using automatic system)
-		_skr_tex_transition(cmd, &tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		_skr_tex_transition(ctx.cmd, &tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
 
 		// Copy buffer to image (all layers at once for arrays/cubemaps)
-		vkCmdCopyBufferToImage(cmd, staging.buffer, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy){
+		vkCmdCopyBufferToImage(ctx.cmd, staging.buffer, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy){
 			.bufferOffset      = 0,
 			.bufferRowLength   = 0,
 			.bufferImageHeight = 0,
@@ -626,22 +565,22 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 		if (tex.flags & skr_tex_flags_compute) {
 			shader_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 		}
-		_skr_tex_transition_for_shader_read(cmd, &tex, shader_stages);
+		_skr_tex_transition_for_shader_read(ctx.cmd, &tex, shader_stages);
 
-		_skr_end_single_time_commands(cmd);
-		_skr_destroy_staging_buffer(&staging);
+		// Defer destruction of staging resources until GPU completes
+		_skr_command_destroy_buffer(ctx.destroy_list, staging.buffer);
+		_skr_command_destroy_memory(ctx.destroy_list, staging.memory);
+		_skr_command_release(ctx.cmd);
 	} else if (!is_msaa_attachment && !(tex.flags & skr_tex_flags_writeable)) {
 		// No data provided, transition to appropriate layout for read-only textures
 		// Skip for transient MSAA attachments - they don't need initial layout transition
 		// Skip for writeable textures - let the first render pass handle the transition
 
-		VkCommandBuffer cmd = _skr_begin_single_time_commands();
-		if (cmd) {
-			// Use automatic transition system - handles storage vs regular textures
-			if (tex.flags & skr_tex_flags_compute) { _skr_tex_transition_for_storage    (cmd, &tex); } 
-			else                                   { _skr_tex_transition_for_shader_read(cmd, &tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT); }
-			_skr_end_single_time_commands(cmd);
-		}
+		_skr_command_context_t ctx = _skr_command_acquire();
+		// Use automatic transition system - handles storage vs regular textures
+		if (tex.flags & skr_tex_flags_compute) { _skr_tex_transition_for_storage    (ctx.cmd, &tex); }
+		else                                   { _skr_tex_transition_for_shader_read(ctx.cmd, &tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT); }
+		_skr_command_release(ctx.cmd);
 	}
 
 	// Create image view
@@ -779,14 +718,10 @@ static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
 		filter_mode = VK_FILTER_NEAREST;
 	}
 
-	VkCommandBuffer cmd = _skr_begin_single_time_commands();
-	if (!cmd) {
-		skr_log(skr_log_critical, "Failed to create command buffer for mipmap generation");
-		return;
-	}
+	_skr_command_context_t ctx = _skr_command_acquire();
 
 	// Transition mip 0 to TRANSFER_SRC_OPTIMAL (automatic system tracks current layout)
-	_skr_tex_transition(cmd, tex, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	_skr_tex_transition(ctx.cmd, tex, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
 
 	// Generate each mip level by blitting from the previous level
@@ -798,7 +733,7 @@ static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
 		int32_t next_mip_height = mip_height > 1 ? mip_height / 2 : 1;
 
 		// Transition mip i from UNDEFINED to TRANSFER_DST_OPTIMAL
-		_skr_transition_image_layout(cmd, tex->image, tex->aspect_mask, i, 1, tex->layer_count,
+		_skr_transition_image_layout(ctx.cmd, tex->image, tex->aspect_mask, i, 1, tex->layer_count,
 			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 			0, VK_ACCESS_TRANSFER_WRITE_BIT);
@@ -823,13 +758,13 @@ static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
 			.dstOffsets[1] = {next_mip_width, next_mip_height, 1},
 		};
 
-		vkCmdBlitImage(cmd,
+		vkCmdBlitImage(ctx.cmd,
 			tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1, &blit, filter_mode);
 
 		// Transition mip i from TRANSFER_DST to TRANSFER_SRC for next iteration
-		_skr_transition_image_layout(cmd, tex->image, tex->aspect_mask, i, 1, tex->layer_count,
+		_skr_transition_image_layout(ctx.cmd, tex->image, tex->aspect_mask, i, 1, tex->layer_count,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
@@ -839,9 +774,9 @@ static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
 	}
 
 	// Transition back to shader read layout (automatic system handles this)
-	_skr_tex_transition_for_shader_read(cmd, tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+	_skr_tex_transition_for_shader_read(ctx.cmd, tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	_skr_end_single_time_commands(cmd);
+	_skr_command_release(ctx.cmd);
 }
 
 static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, const skr_shader_t* fragment_shader) {
