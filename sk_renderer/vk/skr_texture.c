@@ -443,6 +443,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	}
 
 	// Only use transient attachment if format+usage combination is supported
+	// AND lazily allocated memory is available (required for transient attachments)
 	if (is_msaa_attachment) {
 		VkImageUsageFlags test_usage = usage | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
 		test_usage &= ~(VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
@@ -457,7 +458,23 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 			0,
 			&format_props);
 
+		// Check if lazily allocated memory is available
+		bool has_lazy_memory = false;
 		if (result == VK_SUCCESS) {
+			VkPhysicalDeviceMemoryProperties mem_properties;
+			vkGetPhysicalDeviceMemoryProperties(_skr_vk.physical_device, &mem_properties);
+
+			// Check if any memory type has LAZILY_ALLOCATED_BIT
+			for (uint32_t i = 0; i < mem_properties.memoryTypeCount; i++) {
+				if (mem_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) {
+					has_lazy_memory = true;
+					break;
+				}
+			}
+		}
+
+		// Only use transient attachment if both format is supported AND lazy memory is available
+		if (result == VK_SUCCESS && has_lazy_memory) {
 			usage |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
 			// Remove SAMPLED_BIT and TRANSFER_DST_BIT for transient attachments
 			usage &= ~(VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
