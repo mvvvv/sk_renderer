@@ -916,8 +916,9 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 					.layerCount     = tex->layer_count,
 				},
 			};
-			if (vkCreateImageView(_skr_vk.device, &view_info, NULL, &mip_view) != VK_SUCCESS) {
-				skr_log(skr_log_warning, "Failed to create target mip image view");
+			VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &mip_view);
+			if (vr != VK_SUCCESS) {
+				SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 				continue;
 			}
 			_skr_command_destroy_image_view(ctx.destroy_list, mip_view);
@@ -935,8 +936,9 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				.height          = mip_height,
 				.layers          = tex->layer_count,
 			};
-			if (vkCreateFramebuffer(_skr_vk.device, &fb_info, NULL, &framebuffer) != VK_SUCCESS) {
-				skr_log(skr_log_warning, "Failed to create framebuffer for mip level");
+			VkResult vr = vkCreateFramebuffer(_skr_vk.device, &fb_info, NULL, &framebuffer);
+			if (vr != VK_SUCCESS) {
+				SKR_VK_CHECK_NRET(vr, "vkCreateFramebuffer");
 				continue;
 			}
 			_skr_command_destroy_framebuffer(ctx.destroy_list, framebuffer);
@@ -958,8 +960,9 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 					.layerCount     = tex->layer_count,
 				},
 			};
-			if (vkCreateImageView(_skr_vk.device, &src_view_info, NULL, &src_view) != VK_SUCCESS) {
-				skr_log(skr_log_warning, "Failed to create source mip image view");
+			VkResult vr = vkCreateImageView(_skr_vk.device, &src_view_info, NULL, &src_view);
+			if (vr != VK_SUCCESS) {
+				SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 				continue;
 			}
 			_skr_command_destroy_image_view(ctx.destroy_list, src_view);

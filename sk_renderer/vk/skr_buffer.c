@@ -57,15 +57,13 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 	}
 
 	// Create buffer
-	if (vkCreateBuffer(_skr_vk.device, &(VkBufferCreateInfo){
+	VkResult vr = vkCreateBuffer(_skr_vk.device, &(VkBufferCreateInfo){
 		.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		.size        = out_buffer->size,
 		.usage       = usage,
 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-	}, NULL, &out_buffer->buffer) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create buffer");
-		return skr_err_device_error;
-	}
+	}, NULL, &out_buffer->buffer);
+	SKR_VK_CHECK_RET(vr, "vkCreateBuffer", skr_err_device_error);
 
 	// Allocate memory
 	VkMemoryRequirements mem_requirements;
@@ -75,12 +73,13 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 		? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 		: VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-	if (vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
+	vr = vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
 		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.allocationSize  = mem_requirements.size,
 		.memoryTypeIndex = _skr_find_memory_type(mem_requirements.memoryTypeBits, mem_properties),
-	}, NULL, &out_buffer->memory) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to allocate buffer memory");
+	}, NULL, &out_buffer->memory);
+	if (vr != VK_SUCCESS) {
+		SKR_VK_CHECK_NRET(vr, "vkAllocateMemory");
 		vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
 		memset(out_buffer, 0, sizeof(skr_buffer_t));
 		return skr_err_out_of_memory;
@@ -99,13 +98,14 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 		} else {
 			// Use staging buffer for static buffers
 			VkBuffer staging_buffer;
-			if (vkCreateBuffer(_skr_vk.device, &(VkBufferCreateInfo){
+			vr = vkCreateBuffer(_skr_vk.device, &(VkBufferCreateInfo){
 				.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 				.size        = out_buffer->size,
 				.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 				.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-			}, NULL, &staging_buffer) != VK_SUCCESS) {
-				skr_log(skr_log_critical, "Failed to create staging buffer");
+			}, NULL, &staging_buffer);
+			if (vr != VK_SUCCESS) {
+				SKR_VK_CHECK_NRET(vr, "vkCreateBuffer");
 				vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
 				vkFreeMemory(_skr_vk.device, out_buffer->memory, NULL);
 				memset(out_buffer, 0, sizeof(skr_buffer_t));
@@ -116,12 +116,13 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 			vkGetBufferMemoryRequirements(_skr_vk.device, staging_buffer, &staging_mem_req);
 
 			VkDeviceMemory staging_memory;
-			if (vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
+			vr = vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
 				.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 				.allocationSize  = staging_mem_req.size,
 				.memoryTypeIndex = _skr_find_memory_type(staging_mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
-			}, NULL, &staging_memory) != VK_SUCCESS) {
-				skr_log(skr_log_critical, "Failed to allocate staging buffer memory");
+			}, NULL, &staging_memory);
+			if (vr != VK_SUCCESS) {
+				SKR_VK_CHECK_NRET(vr, "vkAllocateMemory");
 				vkDestroyBuffer(_skr_vk.device, staging_buffer, NULL);
 				vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
 				vkFreeMemory(_skr_vk.device, out_buffer->memory, NULL);

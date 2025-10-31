@@ -335,7 +335,7 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
 
 	// Handle other errors
 	if (result != VK_SUCCESS) {
-		skr_logf(skr_log_critical, "Failed to acquire swapchain image: %d", result);
+		skr_logf(skr_log_critical, "Failed to acquire swapchain image: 0x%X", result);
 		return skr_acquire_error;
 	}
 

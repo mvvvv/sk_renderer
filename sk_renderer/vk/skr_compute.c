@@ -76,10 +76,7 @@ skr_err_ skr_compute_create(const skr_shader_t* shader, skr_compute_t* out_compu
 		};
 
 		VkResult vr = vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &out_compute->descriptor_layout);
-		if (vr != VK_SUCCESS) {
-			skr_log(skr_log_critical, "vkCreateDescriptorSetLayout failed");
-			return skr_err_device_error;
-		}
+		SKR_VK_CHECK_RET(vr, "vkCreateDescriptorSetLayout", skr_err_device_error);
 	}
 
 	// Create pipeline layout
@@ -91,7 +88,7 @@ skr_err_ skr_compute_create(const skr_shader_t* shader, skr_compute_t* out_compu
 
 	VkResult vr = vkCreatePipelineLayout(_skr_vk.device, &pipeline_layout_info, NULL, &out_compute->layout);
 	if (vr != VK_SUCCESS) {
-		skr_log(skr_log_critical, "vkCreatePipelineLayout failed");
+		SKR_VK_CHECK_NRET(vr, "vkCreatePipelineLayout");
 		if (out_compute->descriptor_layout) {
 			vkDestroyDescriptorSetLayout(_skr_vk.device, out_compute->descriptor_layout, NULL);
 		}
@@ -113,7 +110,7 @@ skr_err_ skr_compute_create(const skr_shader_t* shader, skr_compute_t* out_compu
 
 	vr = vkCreateComputePipelines(_skr_vk.device, _skr_vk.pipeline_cache, 1, &pipeline_info, NULL, &out_compute->pipeline);
 	if (vr != VK_SUCCESS) {
-		skr_log(skr_log_critical, "vkCreateComputePipelines failed");
+		SKR_VK_CHECK_NRET(vr, "vkCreateComputePipelines");
 		vkDestroyPipelineLayout(_skr_vk.device, out_compute->layout, NULL);
 		if (out_compute->descriptor_layout) {
 			vkDestroyDescriptorSetLayout(_skr_vk.device, out_compute->descriptor_layout, NULL);
