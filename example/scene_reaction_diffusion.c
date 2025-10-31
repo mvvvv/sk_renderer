@@ -60,7 +60,7 @@ static scene_t* _scene_reaction_diffusion_create() {
 	scene->rotation          = 0.0f;
 
 	// Create double-sided quad mesh (front face + back face with flipped normals)
-	skr_vertex_pnuc_t quad_vertices[] = {
+	su_vertex_pnuc_t quad_vertices[] = {
 		// Front face (Z+)
 		{ .position = {-0.7f, -0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
 		{ .position = { 0.7f, -0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
@@ -76,11 +76,11 @@ static scene_t* _scene_reaction_diffusion_create() {
 		0, 1, 2,  2, 3, 0,  // Front face
 		5, 4, 7,  7, 6, 5,  // Back face (flipped winding)
 	};
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 8, quad_indices, 12, &scene->quad_mesh);
+	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 8, quad_indices, 12, &scene->quad_mesh);
 	skr_mesh_set_name(&scene->quad_mesh, "quad");
 
 	// Load shaders
-	scene->shader = skr_shader_load("shaders/test.hlsl.sks", "main_shader");
+	scene->shader = su_shader_load("shaders/test.hlsl.sks", "main_shader");
 	skr_material_create((skr_material_info_t){
 		.shader       = &scene->shader,
 		.cull         = skr_cull_back,
@@ -89,7 +89,7 @@ static scene_t* _scene_reaction_diffusion_create() {
 	}, &scene->quad_material);
 
 	// Load compute shader
-	scene->compute_sh = skr_shader_load("shaders/compute_test.hlsl.sks", NULL);
+	scene->compute_sh = su_shader_load("shaders/compute_test.hlsl.sks", NULL);
 	skr_compute_create(&scene->compute_sh, &scene->compute_ping);
 	skr_compute_create(&scene->compute_sh, &scene->compute_pong);
 
@@ -184,7 +184,7 @@ static void _scene_reaction_diffusion_render(scene_t* base, int32_t width, int32
 	scene_reaction_diffusion_t* scene = (scene_reaction_diffusion_t*)base;
 
 	// Build instance data for quad
-	HMM_Mat4 quad_instance = skr_matrix_trs(
+	HMM_Mat4 quad_instance = su_matrix_trs(
 		HMM_V3(0.0f, 0.0f, 0.0f),
 		HMM_V3(0.0f, -scene->rotation, 0.0f),
 		HMM_V3(6.0f, 6.0f, 6.0f) );

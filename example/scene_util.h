@@ -20,13 +20,13 @@ typedef struct {
 	skr_vec3_t normal;
 	skr_vec2_t uv;
 	skr_vec4_t color;
-} skr_vertex_pnuc_t;
+} su_vertex_pnuc_t;
 
-// Standard vertex type for PNUC format (must call skr_vertex_type_init first)
-extern skr_vert_type_t skr_vertex_type_pnuc;
+// Standard vertex type for PNUC format (must call su_vertex_type_init first)
+extern skr_vert_type_t su_vertex_type_pnuc;
 
 // Initialize standard vertex types (call once at startup)
-void skr_vertex_types_init(void);
+void su_vertex_types_init(void);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common Instance Data
@@ -35,15 +35,15 @@ void skr_vertex_types_init(void);
 // Standard instance data for world transform only
 typedef struct {
 	HMM_Mat4 world;
-} skr_instance_transform_t;
+} su_instance_transform_t;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common Texture Samplers
 ///////////////////////////////////////////////////////////////////////////////
 
-extern const skr_tex_sampler_t skr_sampler_linear_clamp;
-extern const skr_tex_sampler_t skr_sampler_linear_wrap;
-extern const skr_tex_sampler_t skr_sampler_point_clamp;
+extern const skr_tex_sampler_t su_sampler_linear_clamp;
+extern const skr_tex_sampler_t su_sampler_linear_wrap;
+extern const skr_tex_sampler_t su_sampler_point_clamp;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Mesh Generation
@@ -54,7 +54,7 @@ extern const skr_tex_sampler_t skr_sampler_point_clamp;
 // rings: Vertical divisions (e.g., 12 or 24)
 // radius: Sphere radius
 // color: Vertex color for all vertices
-skr_mesh_t skr_mesh_create_sphere(
+skr_mesh_t su_mesh_create_sphere(
 	int32_t          segments,
 	int32_t          rings,
 	float            radius,
@@ -64,7 +64,7 @@ skr_mesh_t skr_mesh_create_sphere(
 // Creates a cube mesh with optional per-face colors
 // size: Cube edge length (e.g., 1.0f for unit cube)
 // opt_face_colors: Array of 6 colors [Front, Back, Top, Bottom, Right, Left], or NULL for white
-skr_mesh_t skr_mesh_create_cube(
+skr_mesh_t su_mesh_create_cube(
 	float            size,
 	const skr_vec4_t* opt_face_colors
 );
@@ -73,7 +73,7 @@ skr_mesh_t skr_mesh_create_cube(
 // base_size: Width/depth of square base
 // height: Height from base center to apex
 // color: Vertex color
-skr_mesh_t skr_mesh_create_pyramid(
+skr_mesh_t su_mesh_create_pyramid(
 	float            base_size,
 	float            height,
 	skr_vec4_t       color
@@ -85,7 +85,7 @@ skr_mesh_t skr_mesh_create_pyramid(
 // normal: Normal direction (determines plane: (0,1,0) = XZ plane, etc.)
 // double_sided: If true, creates both front and back faces
 // color: Vertex color
-skr_mesh_t skr_mesh_create_quad(
+skr_mesh_t su_mesh_create_quad(
 	float            width,
 	float            height,
 	skr_vec3_t       normal,
@@ -94,9 +94,9 @@ skr_mesh_t skr_mesh_create_quad(
 );
 
 // Creates a fullscreen quad for post-processing effects
-// Uses NDC coordinates (-1 to +1) in XY with Z=0, uses skr_vertex_type_pnuc
+// Uses NDC coordinates (-1 to +1) in XY with Z=0, uses su_vertex_type_pnuc
 // UV coordinates go from (0,0) to (1,1)
-skr_mesh_t skr_mesh_create_fullscreen_quad(void);
+skr_mesh_t su_mesh_create_fullscreen_quad(void);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Texture Generation
@@ -108,7 +108,7 @@ skr_mesh_t skr_mesh_create_fullscreen_quad(void);
 // color1: First color (RGBA format 0xAABBGGRR)
 // color2: Second color (RGBA format 0xAABBGGRR)
 // generate_mips: Whether to generate mipmaps
-skr_tex_t skr_tex_create_checkerboard(
+skr_tex_t su_tex_create_checkerboard(
 	int32_t  resolution,
 	int32_t  square_size,
 	uint32_t color1,
@@ -118,7 +118,7 @@ skr_tex_t skr_tex_create_checkerboard(
 
 // Creates a 1x1 solid color texture
 // color: RGBA color (format 0xAABBGGRR)
-skr_tex_t skr_tex_create_solid_color(uint32_t color);
+skr_tex_t su_tex_create_solid_color(uint32_t color);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Image Loading
@@ -130,8 +130,8 @@ skr_tex_t skr_tex_create_solid_color(uint32_t color);
 // opt_out_height: Optional output for image height
 // opt_out_channels: Optional output for original channel count
 // force_channels: Number of channels to force (4 for RGBA), or 0 for original
-// Returns: Pixel data (must be freed with skr_image_free), or NULL on failure
-unsigned char* skr_image_load(
+// Returns: Pixel data (must be freed with su_image_free), or NULL on failure
+unsigned char* su_image_load(
 	const char* filename,
 	int32_t*    opt_out_width,
 	int32_t*    opt_out_height,
@@ -146,8 +146,8 @@ unsigned char* skr_image_load(
 // opt_out_height: Optional output for image height
 // opt_out_channels: Optional output for original channel count
 // force_channels: Number of channels to force (4 for RGBA), or 0 for original
-// Returns: Pixel data (must be freed with skr_image_free), or NULL on failure
-unsigned char* skr_image_load_from_memory(
+// Returns: Pixel data (must be freed with su_image_free), or NULL on failure
+unsigned char* su_image_load_from_memory(
 	const void* data,
 	size_t      size,
 	int32_t*    opt_out_width,
@@ -156,8 +156,8 @@ unsigned char* skr_image_load_from_memory(
 	int32_t     force_channels
 );
 
-// Frees image data allocated by skr_image_load or skr_image_load_from_memory
-void skr_image_free(unsigned char* pixels);
+// Frees image data allocated by su_image_load or su_image_load_from_memory
+void su_image_free(unsigned char* pixels);
 
 ///////////////////////////////////////////////////////////////////////////////
 // File I/O
@@ -168,7 +168,7 @@ void skr_image_free(unsigned char* pixels);
 // out_data: Pointer to receive allocated data (must be freed by caller)
 // out_size: Pointer to receive file size in bytes
 // Returns: true on success, false on failure
-bool skr_file_read(const char* filename, void** out_data, size_t* out_size);
+bool su_file_read(const char* filename, void** out_data, size_t* out_size);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Shader Loading
@@ -178,7 +178,7 @@ bool skr_file_read(const char* filename, void** out_data, size_t* out_size);
 // filename: Path to shader file (e.g., "shaders/my_shader.hlsl.sks")
 // opt_name: Optional debug name for the shader (can be NULL)
 // Returns: Loaded shader, or invalid shader on failure (check with skr_shader_is_valid)
-skr_shader_t skr_shader_load(const char* filename, const char* opt_name);
+skr_shader_t su_shader_load(const char* filename, const char* opt_name);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Utility Functions
@@ -186,7 +186,7 @@ skr_shader_t skr_shader_load(const char* filename, const char* opt_name);
 
 // Generates a pseudo-random float [0.0, 1.0] from integer position and seed
 // Useful for procedural generation with consistent results
-float skr_hash_f(int32_t position, uint32_t seed);
+float su_hash_f(int32_t position, uint32_t seed);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Matrix Utilities
@@ -197,4 +197,4 @@ float skr_hash_f(int32_t position, uint32_t seed);
 // rotation_euler_xyz: Rotation in radians (applied in X->Y->Z order)
 // scale: Scale vector
 // Returns: 4x4 transform matrix ready to send to GPU (already transposed)
-HMM_Mat4 skr_matrix_trs(HMM_Vec3 position, HMM_Vec3 rotation_euler_xyz, HMM_Vec3 scale);
+HMM_Mat4 su_matrix_trs(HMM_Vec3 position, HMM_Vec3 rotation_euler_xyz, HMM_Vec3 scale);

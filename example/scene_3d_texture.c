@@ -92,7 +92,7 @@ static scene_t* _scene_3d_texture_create() {
 	scene->time      = 0.0f;
 
 	// Create a flat quad mesh (horizontal, on XZ plane)
-	skr_vertex_pnuc_t quad_vertices[] = {
+	su_vertex_pnuc_t quad_vertices[] = {
 		{ .position = {-2.0f, 0.0f, -2.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
 		{ .position = { 2.0f, 0.0f, -2.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
 		{ .position = { 2.0f, 0.0f,  2.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
@@ -102,11 +102,11 @@ static scene_t* _scene_3d_texture_create() {
 		0, 1, 2,
 		2, 3, 0,
 	};
-	skr_mesh_create  (&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &scene->quad_mesh);
+	skr_mesh_create  (&su_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &scene->quad_mesh);
 	skr_mesh_set_name(&scene->quad_mesh, "quad");
 
 	// Load shader
-	scene->shader = skr_shader_load("shaders/texture3d.hlsl.sks", "texture3d_shader");
+	scene->shader = su_shader_load("shaders/texture3d.hlsl.sks", "texture3d_shader");
 	skr_material_create((skr_material_info_t){
 		.shader     = &scene->shader,
 		.write_mask = skr_write_default,
@@ -155,12 +155,12 @@ static void _scene_3d_texture_render(scene_t* base, int32_t width, int32_t heigh
 	HMM_Mat4 quad_instances[2];
 
 	// First quad: moves up and down (horizontal)
-	quad_instances[0] = skr_matrix_trs(
+	quad_instances[0] = su_matrix_trs(
 		HMM_V3(0.0f, sinf(scene->time * 2.0f) * 2.0f, 0.0f),
 		HMM_V3(0.0f, 0.0f, 0.0f),
 		HMM_V3(1.0f, 1.0f, 1.0f) );
 	// Second quad: spins around Y axis (vertical, standing up)
-	quad_instances[1] = skr_matrix_trs(
+	quad_instances[1] = su_matrix_trs(
 		HMM_V3(0.0f, 0.0f, 0.0f),
 		HMM_V3(1.5708f, scene->time * 1.5f, 0.0f),
 		HMM_V3(1.0f, 1.0f, 1.0f) );

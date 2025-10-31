@@ -102,7 +102,7 @@ app_t* app_create() {
 	#endif
 
 	// Initialize standard vertex types
-	skr_vertex_types_init();
+	su_vertex_types_init();
 
 	// Create shared render list
 	skr_render_list_create(&app->render_list);

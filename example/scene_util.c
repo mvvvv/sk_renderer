@@ -24,17 +24,17 @@
 // Common Texture Samplers
 ///////////////////////////////////////////////////////////////////////////////
 
-const skr_tex_sampler_t skr_sampler_linear_clamp = {
+const skr_tex_sampler_t su_sampler_linear_clamp = {
 	.sample  = skr_tex_sample_linear,
 	.address = skr_tex_address_clamp
 };
 
-const skr_tex_sampler_t skr_sampler_linear_wrap = {
+const skr_tex_sampler_t su_sampler_linear_wrap = {
 	.sample  = skr_tex_sample_linear,
 	.address = skr_tex_address_wrap
 };
 
-const skr_tex_sampler_t skr_sampler_point_clamp = {
+const skr_tex_sampler_t su_sampler_point_clamp = {
 	.sample  = skr_tex_sample_point,
 	.address = skr_tex_address_clamp
 };
@@ -43,26 +43,26 @@ const skr_tex_sampler_t skr_sampler_point_clamp = {
 // Standard Vertex Types
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_vert_type_t skr_vertex_type_pnuc = {0};
+skr_vert_type_t su_vertex_type_pnuc = {0};
 
-void skr_vertex_types_init(void) {
+void su_vertex_types_init(void) {
 	skr_vert_type_create(
 		(skr_vert_component_t[]){
 			{ .format = skr_vertex_fmt_f32, .count = 4, .semantic = skr_semantic_position, .semantic_slot = 0 },
 			{ .format = skr_vertex_fmt_f32, .count = 3, .semantic = skr_semantic_normal,   .semantic_slot = 0 },
 			{ .format = skr_vertex_fmt_f32, .count = 2, .semantic = skr_semantic_texcoord, .semantic_slot = 0 },
-			{ .format = skr_vertex_fmt_f32, .count = 4, .semantic = skr_semantic_color,    .semantic_slot = 0 }}, 4, &skr_vertex_type_pnuc);
+			{ .format = skr_vertex_fmt_f32, .count = 4, .semantic = skr_semantic_color,    .semantic_slot = 0 }}, 4, &su_vertex_type_pnuc);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // Mesh Generation
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_mesh_t skr_mesh_create_sphere(int32_t segments, int32_t rings, float radius, skr_vec4_t color) {
+skr_mesh_t su_mesh_create_sphere(int32_t segments, int32_t rings, float radius, skr_vec4_t color) {
 	const int vert_count = (rings + 1) * (segments + 1);
 	const int idx_count  = rings * segments * 6;
 
-	skr_vertex_pnuc_t* verts = malloc(sizeof(skr_vertex_pnuc_t) * vert_count);
+	su_vertex_pnuc_t* verts = malloc(sizeof(su_vertex_pnuc_t) * vert_count);
 	uint16_t*          inds  = malloc(sizeof(uint16_t) * idx_count);
 
 	// Generate vertices
@@ -78,7 +78,7 @@ skr_mesh_t skr_mesh_create_sphere(int32_t segments, int32_t rings, float radius,
 			float y = cosf(phi);
 			float z = sinf(phi) * sinf(theta);
 
-			verts[v_idx++] = (skr_vertex_pnuc_t){
+			verts[v_idx++] = (su_vertex_pnuc_t){
 				.position = {x * radius, y * radius, z * radius, 1.0f},
 				.normal   = {x, y, z},
 				.uv       = {u, v},
@@ -105,14 +105,14 @@ skr_mesh_t skr_mesh_create_sphere(int32_t segments, int32_t rings, float radius,
 	}
 
 	skr_mesh_t mesh;
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
+	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
 	free(verts);
 	free(inds);
 
 	return mesh;
 }
 
-skr_mesh_t skr_mesh_create_cube(float size, const skr_vec4_t* opt_face_colors) {
+skr_mesh_t su_mesh_create_cube(float size, const skr_vec4_t* opt_face_colors) {
 	float half = size * 0.5f;
 
 	// Default to white if no colors provided
@@ -122,7 +122,7 @@ skr_mesh_t skr_mesh_create_cube(float size, const skr_vec4_t* opt_face_colors) {
 		colors[i] = opt_face_colors ? opt_face_colors[i] : white;
 	}
 
-	skr_vertex_pnuc_t verts[24] = {
+	su_vertex_pnuc_t verts[24] = {
 		// Front face (Z+)
 		{ .position = {-half, -half,  half, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 0.0f}, .color = colors[0] },
 		{ .position = { half, -half,  half, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 0.0f}, .color = colors[0] },
@@ -165,11 +165,11 @@ skr_mesh_t skr_mesh_create_cube(float size, const skr_vec4_t* opt_face_colors) {
 	};
 
 	skr_mesh_t mesh;
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, 24, indices, 36, &mesh);
+	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, verts, 24, indices, 36, &mesh);
 	return mesh;
 }
 
-skr_mesh_t skr_mesh_create_pyramid(float base_size, float height, skr_vec4_t color) {
+skr_mesh_t su_mesh_create_pyramid(float base_size, float height, skr_vec4_t color) {
 	float half = base_size * 0.5f;
 	float apex_y = height * 0.5f;
 	float base_y = -height * 0.5f;
@@ -179,7 +179,7 @@ skr_mesh_t skr_mesh_create_pyramid(float base_size, float height, skr_vec4_t col
 	float normal_y = half / slant_len;
 	float normal_xz = height / slant_len;
 
-	skr_vertex_pnuc_t verts[17] = {
+	su_vertex_pnuc_t verts[17] = {
 		// Base (4 vertices)
 		{ .position = {-half, base_y,  half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = color },
 		{ .position = { half, base_y,  half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = color },
@@ -214,11 +214,11 @@ skr_mesh_t skr_mesh_create_pyramid(float base_size, float height, skr_vec4_t col
 	};
 
 	skr_mesh_t mesh;
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, 17, indices, 18, &mesh);
+	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, verts, 17, indices, 18, &mesh);
 	return mesh;
 }
 
-skr_mesh_t skr_mesh_create_quad(float width, float height, skr_vec3_t normal, bool double_sided, skr_vec4_t color) {
+skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, bool double_sided, skr_vec4_t color) {
 	float half_w = width * 0.5f;
 	float half_h = height * 0.5f;
 
@@ -241,7 +241,7 @@ skr_mesh_t skr_mesh_create_quad(float width, float height, skr_vec3_t normal, bo
 	int vert_count = double_sided ? 8 : 4;
 	int idx_count  = double_sided ? 12 : 6;
 
-	skr_vertex_pnuc_t* verts = malloc(sizeof(skr_vertex_pnuc_t) * vert_count);
+	su_vertex_pnuc_t* verts = malloc(sizeof(su_vertex_pnuc_t) * vert_count);
 	uint16_t*          inds  = malloc(sizeof(uint16_t) * idx_count);
 
 	// Front face vertices
@@ -257,7 +257,7 @@ skr_mesh_t skr_mesh_create_quad(float width, float height, skr_vec3_t normal, bo
 			tangent.z * x + bitangent.z * y
 		};
 
-		verts[i] = (skr_vertex_pnuc_t){
+		verts[i] = (su_vertex_pnuc_t){
 			.position = {pos.x, pos.y, pos.z, 1.0f},
 			.normal   = normal,
 			.uv       = {u, v},
@@ -280,15 +280,15 @@ skr_mesh_t skr_mesh_create_quad(float width, float height, skr_vec3_t normal, bo
 	}
 
 	skr_mesh_t mesh;
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
+	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
 	free(verts);
 	free(inds);
 
 	return mesh;
 }
 
-skr_mesh_t skr_mesh_create_fullscreen_quad(void) {
-	skr_vertex_pnuc_t quad_vertices[] = {
+skr_mesh_t su_mesh_create_fullscreen_quad(void) {
+	su_vertex_pnuc_t quad_vertices[] = {
 		{ .position = {-1.0f, -1.0f, 0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
 		{ .position = { 1.0f, -1.0f, 0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
 		{ .position = { 1.0f,  1.0f, 0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
@@ -296,7 +296,7 @@ skr_mesh_t skr_mesh_create_fullscreen_quad(void) {
 	};
 	uint16_t quad_indices[] = { 0, 1, 2,  2, 3, 0 };
 	skr_mesh_t mesh;
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &mesh);
+	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &mesh);
 	return mesh;
 }
 
@@ -304,7 +304,7 @@ skr_mesh_t skr_mesh_create_fullscreen_quad(void) {
 // Texture Generation
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_tex_t skr_tex_create_checkerboard(int32_t resolution, int32_t square_size, uint32_t color1, uint32_t color2, bool generate_mips) {
+skr_tex_t su_tex_create_checkerboard(int32_t resolution, int32_t square_size, uint32_t color1, uint32_t color2, bool generate_mips) {
 	uint32_t* pixels = malloc(resolution * resolution * sizeof(uint32_t));
 
 	for (int y = 0; y < resolution; y++) {
@@ -322,7 +322,7 @@ skr_tex_t skr_tex_create_checkerboard(int32_t resolution, int32_t square_size, u
 	skr_tex_create(
 		skr_tex_fmt_rgba32,
 		flags,
-		skr_sampler_linear_clamp,
+		su_sampler_linear_clamp,
 		(skr_vec3i_t){resolution, resolution, 1},
 		1, 0, pixels, &tex
 	);
@@ -336,12 +336,12 @@ skr_tex_t skr_tex_create_checkerboard(int32_t resolution, int32_t square_size, u
 	return tex;
 }
 
-skr_tex_t skr_tex_create_solid_color(uint32_t color) {
+skr_tex_t su_tex_create_solid_color(uint32_t color) {
 	skr_tex_t tex;
 	skr_tex_create(
 		skr_tex_fmt_rgba32,
 		skr_tex_flags_readable,
-		skr_sampler_linear_clamp,
+		su_sampler_linear_clamp,
 		(skr_vec3i_t){1, 1, 1},
 		1, 1, &color, &tex
 	);
@@ -352,7 +352,7 @@ skr_tex_t skr_tex_create_solid_color(uint32_t color) {
 // File I/O
 ///////////////////////////////////////////////////////////////////////////////
 
-bool skr_file_read(const char* filename, void** out_data, size_t* out_size) {
+bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
 #ifdef __ANDROID__
 	// Use SDL's RWops to read from Android assets
 	SDL_RWops* rw = SDL_RWFromFile(filename, "rb");
@@ -439,13 +439,13 @@ bool skr_file_read(const char* filename, void** out_data, size_t* out_size) {
 // Shader Loading
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_shader_t skr_shader_load(const char* filename, const char* opt_name) {
+skr_shader_t su_shader_load(const char* filename, const char* opt_name) {
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
 
 	skr_shader_t shader = {0};
 
-	if (skr_file_read(filename, &shader_data, &shader_size)) {
+	if (su_file_read(filename, &shader_data, &shader_size)) {
 		skr_shader_create(shader_data, shader_size, &shader);
 		free(shader_data);
 
@@ -461,21 +461,21 @@ skr_shader_t skr_shader_load(const char* filename, const char* opt_name) {
 // Image Loading
 ///////////////////////////////////////////////////////////////////////////////
 
-unsigned char* skr_image_load(const char* filename, int32_t* opt_out_width, int32_t* opt_out_height, int32_t* opt_out_channels, int32_t force_channels) {
+unsigned char* su_image_load(const char* filename, int32_t* opt_out_width, int32_t* opt_out_height, int32_t* opt_out_channels, int32_t force_channels) {
 	void*  file_data = NULL;
 	size_t file_size = 0;
 
-	if (!skr_file_read(filename, &file_data, &file_size)) {
+	if (!su_file_read(filename, &file_data, &file_size)) {
 		return NULL;
 	}
 
-	unsigned char* pixels = skr_image_load_from_memory(file_data, file_size, opt_out_width, opt_out_height, opt_out_channels, force_channels);
+	unsigned char* pixels = su_image_load_from_memory(file_data, file_size, opt_out_width, opt_out_height, opt_out_channels, force_channels);
 	free(file_data);
 
 	return pixels;
 }
 
-unsigned char* skr_image_load_from_memory(const void* data, size_t size, int32_t* opt_out_width, int32_t* opt_out_height, int32_t* opt_out_channels, int32_t force_channels) {
+unsigned char* su_image_load_from_memory(const void* data, size_t size, int32_t* opt_out_width, int32_t* opt_out_height, int32_t* opt_out_channels, int32_t force_channels) {
 	int width, height, channels;
 	unsigned char* pixels = stbi_load_from_memory((const unsigned char*)data, (int)size, &width, &height, &channels, force_channels);
 
@@ -488,7 +488,7 @@ unsigned char* skr_image_load_from_memory(const void* data, size_t size, int32_t
 	return pixels;
 }
 
-void skr_image_free(unsigned char* pixels) {
+void su_image_free(unsigned char* pixels) {
 	stbi_image_free(pixels);
 }
 
@@ -496,7 +496,7 @@ void skr_image_free(unsigned char* pixels) {
 // Utility Functions
 ///////////////////////////////////////////////////////////////////////////////
 
-float skr_hash_f(int32_t position, uint32_t seed) {
+float su_hash_f(int32_t position, uint32_t seed) {
 	// Bit noise constants from http://www.isthe.com/chongo/tech/comp/fnv/
 	const uint32_t BIT_NOISE1 = 0xB5297A4D;
 	const uint32_t BIT_NOISE2 = 0x68E31DA4;
@@ -518,7 +518,7 @@ float skr_hash_f(int32_t position, uint32_t seed) {
 // Matrix Utilities
 ///////////////////////////////////////////////////////////////////////////////
 
-HMM_Mat4 skr_matrix_trs(HMM_Vec3 position, HMM_Vec3 rotation_euler_xyz, HMM_Vec3 scale) {
+HMM_Mat4 su_matrix_trs(HMM_Vec3 position, HMM_Vec3 rotation_euler_xyz, HMM_Vec3 scale) {
 	// Build transforms in TRS order
 	HMM_Mat4 t  = HMM_Translate(position);
 	HMM_Mat4 rx = HMM_Rotate_RH(rotation_euler_xyz.X, HMM_V3(1, 0, 0));

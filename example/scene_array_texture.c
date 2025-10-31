@@ -54,15 +54,15 @@ static scene_t* _scene_array_texture_create() {
 		{1.0f, 0.5f, 1.0f, 1.0f},  // Right: Magenta
 		{0.5f, 1.0f, 1.0f, 1.0f},  // Left: Cyan
 	};
-	scene->cube_mesh = skr_mesh_create_cube(1.0f, face_colors);
+	scene->cube_mesh = su_mesh_create_cube(1.0f, face_colors);
 	skr_mesh_set_name(&scene->cube_mesh, "stereo_cube");
 
 	// Create fullscreen quad for stereo display
-	scene->fullscreen_quad = skr_mesh_create_fullscreen_quad();
+	scene->fullscreen_quad = su_mesh_create_fullscreen_quad();
 	skr_mesh_set_name(&scene->fullscreen_quad, "stereo_quad");
 
 	// Load cube shader
-	scene->cube_shader = skr_shader_load("shaders/test.hlsl.sks", "cube_shader");
+	scene->cube_shader = su_shader_load("shaders/test.hlsl.sks", "cube_shader");
 	skr_material_create((skr_material_info_t){
 		.shader     = &scene->cube_shader,
 		.write_mask = skr_write_default,
@@ -70,7 +70,7 @@ static scene_t* _scene_array_texture_create() {
 	}, &scene->cube_material);
 
 	// Load stereo display shader
-	scene->stereo_shader = skr_shader_load("shaders/stereo_display.hlsl.sks", "stereo_shader");
+	scene->stereo_shader = su_shader_load("shaders/stereo_display.hlsl.sks", "stereo_shader");
 	skr_material_create((skr_material_info_t){
 		.shader     = &scene->stereo_shader,
 		.cull       = skr_cull_none,
@@ -79,7 +79,7 @@ static scene_t* _scene_array_texture_create() {
 	}, &scene->stereo_material);
 
 	// Create checkerboard texture using utility function
-	scene->checkerboard_texture = skr_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF000000, true);
+	scene->checkerboard_texture = su_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF000000, true);
 	skr_tex_set_name(&scene->checkerboard_texture, "checkerboard");
 
 	// Create 2-layer array texture (rendered target) - will be created in resize
@@ -131,7 +131,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 		skr_tex_create(
 			skr_tex_fmt_rgba32,
 			skr_tex_flags_writeable | skr_tex_flags_readable | skr_tex_flags_array,
-			skr_sampler_linear_clamp,
+			su_sampler_linear_clamp,
 			(skr_vec3i_t){width, height, 2},  // 2 layers
 			1, 0, NULL, &scene->array_render_target
 		);
@@ -141,7 +141,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 		skr_tex_create(
 			skr_tex_fmt_depth32,
 			skr_tex_flags_writeable | skr_tex_flags_array,
-			skr_sampler_linear_clamp,
+			su_sampler_linear_clamp,
 			(skr_vec3i_t){width, height, 2},  // 2 layers
 			1, 0, NULL, &scene->depth_buffer
 		);
@@ -236,7 +236,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 			float xpos = (x - grid_size_x * 0.5f + 0.5f) * spacing;
 			float zpos = (z - grid_size_z * 0.5f + 0.5f) * spacing;
 			float yrot = scene->rotation + (x + z) * 0.2f;
-			cube_instances[idx].world = skr_matrix_trs(
+			cube_instances[idx].world = su_matrix_trs(
 				HMM_V3(xpos, 0.0f, zpos),
 				HMM_V3(0.0f, yrot, 0.0f),
 				HMM_V3(1.0f, 1.0f, 1.0f)

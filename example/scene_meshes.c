@@ -47,26 +47,26 @@ static scene_t* _scene_meshes_create() {
 		{1.0f, 0.0f, 1.0f, 1.0f},  // Right: Magenta
 		{0.0f, 1.0f, 1.0f, 1.0f},  // Left: Cyan
 	};
-	scene->cube_mesh = skr_mesh_create_cube(1.0f, cube_colors);
+	scene->cube_mesh = su_mesh_create_cube(1.0f, cube_colors);
 	skr_mesh_set_name(&scene->cube_mesh, "cube");
 
 	// Create pyramid mesh using utility function
 	skr_vec4_t white = {1.0f, 1.0f, 1.0f, 1.0f};
-	scene->pyramid_mesh = skr_mesh_create_pyramid(1.0f, 1.0f, white);
+	scene->pyramid_mesh = su_mesh_create_pyramid(1.0f, 1.0f, white);
 	skr_mesh_set_name(&scene->pyramid_mesh, "pyramid");
 
 	// Create sphere mesh using utility function (16 segments, 12 rings)
 	skr_vec4_t light_blue = {0.5f, 0.8f, 1.0f, 1.0f};
-	scene->sphere_mesh = skr_mesh_create_sphere(16, 12, 1.0f, light_blue);
+	scene->sphere_mesh = su_mesh_create_sphere(16, 12, 1.0f, light_blue);
 	skr_mesh_set_name(&scene->sphere_mesh, "sphere");
 
 	// Create textures using utility functions
-	scene->checkerboard_texture = skr_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF000000, true);
-	scene->white_texture        = skr_tex_create_solid_color(0xFFFFFFFF);
+	scene->checkerboard_texture = su_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF000000, true);
+	scene->white_texture        = su_tex_create_solid_color(0xFFFFFFFF);
 	skr_tex_set_name(&scene->white_texture, "white_1x1");
 
 	// Load shader
-	scene->shader = skr_shader_load("shaders/test.hlsl.sks", "main_shader");
+	scene->shader = su_shader_load("shaders/test.hlsl.sks", "main_shader");
 	// Cube material: draws where stencil != 1 (outside sphere)
 	skr_material_create((skr_material_info_t){
 		.shader       = &scene->shader,
@@ -139,7 +139,7 @@ static void _scene_meshes_render(scene_t* base, int32_t width, int32_t height, H
 	// Cubes (10x10 grid)
 	for (int z = 0; z < 10; z++) {
 		for (int x = 0; x < 10; x++) {
-			HMM_Mat4 transform = skr_matrix_trs(
+			HMM_Mat4 transform = su_matrix_trs(
 				HMM_V3((x - 4.5f) * 1.5f, 0.0f, (z - 4.5f) * 1.5f),
 				HMM_V3(0.0f, scene->rotation + (x + z) * 0.1f, 0.0f),
 				HMM_V3(1.0f, 1.0f, 1.0f) );
@@ -149,7 +149,7 @@ static void _scene_meshes_render(scene_t* base, int32_t width, int32_t height, H
 
 	// Pyramids (5 in a line)
 	for (int i = 0; i < 5; i++) {
-		HMM_Mat4 transform = skr_matrix_trs(
+		HMM_Mat4 transform = su_matrix_trs(
 			HMM_V3((i - 2.0f) * 3.0f, 2.0f, 0.0f),
 			HMM_V3(0.0f, -scene->rotation * 2.0f, 0.0f),
 			HMM_V3(1.0f, 1.0f, 1.0f) );
@@ -157,7 +157,7 @@ static void _scene_meshes_render(scene_t* base, int32_t width, int32_t height, H
 	}
 
 	// Sphere (center, slowly rotating, scale 3x)
-	HMM_Mat4 sphere_transform = skr_matrix_trs(
+	HMM_Mat4 sphere_transform = su_matrix_trs(
 		HMM_V3(0.0f, 0.0f, 0.0f),
 		HMM_V3(0.0f, scene->rotation * 0.5f, 0.0f),
 		HMM_V3(5.0f, 5.0f, 5.0f) );

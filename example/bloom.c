@@ -42,13 +42,13 @@ void bloom_create(int32_t width, int32_t height, int32_t mip_count) {
 	}
 
 	printf("Loading bloom shaders...\n");
-	g_bloom.bloom_downsample_shader = skr_shader_load("shaders/bloom_downsample.hlsl.sks", NULL);
+	g_bloom.bloom_downsample_shader = su_shader_load("shaders/bloom_downsample.hlsl.sks", NULL);
 	printf("  Downsample shader loaded: %d\n", skr_shader_is_valid(&g_bloom.bloom_downsample_shader));
 
-	g_bloom.bloom_upsample_shader = skr_shader_load("shaders/bloom_upsample.hlsl.sks", NULL);
+	g_bloom.bloom_upsample_shader = su_shader_load("shaders/bloom_upsample.hlsl.sks", NULL);
 	printf("  Upsample shader loaded:   %d\n", skr_shader_is_valid(&g_bloom.bloom_upsample_shader));
 
-	g_bloom.bloom_composite_shader = skr_shader_load("shaders/bloom_composite.hlsl.sks", NULL);
+	g_bloom.bloom_composite_shader = su_shader_load("shaders/bloom_composite.hlsl.sks", NULL);
 	printf("  Composite shader loaded:  %d\n", skr_shader_is_valid(&g_bloom.bloom_composite_shader));
 
 	// Create compute instances

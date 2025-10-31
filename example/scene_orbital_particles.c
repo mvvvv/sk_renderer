@@ -87,7 +87,7 @@ static scene_t* _scene_orbital_particles_create() {
 	// Create simple 3-sided pyramid (tetrahedron) mesh
 	const float h = 0.5f;  // Height
 	const float r = 0.5f;  // Base radius
-	skr_vertex_pnuc_t pyramid_vertices[] = {
+	su_vertex_pnuc_t pyramid_vertices[] = {
 		// Base triangle
 		{ .position = { 0.0f,    -h/2, 0.0f, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.5f, 0.5f}, .color = color },
 		{ .position = { r,       -h/2, 0.0f, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = color },
@@ -118,11 +118,11 @@ static scene_t* _scene_orbital_particles_create() {
 		8, 9, 10,   // Back left
 		11, 12, 13, // Back right
 	};
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, pyramid_vertices, 14, pyramid_indices, 18, &scene->pyramid_mesh);
+	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, pyramid_vertices, 14, pyramid_indices, 18, &scene->pyramid_mesh);
 	skr_mesh_set_name(&scene->pyramid_mesh, "tetrahedron");
 
 	// Load shader
-	scene->shader = skr_shader_load("shaders/orbital_particles.hlsl.sks", "orbital_particles_shader");
+	scene->shader = su_shader_load("shaders/orbital_particles.hlsl.sks", "orbital_particles_shader");
 	skr_material_create((skr_material_info_t){
 		.shader       = &scene->shader,
 		.cull         = skr_cull_back,
@@ -131,11 +131,11 @@ static scene_t* _scene_orbital_particles_create() {
 	}, &scene->material);
 
 	// Create white 1x1 texture
-	scene->white_texture = skr_tex_create_solid_color(0xFFFFFFFF);
+	scene->white_texture = su_tex_create_solid_color(0xFFFFFFFF);
 	skr_tex_set_name(&scene->white_texture, "white_1x1");
 
 	// Load compute shader
-	scene->compute_shader = skr_shader_load("shaders/orbital_particles_compute.hlsl.sks", NULL);
+	scene->compute_shader = su_shader_load("shaders/orbital_particles_compute.hlsl.sks", NULL);
 	skr_compute_create(&scene->compute_shader, &scene->compute_ping);
 	skr_compute_create(&scene->compute_shader, &scene->compute_pong);
 

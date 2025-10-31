@@ -46,11 +46,11 @@ static scene_t* _scene_cubemap_create() {
 
 	// Create sphere mesh using utility function (32 segments, 24 rings for smooth reflections)
 	skr_vec4_t white = {1.0f, 1.0f, 1.0f, 1.0f};
-	scene->sphere_mesh = skr_mesh_create_sphere(32, 24, 1.0f, white);
+	scene->sphere_mesh = su_mesh_create_sphere(32, 24, 1.0f, white);
 	skr_mesh_set_name(&scene->sphere_mesh, "reflective_sphere");
 
 	// Create fullscreen triangle for skybox
-	scene->skybox_mesh = skr_mesh_create_fullscreen_quad();
+	scene->skybox_mesh = su_mesh_create_fullscreen_quad();
 	skr_mesh_set_name(&scene->skybox_mesh, "skybox_fullscreen_quad");
 
 	// Create cubemap texture with different colors per face
@@ -82,20 +82,20 @@ static scene_t* _scene_cubemap_create() {
 	skr_tex_create(
 		skr_tex_fmt_rgba32,
 		skr_tex_flags_readable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
-		skr_sampler_linear_clamp,
+		su_sampler_linear_clamp,
 		(skr_vec3i_t){cube_size, cube_size, 6},  // 6 faces
 		1, 0, cubemap_data, &scene->cubemap_texture );
 	skr_tex_set_name(&scene->cubemap_texture, "color_cubemap");
 	free(cubemap_data);
 
 	// Load cubemap mipgen shader for high-quality IBL filtering
-	scene->mipgen_shader = skr_shader_load("shaders/cubemap_mipgen.hlsl.sks", "cubemap_mipgen");
+	scene->mipgen_shader = su_shader_load("shaders/cubemap_mipgen.hlsl.sks", "cubemap_mipgen");
 
 	// Generate mips for the cubemap using our custom shader
 	skr_tex_generate_mips(&scene->cubemap_texture, &scene->mipgen_shader);
 
 	// Load reflection shader
-	scene->reflection_shader = skr_shader_load("shaders/cubemap_reflection.hlsl.sks", "reflection_shader");
+	scene->reflection_shader = su_shader_load("shaders/cubemap_reflection.hlsl.sks", "reflection_shader");
 	skr_material_create((skr_material_info_t){
 		.shader     = &scene->reflection_shader,
 		.write_mask = skr_write_default,
@@ -104,7 +104,7 @@ static scene_t* _scene_cubemap_create() {
 	skr_material_set_tex(&scene->sphere_material, "cubemap", &scene->cubemap_texture);
 
 	// Load skybox shader
-	scene->skybox_shader = skr_shader_load("shaders/cubemap_skybox.hlsl.sks", "skybox_shader");
+	scene->skybox_shader = su_shader_load("shaders/cubemap_skybox.hlsl.sks", "skybox_shader");
 	skr_material_create((skr_material_info_t){
 		.shader       = &scene->skybox_shader,
 		.write_mask   = skr_write_default,
@@ -162,7 +162,7 @@ static void _scene_cubemap_render(scene_t* base, int32_t width, int32_t height, 
 			float roughness_cycle = sinf(scene->rotation * 0.5f + x * 2 + z * 7) * 0.5f + 0.5f;
 			float roughness       = roughness_cycle;
 
-			sphere_instances[idx].world = skr_matrix_trs(
+			sphere_instances[idx].world = su_matrix_trs(
 				HMM_V3(xpos, 0.0f, zpos),
 				HMM_V3(0.0f, scene->rotation * 0.3f + idx, 0.0f),
 				HMM_V3(1.5f, 1.5f, 1.5f)

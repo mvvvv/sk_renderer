@@ -40,16 +40,16 @@ typedef enum {
 
 // Data structure for a loaded GLTF mesh primitive
 typedef struct {
-	skr_vertex_pnuc_t* vertices;
-	uint16_t*          indices;
-	int32_t            vertex_count;
-	int32_t            index_count;
-	int32_t            texture_indices[gltf_tex_type_count];  // Indices per texture type, -1 if none
-	HMM_Mat4           transform;                             // Node transform
-	float              metallic_factor;                       // Material metallic factor
-	float              roughness_factor;                      // Material roughness factor
-	skr_vec4_t         base_color_factor;                     // Material base color
-	skr_vec3_t         emissive_factor;                       // Material emissive factor
+	su_vertex_pnuc_t* vertices;
+	uint16_t*         indices;
+	int32_t           vertex_count;
+	int32_t           index_count;
+	int32_t           texture_indices[gltf_tex_type_count];  // Indices per texture type, -1 if none
+	HMM_Mat4          transform;                             // Node transform
+	float             metallic_factor;                       // Material metallic factor
+	float             roughness_factor;                      // Material roughness factor
+	skr_vec4_t        base_color_factor;                     // Material base color
+	skr_vec3_t        emissive_factor;                       // Material emissive factor
 } gltf_mesh_data_t;
 
 // Data structure for a loaded texture
@@ -191,11 +191,11 @@ static void _extract_gltf_node(cgltf_data* data, cgltf_node* node, HMM_Mat4 pare
 			}
 
 			mesh_data->vertex_count = (int32_t)pos_accessor->count;
-			mesh_data->vertices = calloc(mesh_data->vertex_count, sizeof(skr_vertex_pnuc_t));
+			mesh_data->vertices = calloc(mesh_data->vertex_count, sizeof(su_vertex_pnuc_t));
 
 			// Extract vertices
 			for (int32_t v = 0; v < mesh_data->vertex_count; v++) {
-				skr_vertex_pnuc_t* vert = &mesh_data->vertices[v];
+				su_vertex_pnuc_t* vert = &mesh_data->vertices[v];
 				float data[4];
 
 				_read_attribute(pos_accessor,   v, data, 3, (float[]){0, 0, 0});
@@ -311,7 +311,7 @@ static void _extract_gltf_node(cgltf_data* data, cgltf_node* node, HMM_Mat4 pare
 static bool _load_texture_from_buffer_view(cgltf_image* img, gltf_texture_data_t* tex_data) {
 	cgltf_buffer_view* view     = img->buffer_view;
 	unsigned char*     img_data = (unsigned char*)view->buffer->data + view->offset;
-	tex_data->pixels = skr_image_load_from_memory(img_data, view->size, &tex_data->width, &tex_data->height, NULL, 4);
+	tex_data->pixels = su_image_load_from_memory(img_data, view->size, &tex_data->width, &tex_data->height, NULL, 4);
 	return tex_data->pixels != NULL;
 }
 
@@ -333,7 +333,7 @@ static bool _load_texture_from_data_uri(cgltf_image* img, cgltf_options* options
 		return false;
 	}
 
-	tex_data->pixels = skr_image_load_from_memory((unsigned char*)buffer, base64_size, &tex_data->width, &tex_data->height, NULL, 4);
+	tex_data->pixels = su_image_load_from_memory((unsigned char*)buffer, base64_size, &tex_data->width, &tex_data->height, NULL, 4);
 	free(buffer);
 	return tex_data->pixels != NULL;
 }
@@ -347,7 +347,7 @@ static bool _load_texture_from_file(const char* base_path, cgltf_image* img, glt
 		snprintf(texture_path, sizeof(texture_path), "%s", img->uri);
 	}
 
-	tex_data->pixels = skr_image_load(texture_path, &tex_data->width, &tex_data->height, NULL, 4);
+	tex_data->pixels = su_image_load(texture_path, &tex_data->width, &tex_data->height, NULL, 4);
 	return tex_data->pixels != NULL;
 }
 
@@ -358,7 +358,7 @@ static void _create_gpu_texture_and_bind(scene_gltf_t* scene, gltf_load_context_
 	skr_tex_create(
 		skr_tex_fmt_rgba32,
 		skr_tex_flags_readable | skr_tex_flags_gen_mips,
-		skr_sampler_linear_wrap,
+		su_sampler_linear_wrap,
 		(skr_vec3i_t){tex_data->width, tex_data->height, 1},
 		1, 0, tex_data->pixels, &scene->textures[tex_index]
 	);
@@ -416,7 +416,7 @@ static void* _load_gltf_thread(void* arg) {
 	void*  file_data = NULL;
 	size_t file_size = 0;
 
-	if (!skr_file_read(ctx->filepath, &file_data, &file_size)) {
+	if (!su_file_read(ctx->filepath, &file_data, &file_size)) {
 		skr_log(skr_log_critical, "GLTF: Failed to read file");
 		ctx->state = gltf_load_state_error;
 		skr_thread_shutdown();
@@ -461,7 +461,7 @@ static void* _load_gltf_thread(void* arg) {
 			gltf_mesh_data_t* mesh_data = &ctx->meshes[i];
 
 			skr_mesh_create(
-				&skr_vertex_type_pnuc,
+				&su_vertex_type_pnuc,
 				skr_index_fmt_u16,
 				mesh_data->vertices,
 				mesh_data->vertex_count,
@@ -548,20 +548,20 @@ static scene_t* _scene_gltf_create() {
 	scene->rotation  = 0.0f;
 
 	// Create fallback textures
-	scene->white_texture       = skr_tex_create_solid_color(0xFFFFFFFF);
-	scene->black_texture       = skr_tex_create_solid_color(0xFF000000);
-	scene->white_metal_texture = skr_tex_create_solid_color(0xFFFFFFFF);
+	scene->white_texture       = su_tex_create_solid_color(0xFFFFFFFF);
+	scene->black_texture       = su_tex_create_solid_color(0xFF000000);
+	scene->white_metal_texture = su_tex_create_solid_color(0xFFFFFFFF);
 	skr_tex_set_name(&scene->white_texture,       "gltf_white_fallback");
 	skr_tex_set_name(&scene->black_texture,       "gltf_black_fallback");
 	skr_tex_set_name(&scene->white_metal_texture, "gltf_metal_fallback");
 
 	// Create placeholder sphere
 	skr_vec4_t gray = {0.5f, 0.5f, 0.5f, 1.0f};
-	scene->placeholder_mesh = skr_mesh_create_sphere(16, 12, 1.0f, gray);
+	scene->placeholder_mesh = su_mesh_create_sphere(16, 12, 1.0f, gray);
 	skr_mesh_set_name(&scene->placeholder_mesh, "gltf_placeholder_sphere");
 
 	// Load PBR shader
-	scene->shader = skr_shader_load("shaders/pbr.hlsl.sks", "pbr_shader");
+	scene->shader = su_shader_load("shaders/pbr.hlsl.sks", "pbr_shader");
 
 	// Create placeholder material
 	skr_material_create((skr_material_info_t){
@@ -596,33 +596,33 @@ static scene_t* _scene_gltf_create() {
 		// Load equirectangular HDR or LDR image
 		int32_t        equirect_width  = 0;
 		int32_t        equirect_height = 0;
-		unsigned char* equirect_data   = skr_image_load("cubemap.jpg", &equirect_width, &equirect_height, NULL, 4);
+		unsigned char* equirect_data   = su_image_load("cubemap.jpg", &equirect_width, &equirect_height, NULL, 4);
 
 		if (equirect_data && equirect_width > 0 && equirect_height > 0) {
 			// Create equirectangular texture (stored in scene struct to avoid stack variable)
 			skr_tex_create(
 				skr_tex_fmt_rgba32,
 				skr_tex_flags_readable,
-				skr_sampler_linear_wrap,
+				su_sampler_linear_wrap,
 				(skr_vec3i_t){equirect_width, equirect_height, 1},
 				1, 0, equirect_data, &scene->equirect_texture
 			);
 			skr_tex_set_name(&scene->equirect_texture, "equirect_source");
-			skr_image_free(equirect_data);
+			su_image_free(equirect_data);
 
 			// Create empty cubemap texture to render into
 			const int32_t cube_size = equirect_height/2;
 			skr_tex_create(
 				skr_tex_fmt_rgba32,
 				skr_tex_flags_readable | skr_tex_flags_writeable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
-				skr_sampler_linear_clamp,
+				su_sampler_linear_clamp,
 				(skr_vec3i_t){cube_size, cube_size, 6},
 				1, 0, NULL, &scene->cubemap_texture
 			);
 			skr_tex_set_name(&scene->cubemap_texture, "environment_cubemap");
 
 			// Load equirect to cubemap shader
-			scene->equirect_to_cubemap_shader = skr_shader_load("shaders/equirect_to_cubemap.hlsl.sks", "equirect_to_cubemap");
+			scene->equirect_to_cubemap_shader = su_shader_load("shaders/equirect_to_cubemap.hlsl.sks", "equirect_to_cubemap");
 
 			// Create material for conversion (stored in scene struct to avoid stack variable)
 			skr_material_create((skr_material_info_t){
@@ -644,13 +644,13 @@ static scene_t* _scene_gltf_create() {
 			skr_tex_destroy(&scene->equirect_texture);
 
 			// Load cubemap mipgen shader for high-quality IBL filtering
-			scene->mipgen_shader = skr_shader_load("shaders/cubemap_mipgen.hlsl.sks", "cubemap_mipgen");
+			scene->mipgen_shader = su_shader_load("shaders/cubemap_mipgen.hlsl.sks", "cubemap_mipgen");
 
 			// Generate mips for the cubemap using custom shader
 			skr_tex_generate_mips(&scene->cubemap_texture, &scene->mipgen_shader);
 
 			// Load skybox shader
-			scene->skybox_shader = skr_shader_load("shaders/cubemap_skybox.hlsl.sks", "skybox_shader");
+			scene->skybox_shader = su_shader_load("shaders/cubemap_skybox.hlsl.sks", "skybox_shader");
 
 			// Create skybox material
 			skr_material_create((skr_material_info_t){
@@ -662,7 +662,7 @@ static scene_t* _scene_gltf_create() {
 			}, &scene->skybox_material);
 			skr_material_set_tex(&scene->skybox_material, "cubemap", &scene->cubemap_texture);
 
-			scene->skybox_mesh = skr_mesh_create_fullscreen_quad();
+			scene->skybox_mesh = su_mesh_create_fullscreen_quad();
 			skr_mesh_set_name(&scene->skybox_mesh, "skybox_fullscreen_quad");
 
 			scene->cubemap_ready = true;
@@ -686,7 +686,7 @@ static void _scene_gltf_destroy(scene_t* base) {
 		}
 		for (int32_t i = 0; i < scene->load_ctx->texture_count; i++) {
 			if (scene->load_ctx->textures[i].pixels) {
-				skr_image_free(scene->load_ctx->textures[i].pixels);
+				su_image_free(scene->load_ctx->textures[i].pixels);
 			}
 		}
 
@@ -755,7 +755,7 @@ static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, HMM
 
 	if (state != gltf_load_state_ready) {
 		// Show placeholder while loading or on error
-		HMM_Mat4 world = skr_matrix_trs(
+		HMM_Mat4 world = su_matrix_trs(
 			HMM_V3(0.0f, 0.0f, 0.0f),
 			HMM_V3(0.0f, scene->rotation * 2.0f, 0.0f),
 			HMM_V3(1.0f, 1.0f, 1.0f) );

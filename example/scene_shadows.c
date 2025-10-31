@@ -106,17 +106,17 @@ static scene_t* _scene_shadows_create() {
 		{0.8f, 0.3f, 0.8f, 1.0f},  // Right: Magenta
 		{0.3f, 0.8f, 0.8f, 1.0f},  // Left: Cyan
 	};
-	scene->cube_mesh = skr_mesh_create_cube(1.0f, cube_colors);
+	scene->cube_mesh = su_mesh_create_cube(1.0f, cube_colors);
 	skr_mesh_set_name(&scene->cube_mesh, "shadow_cube");
 
 	// Create floor mesh (large quad on XZ plane)
 	skr_vec4_t white = {1.0f, 1.0f, 1.0f, 1.0f};
 	skr_vec3_t normal_up = {0, 1, 0};
-	scene->floor_mesh = skr_mesh_create_quad(SHADOW_SCENE_SIZE, SHADOW_SCENE_SIZE, normal_up, false, white);
+	scene->floor_mesh = su_mesh_create_quad(SHADOW_SCENE_SIZE, SHADOW_SCENE_SIZE, normal_up, false, white);
 	skr_mesh_set_name(&scene->floor_mesh, "shadow_floor");
 
 	// Load shadow caster shader
-	scene->shadow_caster_shader = skr_shader_load("shaders/shadow_caster.hlsl.sks", "shadow_caster");
+	scene->shadow_caster_shader = su_shader_load("shaders/shadow_caster.hlsl.sks", "shadow_caster");
 	skr_material_create((skr_material_info_t){
 		.shader     = &scene->shadow_caster_shader,
 		.write_mask = skr_write_depth,
@@ -124,7 +124,7 @@ static scene_t* _scene_shadows_create() {
 	}, &scene->shadow_caster_material);
 
 	// Load shadow receiver shader
-	scene->shadow_receiver_shader = skr_shader_load("shaders/shadow_receiver.hlsl.sks", "shadow_receiver");
+	scene->shadow_receiver_shader = su_shader_load("shaders/shadow_receiver.hlsl.sks", "shadow_receiver");
 	skr_material_create((skr_material_info_t){
 		.shader     = &scene->shadow_receiver_shader,
 		.write_mask = skr_write_default,
@@ -138,9 +138,9 @@ static scene_t* _scene_shadows_create() {
 	}, &scene->floor_material);
 
 	// Create textures
-	scene->checkerboard_texture = skr_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF888888, true);
+	scene->checkerboard_texture = su_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF888888, true);
 	skr_tex_set_name(&scene->checkerboard_texture, "floor_checker");
-	scene->white_texture = skr_tex_create_solid_color(0xFFFFFFFF);
+	scene->white_texture = su_tex_create_solid_color(0xFFFFFFFF);
 	skr_tex_set_name(&scene->white_texture, "white_1x1");
 
 	// Bind textures to materials (shadow map will be bound globally per frame)
@@ -226,20 +226,20 @@ static void _scene_shadows_render(scene_t* base, int32_t width, int32_t height, 
 	// Generate random cubes (using deterministic random seed)
 	for (int32_t i = 0; i < cube_count; i++) {
 		float rand_seed = (float)i / (float)cube_count;
-		float x      = (skr_hash_f(i * 3 + 0, 1) - 0.5f) * (SHADOW_SCENE_SIZE - 1.0f);
-		float y      = (skr_hash_f(i * 3 + 1, 1) - 0.5f) * (SHADOW_SCENE_SIZE - 1.0f);
-		float size_x = 0.2f + skr_hash_f(i * 3 + 2, 1) * 0.4f;
-		float size_y = 0.3f + skr_hash_f(i * 3 + 2, 1) * 1.5f;
-		float size_z = 0.2f + skr_hash_f(i * 3 + 2, 1) * 0.4f;
+		float x      = (su_hash_f(i * 3 + 0, 1) - 0.5f) * (SHADOW_SCENE_SIZE - 1.0f);
+		float y      = (su_hash_f(i * 3 + 1, 1) - 0.5f) * (SHADOW_SCENE_SIZE - 1.0f);
+		float size_x = 0.2f + su_hash_f(i * 3 + 2, 1) * 0.4f;
+		float size_y = 0.3f + su_hash_f(i * 3 + 2, 1) * 1.5f;
+		float size_z = 0.2f + su_hash_f(i * 3 + 2, 1) * 0.4f;
 
-		cube_instances[i] = skr_matrix_trs(
+		cube_instances[i] = su_matrix_trs(
 			HMM_V3(x, 0.01f + size_y * 0.5f, y),
 			HMM_V3(0.0f, 0.0f, 0.0f),
 			HMM_V3(size_x, size_y, size_z) );
 	}
 
 	// Floor instance
-	HMM_Mat4 floor_instance = skr_matrix_trs(
+	HMM_Mat4 floor_instance = su_matrix_trs(
 		HMM_V3(0.0f, 0.0f, 0.0f),
 		HMM_V3(0.0f, 0.0f, 0.0f),
 		HMM_V3(1.0f, 1.0f, 1.0f)

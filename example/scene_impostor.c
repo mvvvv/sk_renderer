@@ -43,7 +43,7 @@ static scene_t* _scene_impostor_create() {
 
 
 	// Create impostor mesh - two perpendicular double-sided quads forming an X
-	skr_vertex_pnuc_t impostor_vertices[] = {
+	su_vertex_pnuc_t impostor_vertices[] = {
 		// First quad - front face (facing +Z)
 		{ .position = {-0.5f, 0.0f, 0.0f, 1.0f}, .normal = {-1.0f, 0.0f, 0.0f}, .uv = {0.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
 		{ .position = { 0.5f, 0.0f, 0.0f, 1.0f}, .normal = { 1.0f, 0.0f, 0.0f}, .uv = {1.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
@@ -60,7 +60,7 @@ static scene_t* _scene_impostor_create() {
 		0, 1, 2,  2, 3, 0,
 		4, 6, 5,  6, 4, 7,
 	};
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, impostor_vertices, 8, impostor_indices, 12, &scene->impostor_mesh);
+	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, impostor_vertices, 8, impostor_indices, 12, &scene->impostor_mesh);
 	skr_mesh_set_name(&scene->impostor_mesh, "impostor_quad");
 
 	// Create terrain mesh - a grid with height field
@@ -69,8 +69,8 @@ static scene_t* _scene_impostor_create() {
 	const int   vertex_count = (grid_size + 1) * (grid_size + 1);
 	const int   index_count  = grid_size * grid_size * 6;
 
-	skr_vertex_pnuc_t* terrain_vertices = malloc(vertex_count * sizeof(skr_vertex_pnuc_t));
-	uint16_t*          terrain_indices  = malloc(index_count  * sizeof(uint16_t));
+	su_vertex_pnuc_t* terrain_vertices = malloc(vertex_count * sizeof(su_vertex_pnuc_t));
+	uint16_t*         terrain_indices  = malloc(index_count  * sizeof(uint16_t));
 
 	// Generate terrain vertices with height field
 	for (int z = 0; z <= grid_size; z++) {
@@ -127,16 +127,16 @@ static scene_t* _scene_impostor_create() {
 		}
 	}
 
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, terrain_vertices, vertex_count, terrain_indices, index_count, &scene->terrain_mesh);
+	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, terrain_vertices, vertex_count, terrain_indices, index_count, &scene->terrain_mesh);
 	skr_mesh_set_name(&scene->terrain_mesh, "terrain");
 	free(terrain_vertices);
 	free(terrain_indices);
 
 	// Load standard shader for both trees and terrain
-	scene->shader = skr_shader_load("shaders/test.hlsl.sks", "main_shader");
+	scene->shader = su_shader_load("shaders/test.hlsl.sks", "main_shader");
 
 	// Load mipgen shader
-	scene->mipgen_shader = skr_shader_load("shaders/mipgen_alpha_weighted_render.hlsl.sks", "mipgen_shader");
+	scene->mipgen_shader = su_shader_load("shaders/mipgen_alpha_weighted_render.hlsl.sks", "mipgen_shader");
 
 	// Tree material with alpha-to-coverage for smooth edges
 	skr_material_create((skr_material_info_t){
@@ -157,28 +157,28 @@ static scene_t* _scene_impostor_create() {
 
 	// Load tree.png texture using image utility
 	int32_t width, height;
-	unsigned char* pixels = skr_image_load("tree.png", &width, &height, NULL, 4);
+	unsigned char* pixels = su_image_load("tree.png", &width, &height, NULL, 4);
 	if (pixels) {
 		skr_tex_create(skr_tex_fmt_rgba32,
 			skr_tex_flags_readable | skr_tex_flags_gen_mips,
-			skr_sampler_linear_clamp,
+			su_sampler_linear_clamp,
 			(skr_vec3i_t){width, height, 1}, 1, 0, pixels, &scene->tree_texture);
 		skr_tex_set_name     (&scene->tree_texture, "tree");
 		skr_tex_generate_mips(&scene->tree_texture, &scene->mipgen_shader);
-		skr_image_free(pixels);
+		su_image_free(pixels);
 	}
 	skr_material_set_tex(&scene->tree_material, "tex", &scene->tree_texture);
 
 	// Load ground.png texture for terrain
-	pixels = skr_image_load("ground.jpg", &width, &height, NULL, 4);
+	pixels = su_image_load("ground.jpg", &width, &height, NULL, 4);
 	if (pixels) {
 		skr_tex_create(skr_tex_fmt_rgba32,
 			skr_tex_flags_readable | skr_tex_flags_gen_mips,
-			skr_sampler_linear_wrap,  // Wrap for tiling
+			su_sampler_linear_wrap,  // Wrap for tiling
 			(skr_vec3i_t){width, height, 1}, 1, 0, pixels, &scene->ground_texture);
 		skr_tex_set_name     (&scene->ground_texture, "ground");
 		skr_tex_generate_mips(&scene->ground_texture, NULL);
-		skr_image_free(pixels);
+		su_image_free(pixels);
 	}
 	skr_material_set_tex(&scene->terrain_material, "tex", &scene->ground_texture);
 
@@ -225,7 +225,7 @@ static void _scene_impostor_render(scene_t* base, int32_t width, int32_t height,
 		// Get terrain height for tree placement
 		float y = _get_terrain_height(x, z);
 
-		instances[i] = skr_matrix_trs(
+		instances[i] = su_matrix_trs(
 			HMM_V3(x, y, z),
 			HMM_V3(0.0f, rot, 0.0f),
 			HMM_V3(scale, scale * 2.0f, scale) );  // 2x taller than wide, with random scale
@@ -233,7 +233,7 @@ static void _scene_impostor_render(scene_t* base, int32_t width, int32_t height,
 
 	// Add to render list
 	// First: Render terrain
-	HMM_Mat4 terrain_instance = skr_matrix_trs(
+	HMM_Mat4 terrain_instance = su_matrix_trs(
 		HMM_V3(0.0f, 0.0f, 0.0f),
 		HMM_V3(0.0f, 0.0f, 0.0f),
 		HMM_V3(1.0f, 1.0f, 1.0f) );
