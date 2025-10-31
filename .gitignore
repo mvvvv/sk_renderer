@@ -1,4 +1,6 @@
 /build*
+/bin
+/android/debug.keystore
 .vscode
 .claude
 CLAUDE.md
