@@ -202,7 +202,7 @@ void _skr_pipeline_unregister_material(int32_t material_idx) {
 		for (int32_t v = 0; v < SKR_MAX_VERTFORMATS; v++) {
 			if (_skr_pipeline_cache.pipelines[material_idx][r][v].created &&
 			    _skr_pipeline_cache.pipelines[material_idx][r][v].pipeline != VK_NULL_HANDLE) {
-				_skr_command_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[material_idx][r][v].pipeline);
+				_skr_cmd_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[material_idx][r][v].pipeline);
 				_skr_pipeline_cache.pipelines[material_idx][r][v].pipeline = VK_NULL_HANDLE;
 				_skr_pipeline_cache.pipelines[material_idx][r][v].created  = false;
 			}
@@ -210,8 +210,8 @@ void _skr_pipeline_unregister_material(int32_t material_idx) {
 	}
 
 	// Destroy material resources
-	_skr_command_destroy_pipeline_layout      (NULL, _skr_pipeline_cache.materials[material_idx].layout);
-	_skr_command_destroy_descriptor_set_layout(NULL, _skr_pipeline_cache.materials[material_idx].descriptor_layout);
+	_skr_cmd_destroy_pipeline_layout      (NULL, _skr_pipeline_cache.materials[material_idx].layout);
+	_skr_cmd_destroy_descriptor_set_layout(NULL, _skr_pipeline_cache.materials[material_idx].descriptor_layout);
 
 	_skr_pipeline_cache.materials[material_idx].active = false;
 }
@@ -224,13 +224,13 @@ void _skr_pipeline_unregister_renderpass(int32_t renderpass_idx) {
 	for (int32_t m = 0; m < SKR_MAX_MATERIALS; m++) {
 		for (int32_t v = 0; v < SKR_MAX_VERTFORMATS; v++) {
 			if (_skr_pipeline_cache.pipelines[m][renderpass_idx][v].created) {
-				_skr_command_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[m][renderpass_idx][v].pipeline);
+				_skr_cmd_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[m][renderpass_idx][v].pipeline);
 				_skr_pipeline_cache.pipelines[m][renderpass_idx][v].pipeline = VK_NULL_HANDLE;
 				_skr_pipeline_cache.pipelines[m][renderpass_idx][v].created  = false;
 			}
 		}
 	}
-	_skr_command_destroy_render_pass(NULL, _skr_pipeline_cache.renderpasses[renderpass_idx].render_pass);
+	_skr_cmd_destroy_render_pass(NULL, _skr_pipeline_cache.renderpasses[renderpass_idx].render_pass);
 
 	_skr_pipeline_cache.renderpasses[renderpass_idx].active = false;
 }
@@ -273,7 +273,7 @@ void _skr_pipeline_unregister_vertformat(int32_t vertformat_idx) {
 	for (int32_t m = 0; m < SKR_MAX_MATERIALS; m++) {
 		for (int32_t r = 0; r < SKR_MAX_RENDERPASSES; r++) {
 			if (_skr_pipeline_cache.pipelines[m][r][vertformat_idx].created) {
-				_skr_command_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[m][r][vertformat_idx].pipeline);
+				_skr_cmd_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[m][r][vertformat_idx].pipeline);
 				_skr_pipeline_cache.pipelines[m][r][vertformat_idx].pipeline = VK_NULL_HANDLE;
 				_skr_pipeline_cache.pipelines[m][r][vertformat_idx].created  = false;
 			}

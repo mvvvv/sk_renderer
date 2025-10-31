@@ -390,6 +390,11 @@ bool              skr_init                         (skr_settings_t settings);
 void              skr_shutdown                     (void);
 void              skr_thread_init                  (void);
 void              skr_thread_shutdown              (void);
+
+skr_future_t      skr_future_get                   (void);
+bool              skr_future_check                 (const skr_future_t* future);
+void              skr_future_wait                  (const skr_future_t* future);
+
 void              skr_callback_log                 (void (*callback)(skr_log_ level, const char* text));
 void              skr_log                          (skr_log_ level, const char* text);
 void              skr_logf                         (skr_log_ level, const char* text, ...);

@@ -561,7 +561,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		memcpy(staging.mapped_data, opt_tex_data, data_size);
 
 		// Create command buffer and upload (async with deferred cleanup)
-		_skr_command_context_t ctx = _skr_command_acquire();
+		_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
 
 		// Transition: UNDEFINED -> TRANSFER_DST (using automatic system)
 		_skr_tex_transition(ctx.cmd, out_tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -591,19 +591,19 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		_skr_tex_transition_for_shader_read(ctx.cmd, out_tex, shader_stages);
 
 		// Defer destruction of staging resources until GPU completes
-		_skr_command_destroy_buffer(ctx.destroy_list, staging.buffer);
-		_skr_command_destroy_memory(ctx.destroy_list, staging.memory);
-		_skr_command_release(ctx.cmd);
+		_skr_cmd_destroy_buffer(ctx.destroy_list, staging.buffer);
+		_skr_cmd_destroy_memory(ctx.destroy_list, staging.memory);
+		_skr_cmd_release(ctx.cmd);
 	} else if (!is_msaa_attachment && !(out_tex->flags & skr_tex_flags_writeable)) {
 		// No data provided, transition to appropriate layout for read-only textures
 		// Skip for transient MSAA attachments - they don't need initial layout transition
 		// Skip for writeable textures - let the first render pass handle the transition
 
-		_skr_command_context_t ctx = _skr_command_acquire();
+		_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
 		// Use automatic transition system - handles storage vs regular textures
 		if (out_tex->flags & skr_tex_flags_compute) { _skr_tex_transition_for_storage    (ctx.cmd, out_tex); }
 		else                                        { _skr_tex_transition_for_shader_read(ctx.cmd, out_tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT); }
-		_skr_command_release(ctx.cmd);
+		_skr_cmd_release(ctx.cmd);
 	}
 
 	// Create image view
@@ -651,12 +651,12 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 void skr_tex_destroy(skr_tex_t* tex) {
 	if (!tex) return;
 
-	_skr_command_destroy_framebuffer(NULL, tex->framebuffer);
-	_skr_command_destroy_framebuffer(NULL, tex->framebuffer_depth);
-	_skr_command_destroy_sampler    (NULL, tex->sampler);
-	_skr_command_destroy_image_view (NULL, tex->view);
-	_skr_command_destroy_image      (NULL, tex->image);
-	_skr_command_destroy_memory     (NULL, tex->memory);
+	_skr_cmd_destroy_framebuffer(NULL, tex->framebuffer);
+	_skr_cmd_destroy_framebuffer(NULL, tex->framebuffer_depth);
+	_skr_cmd_destroy_sampler    (NULL, tex->sampler);
+	_skr_cmd_destroy_image_view (NULL, tex->view);
+	_skr_cmd_destroy_image      (NULL, tex->image);
+	_skr_cmd_destroy_memory     (NULL, tex->memory);
 	*tex = (skr_tex_t){};
 }
 
@@ -741,7 +741,7 @@ static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
 		filter_mode = VK_FILTER_NEAREST;
 	}
 
-	_skr_command_context_t ctx = _skr_command_acquire();
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
 
 	// Transition mip 0 to TRANSFER_SRC_OPTIMAL (automatic system tracks current layout)
 	_skr_tex_transition(ctx.cmd, tex, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -799,7 +799,7 @@ static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
 	// Transition back to shader read layout (automatic system handles this)
 	_skr_tex_transition_for_shader_read(ctx.cmd, tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	_skr_command_release(ctx.cmd);
+	_skr_cmd_release(ctx.cmd);
 }
 
 static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, const skr_shader_t* fragment_shader) {
@@ -849,7 +849,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 	}
 
 	// Acquire command buffer context
-	_skr_command_context_t ctx = _skr_command_acquire();
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
 	if (!ctx.cmd) {
 		skr_log(skr_log_warning, "Failed to acquire command buffer for mipmap generation");
 		skr_material_destroy(&material);
@@ -868,7 +868,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 	VkPipeline pipeline = _skr_pipeline_get(material.pipeline_material_idx, renderpass_idx, vert_idx);
 	if (pipeline == VK_NULL_HANDLE) {
 		skr_log(skr_log_warning, "Failed to get pipeline for mipmap generation");
-		_skr_command_release(ctx.cmd);
+		_skr_cmd_release(ctx.cmd);
 		skr_material_destroy(&material);
 		return;
 	}
@@ -938,7 +938,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 				continue;
 			}
-			_skr_command_destroy_image_view(ctx.destroy_list, mip_view);
+			_skr_cmd_destroy_image_view(ctx.destroy_list, mip_view);
 		}
 
 		// Create framebuffer for this mip level
@@ -958,7 +958,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				SKR_VK_CHECK_NRET(vr, "vkCreateFramebuffer");
 				continue;
 			}
-			_skr_command_destroy_framebuffer(ctx.destroy_list, framebuffer);
+			_skr_cmd_destroy_framebuffer(ctx.destroy_list, framebuffer);
 		}
 
 		// Create image view for the previous mip level (source)
@@ -982,7 +982,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 				continue;
 			}
-			_skr_command_destroy_image_view(ctx.destroy_list, src_view);
+			_skr_cmd_destroy_image_view(ctx.destroy_list, src_view);
 		}
 
 		// Transition current mip to color attachment (automatic tracking handles UNDEFINED vs previous layout)
@@ -1101,7 +1101,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 	skr_buffer_destroy(&params_buffer);
 	skr_material_destroy(&material);
 
-	_skr_command_release(ctx.cmd);
+	_skr_cmd_release(ctx.cmd);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

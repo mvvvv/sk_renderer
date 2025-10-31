@@ -19,7 +19,7 @@ thread_local int32_t _skr_thread_idx = -1;
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool _skr_command_init() {
+bool _skr_cmd_init() {
 	skr_logf(skr_log_info, "Using %s queue (family %d)", _skr_vk.has_dedicated_transfer ? "transfer" : "graphics", _skr_vk.transfer_queue_family);
 
 	memset(_skr_vk.thread_pools, 0, sizeof(_skr_vk.thread_pools));
@@ -28,7 +28,7 @@ bool _skr_command_init() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void _skr_command_shutdown() {
+void _skr_cmd_shutdown() {
 	vkDeviceWaitIdle(_skr_vk.device);
 
 	// Destroy thread command pools and per-thread command ring fences
@@ -55,7 +55,7 @@ void _skr_command_shutdown() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-_skr_vk_thread_t* _skr_command_get_thread() {
+_skr_vk_thread_t* _skr_cmd_get_thread() {
 	if (_skr_thread_idx >= 0) {
 		return &_skr_vk.thread_pools[_skr_thread_idx];
 	}
@@ -163,15 +163,15 @@ void skr_thread_shutdown() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_vk_thread_t* pool) {
+static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* pool) {
 	// Find available slot in the per-thread command ring
-	_skr_command_ring_slot_t* slot      = NULL;
-	uint32_t                  start_idx = pool->cmd_ring_index;
+	_skr_cmd_ring_slot_t* slot      = NULL;
+	uint32_t              start_idx = pool->cmd_ring_index;
 
 	uint32_t idx;
 	for (uint32_t i = 0; i < skr_MAX_COMMAND_RING; i++) {
 		idx = (start_idx + i) % skr_MAX_COMMAND_RING;
-		_skr_command_ring_slot_t* curr = &pool->cmd_ring[idx];
+		_skr_cmd_ring_slot_t* curr = &pool->cmd_ring[idx];
 
 		// Use this slot if available
 		if (!curr->alive) {
@@ -193,6 +193,9 @@ static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_vk_thread_t* pool)
 		// Fence is done, make sure we free its assets too
 		_skr_destroy_list_execute(&slot->destroy_list);
 		_skr_destroy_list_clear  (&slot->destroy_list);
+
+		// Increment generation to invalidate old futures referencing this fence
+		slot->generation++;
 	}
 
 	// Allocate command buffer if needed
@@ -229,24 +232,24 @@ static _skr_command_ring_slot_t *_skr_command_ring_begin(_skr_vk_thread_t* pool)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-_skr_command_context_t _skr_command_begin() {
-	_skr_vk_thread_t* pool = _skr_command_get_thread();
+_skr_cmd_ctx_t _skr_cmd_begin() {
+	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
 	assert(pool);
 	assert(pool->ref_count == 0 && "Ref count should be 0 at batch start");
 
-	return _skr_command_acquire();
+	return _skr_cmd_acquire();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool _skr_command_try_get_active(_skr_command_context_t* out_ctx) {
-	*out_ctx = (_skr_command_context_t){};
+bool _skr_cmd_try_get_active(_skr_cmd_ctx_t* out_ctx) {
+	*out_ctx = (_skr_cmd_ctx_t){};
 
-	_skr_vk_thread_t* pool = _skr_command_get_thread();
+	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
 	assert(pool);
 	
 	if (pool->active_cmd) {
-		*out_ctx = (_skr_command_context_t){
+		*out_ctx = (_skr_cmd_ctx_t){
 			.cmd          = pool->active_cmd->cmd,
 			.destroy_list = &pool->active_cmd->destroy_list,
 		};
@@ -257,15 +260,15 @@ bool _skr_command_try_get_active(_skr_command_context_t* out_ctx) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-_skr_command_context_t _skr_command_acquire() {
-	_skr_vk_thread_t* pool = _skr_command_get_thread();
+_skr_cmd_ctx_t _skr_cmd_acquire() {
+	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
 	assert(pool);
 
 	if (pool->ref_count == 0)
-		pool->active_cmd = _skr_command_ring_begin(pool);
+		pool->active_cmd = _skr_cmd_ring_begin(pool);
 	
 	pool->ref_count++;
-	return (_skr_command_context_t){
+	return (_skr_cmd_ctx_t){
 		.cmd          = pool->active_cmd->cmd,
 		.destroy_list = &pool->active_cmd->destroy_list,
 	};
@@ -273,8 +276,8 @@ _skr_command_context_t _skr_command_acquire() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void _skr_command_release(VkCommandBuffer buffer) {
-	_skr_vk_thread_t* pool = _skr_command_get_thread();
+void _skr_cmd_release(VkCommandBuffer buffer) {
+	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
 	assert(pool);
 
 	pool->ref_count--;
@@ -290,26 +293,32 @@ void _skr_command_release(VkCommandBuffer buffer) {
 			.commandBufferCount = 1,
 			.pCommandBuffers    = &pool->active_cmd->cmd,
 		}, pool->active_cmd->fence);
-		pool->active_cmd = NULL;
+
+		// Track this as the most recently submitted command
+		pool->last_submitted = pool->active_cmd;
+		pool->active_cmd     = NULL;
 	}
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-VkCommandBuffer _skr_command_end() {
-	_skr_vk_thread_t* pool = _skr_command_get_thread();
+VkCommandBuffer _skr_cmd_end() {
+	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
 	assert(pool);
 
 	pool->ref_count--;
 	assert(pool->ref_count == 0 && "Unbalanced acquire/release - ref count should be 0");
+
+	// Track this as the most recently used command (not yet submitted, but will be soon)
+	pool->last_submitted = pool->active_cmd;
 
 	return pool->active_cmd->cmd;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void _skr_command_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSemaphore* opt_signal_semaphore, VkFence* out_opt_fence) {
-	_skr_vk_thread_t* pool = _skr_command_get_thread();
+void _skr_cmd_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSemaphore* opt_signal_semaphore, VkFence* out_opt_fence) {
+	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
 	assert(pool);
 
 	pool->ref_count--;
@@ -335,6 +344,68 @@ void _skr_command_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSema
 	if (out_opt_fence) {
 		*out_opt_fence = pool->active_cmd->fence;
 	}
+
+	// Track this as the most recently submitted command
+	pool->last_submitted = pool->active_cmd;
 }
 
 //TODO: all of this is just using the graphics_queue! It should be configurable
+
+///////////////////////////////////////////////////////////////////////////////
+// Future API - for GPU/CPU synchronization
+///////////////////////////////////////////////////////////////////////////////
+
+skr_future_t skr_future_get() {
+	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
+
+	// Invalid future if not on an initialized thread
+	if (!pool || !pool->alive) {
+		return (skr_future_t){ .slot = NULL, .generation = 0 };
+	}
+
+	// Prefer active_cmd if we're currently recording, otherwise use last_submitted
+	_skr_cmd_ring_slot_t* target = pool->active_cmd ? pool->active_cmd : pool->last_submitted;
+
+	// Return invalid if no command has been submitted yet
+	if (!target || target->fence == VK_NULL_HANDLE) {
+		return (skr_future_t){ .slot = NULL, .generation = 0 };
+	}
+
+	return (skr_future_t){
+		.slot       = target,
+		.generation = target->generation,
+	};
+}
+
+bool skr_future_check(const skr_future_t* future) {
+	if (!future || !future->slot) {
+		return true; // Invalid futures are considered "done"
+	}
+
+	_skr_cmd_ring_slot_t* slot = (_skr_cmd_ring_slot_t*)future->slot;
+
+	// If generation doesn't match, the slot was reused, so the original work is done
+	if (slot->generation != future->generation) {
+		return true;
+	}
+
+	// Query fence status (non-blocking)
+	VkResult result = vkGetFenceStatus(_skr_vk.device, slot->fence);
+	return result == VK_SUCCESS; // VK_SUCCESS = signaled, VK_NOT_READY = not signaled
+}
+
+void skr_future_wait(const skr_future_t* future) {
+	if (!future || !future->slot) {
+		return; // Invalid futures are no-op
+	}
+
+	_skr_cmd_ring_slot_t* slot = (_skr_cmd_ring_slot_t*)future->slot;
+
+	// If generation doesn't match, the slot was reused, so work is already done
+	if (slot->generation != future->generation) {
+		return;
+	}
+
+	// Block until fence signals
+	vkWaitForFences(_skr_vk.device, 1, &slot->fence, VK_TRUE, UINT64_MAX);
+}

@@ -244,27 +244,27 @@ void skr_surface_destroy(skr_surface_t* surface) {
 
 	// Destroy per-frame synchronization objects
 	for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++)
-		_skr_command_destroy_semaphore(NULL, surface->semaphore_acquire[i]);
+		_skr_cmd_destroy_semaphore(NULL, surface->semaphore_acquire[i]);
 
 	// Destroy per-image synchronization objects
 	if (surface->semaphore_submit) {
 		for (uint32_t i = 0; i < surface->image_count; i++)
-			_skr_command_destroy_semaphore(NULL, surface->semaphore_submit[i]);
+			_skr_cmd_destroy_semaphore(NULL, surface->semaphore_submit[i]);
 		free(surface->semaphore_submit);
 	}
 
 	// Destroy image views and cached framebuffers
 	if (surface->images) {
 		for (uint32_t i = 0; i < surface->image_count; i++) {
-			_skr_command_destroy_framebuffer(NULL, surface->images[i].framebuffer);
-			_skr_command_destroy_framebuffer(NULL, surface->images[i].framebuffer_depth);
-			_skr_command_destroy_image_view (NULL, surface->images[i].view);
+			_skr_cmd_destroy_framebuffer(NULL, surface->images[i].framebuffer);
+			_skr_cmd_destroy_framebuffer(NULL, surface->images[i].framebuffer_depth);
+			_skr_cmd_destroy_image_view (NULL, surface->images[i].view);
 		}
 		free(surface->images);
 	}
 
-	_skr_command_destroy_surface  (NULL, surface->surface  );
-	_skr_command_destroy_swapchain(NULL, surface->swapchain);
+	_skr_cmd_destroy_surface  (NULL, surface->surface  );
+	_skr_cmd_destroy_swapchain(NULL, surface->swapchain);
 }
 
 void skr_surface_resize(skr_surface_t* surface) {
@@ -347,17 +347,17 @@ void skr_surface_present(skr_surface_t* surface) {
 	if (!surface) return;
 
 	// Transition swapchain image to PRESENT_SRC_KHR layout before presenting
-	VkCommandBuffer cmd = _skr_command_acquire().cmd;
+	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
 	skr_tex_t* swapchain_image = &surface->images[surface->current_image];
 	_skr_tex_transition(cmd, swapchain_image, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0);
 
 	// Write end timestamp before ending command buffer
 	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, _skr_vk.timestamp_pool, _skr_vk.flight_idx * 2 + 1);
-	_skr_command_release(cmd);
+	_skr_cmd_release(cmd);
 
 	// End and submit the command buffer with semaphores for presentation
-	_skr_command_end_submit(
+	_skr_cmd_end_submit(
 		&surface->semaphore_acquire[surface->frame_idx],       // Wait on acquire semaphore
 		&surface->semaphore_submit [surface->current_image],    // Signal submit semaphore
 		&surface->fence_frame      [surface->frame_idx]

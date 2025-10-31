@@ -143,9 +143,9 @@ skr_bind_t skr_compute_get_bind(const skr_compute_t* compute, const char* bind_n
 void skr_compute_destroy(skr_compute_t* compute) {
 	if (!compute) return;
 
-	_skr_command_destroy_pipeline             (NULL, compute->pipeline);
-	_skr_command_destroy_pipeline_layout      (NULL, compute->layout);
-	_skr_command_destroy_descriptor_set_layout(NULL, compute->descriptor_layout);
+	_skr_cmd_destroy_pipeline             (NULL, compute->pipeline);
+	_skr_cmd_destroy_pipeline_layout      (NULL, compute->layout);
+	_skr_cmd_destroy_descriptor_set_layout(NULL, compute->descriptor_layout);
 
 
 	free(compute->binds);
@@ -209,7 +209,7 @@ void skr_compute_set_tex(skr_compute_t* compute, const char* name, skr_tex_t* te
 void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_t z) {
 	if (!skr_compute_is_valid(compute)) return;
 
-	VkCommandBuffer cmd = _skr_command_acquire().cmd;
+	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
 	if (!cmd) {
 		skr_log(skr_log_warning, "skr_compute_execute failed to acquire command buffer");
 		return;
@@ -255,13 +255,13 @@ void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_
 			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
 		}, 0, NULL, 0, NULL);
 
-	_skr_command_release(cmd);
+	_skr_cmd_release(cmd);
 }
 
 void skr_compute_execute_indirect(skr_compute_t* compute, skr_buffer_t* indirect_args) {
 	if (!skr_compute_is_valid(compute) || !indirect_args) return;
 
-	VkCommandBuffer cmd = _skr_command_acquire().cmd;
+	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline);
 
 	VkWriteDescriptorSet   writes      [32];
@@ -280,5 +280,5 @@ void skr_compute_execute_indirect(skr_compute_t* compute, skr_buffer_t* indirect
 		vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->layout, 0, write_ct, writes);
 
 	vkCmdDispatchIndirect(cmd, indirect_args->buffer, 0);
-	_skr_command_release(cmd);
+	_skr_cmd_release(cmd);
 }

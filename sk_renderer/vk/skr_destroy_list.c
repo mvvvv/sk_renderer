@@ -102,9 +102,9 @@ static void _skr_destroy_list_destroy(uint64_t handle, skr_destroy_type_ type) {
 }
 
 #define MAKE_ADD_FUNCTION(name, vk_type, func, owner) \
-void _skr_command_destroy_##name(skr_destroy_list_t* opt_list, vk_type handle) { \
+void _skr_cmd_destroy_##name(skr_destroy_list_t* opt_list, vk_type handle) { \
 	if (handle == VK_NULL_HANDLE) return; \
-	if (opt_list == NULL) { _skr_command_ring_slot_t* active = _skr_command_get_thread()->active_cmd; opt_list = active ? &active->destroy_list : NULL; } \
+	if (opt_list == NULL) { _skr_cmd_ring_slot_t* active = _skr_cmd_get_thread()->active_cmd; opt_list = active ? &active->destroy_list : NULL; } \
 	if (opt_list == NULL) { _skr_destroy_list_destroy(          (uint64_t)handle, skr_destroy_type_##name); } \
 	else                  { _skr_destroy_list_add    (opt_list, (uint64_t)handle, skr_destroy_type_##name); } \
 }

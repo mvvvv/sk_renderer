@@ -146,3 +146,8 @@ typedef struct skr_render_list_t {
 	bool               system_buffer_valid;
 	bool               needs_sort;  // Dirty flag for sorting
 } skr_render_list_t;
+
+typedef struct skr_future_t {
+	void*    slot;          // Pointer to _skr_cmd_ring_slot_t
+	uint64_t generation;    // Generation counter to detect fence reuse (must match slot's generation)
+} skr_future_t;

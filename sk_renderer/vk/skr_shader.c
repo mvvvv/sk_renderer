@@ -34,7 +34,7 @@ skr_shader_stage_t _skr_shader_stage_create(const void* shader_data, size_t shad
 void _skr_shader_stage_destroy(skr_shader_stage_t* stage) {
 	if (!stage) return;
 
-	_skr_command_destroy_shader_module(NULL, stage->shader);
+	_skr_cmd_destroy_shader_module(NULL, stage->shader);
 	*stage = (skr_shader_stage_t){};
 }
 

@@ -137,15 +137,15 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 			memcpy(mapped, data, out_buffer->size);
 			vkUnmapMemory(_skr_vk.device, staging_memory);
 
-			_skr_command_context_t ctx = _skr_command_acquire();
+			_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
 
 			vkCmdCopyBuffer(ctx.cmd, staging_buffer, out_buffer->buffer, 1, &(VkBufferCopy){
 				.size = out_buffer->size,
 			});
 
-			_skr_command_destroy_buffer(ctx.destroy_list, staging_buffer);
-			_skr_command_destroy_memory(ctx.destroy_list, staging_memory);
-			_skr_command_release(ctx.cmd);
+			_skr_cmd_destroy_buffer(ctx.destroy_list, staging_buffer);
+			_skr_cmd_destroy_memory(ctx.destroy_list, staging_memory);
+			_skr_cmd_release       (ctx.cmd);
 		}
 	}
 
@@ -171,6 +171,24 @@ void skr_buffer_set(skr_buffer_t* buffer, const void* data, uint32_t size_bytes)
 	}
 }
 
+void skr_buffer_get(const skr_buffer_t *buffer, void *ref_buffer, uint32_t buffer_size) {
+	if (!buffer || !ref_buffer) return;
+
+	if (buffer->use != skr_use_dynamic) {
+		skr_log(skr_log_critical, "skr_buffer_get only supports dynamic buffers");
+		return;
+	}
+
+	if (!buffer->mapped) {
+		skr_log(skr_log_critical, "Dynamic buffer is not mapped");
+		return;
+	}
+
+	// Copy min of requested size and actual buffer size
+	uint32_t copy_size = buffer_size < buffer->size ? buffer_size : buffer->size;
+	memcpy(ref_buffer, buffer->mapped, copy_size);
+}
+
 uint32_t skr_buffer_get_size(const skr_buffer_t* buffer) {
 	return buffer ? buffer->size : 0;
 }
@@ -188,8 +206,8 @@ void skr_buffer_destroy(skr_buffer_t* buffer) {
 		buffer->mapped = NULL;
 	}
 
-	_skr_command_destroy_buffer(NULL, buffer->buffer);
-	_skr_command_destroy_memory(NULL, buffer->memory);
+	_skr_cmd_destroy_buffer(NULL, buffer->buffer);
+	_skr_cmd_destroy_memory(NULL, buffer->memory);
 
 	memset(buffer, 0, sizeof(skr_buffer_t));
 }

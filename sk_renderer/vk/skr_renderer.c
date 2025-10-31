@@ -38,7 +38,7 @@ static VkFramebuffer _skr_get_or_create_framebuffer(skr_tex_t* cache_target, VkR
 
 	// Destroy old cached framebuffer if render pass changed
 	if (*cached_fb != VK_NULL_HANDLE) {
-		_skr_command_destroy_framebuffer(NULL, *cached_fb);
+		_skr_cmd_destroy_framebuffer(NULL, *cached_fb);
 	}
 
 	// Create and cache new framebuffer
@@ -117,7 +117,7 @@ void skr_renderer_frame_begin() {
 	_skr_vk.in_frame = true;
 
 	// Start a command buffer batch for this frame
-	VkCommandBuffer cmd = _skr_command_begin().cmd;
+	VkCommandBuffer cmd = _skr_cmd_begin().cmd;
 
 	// Reset and write start timestamp
 	uint32_t query_start = _skr_vk.flight_idx * SKR_QUERIES_PER_FRAME;
@@ -127,7 +127,7 @@ void skr_renderer_frame_begin() {
 
 void skr_renderer_frame_end() {
 	// Note: Command buffer is ended and submitted by skr_surface_present
-	// If not using surfaces, user must call _skr_command_end_submit manually
+	// If not using surfaces, user must call _skr_cmd_end_submit manually
 
 	// Only read timestamps after we've completed a full ring buffer cycle
 	if (_skr_vk.frame >= SKR_MAX_FRAMES_IN_FLIGHT) {
@@ -155,7 +155,7 @@ void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_
 	// Require at least one attachment (color or depth)
 	if (!color && !depth) return;
 
-	VkCommandBuffer cmd = _skr_command_acquire().cmd;
+	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
 
 	// Flush all pending texture transitions BEFORE starting render pass
 	// This prevents barriers inside render pass which require self-dependencies
@@ -262,11 +262,11 @@ void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_
 	_skr_vk.current_color_texture = color;
 	_skr_vk.current_depth_texture = depth;
 
-	_skr_command_release(cmd);
+	_skr_cmd_release(cmd);
 }
 
 void skr_renderer_end_pass() {
-	VkCommandBuffer cmd = _skr_command_acquire().cmd;
+	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
 	vkCmdEndRenderPass(cmd);
 
 	// Transition readable color attachments to shader-read layout for next use
@@ -285,7 +285,7 @@ void skr_renderer_end_pass() {
 
 	_skr_vk.current_color_texture = NULL;
 	_skr_vk.current_depth_texture = NULL;
-	_skr_command_release(cmd);
+	_skr_cmd_release(cmd);
 }
 
 void skr_renderer_set_global_constants(int32_t bind, const skr_buffer_t* buffer) {
@@ -308,7 +308,7 @@ void skr_renderer_set_global_texture(int32_t bind, const skr_tex_t* tex) {
 }
 
 void skr_renderer_set_viewport(skr_rect_t viewport) {
-	VkCommandBuffer cmd = _skr_command_acquire().cmd;
+	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
 	vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
 		.x        = viewport.x,
 		.y        = viewport.y,
@@ -317,16 +317,16 @@ void skr_renderer_set_viewport(skr_rect_t viewport) {
 		.minDepth = 0.0f,
 		.maxDepth = 1.0f,
 	});
-	_skr_command_release(cmd);
+	_skr_cmd_release(cmd);
 }
 
 void skr_renderer_set_scissor(skr_recti_t scissor) {
-	VkCommandBuffer cmd = _skr_command_acquire().cmd;
+	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
 	vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
 		.offset = {scissor.x, scissor.y},
 		.extent = {(uint32_t)scissor.w, (uint32_t)scissor.h},
 	});
-	_skr_command_release(cmd);
+	_skr_cmd_release(cmd);
 }
 
 void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t bounds_px) {
@@ -366,7 +366,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		return;
 	}
 
-	_skr_command_context_t ctx = _skr_command_acquire();
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
 
 	// Build per-draw descriptor writes
 	VkWriteDescriptorSet   writes      [32];
@@ -437,7 +437,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &temp_view);
 		if (vr != VK_SUCCESS) {
 			SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
-			_skr_command_release(ctx.cmd);
+			_skr_cmd_release(ctx.cmd);
 			return;
 		}
 
@@ -454,7 +454,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		if (vr != VK_SUCCESS) {
 			SKR_VK_CHECK_NRET(vr, "vkCreateFramebuffer");
 			vkDestroyImageView(_skr_vk.device, temp_view, NULL);
-			_skr_command_release(ctx.cmd);
+			_skr_cmd_release(ctx.cmd);
 			return;
 		}
 
@@ -463,7 +463,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		// Regular 2D: use cached framebuffer
 		framebuffer = _skr_get_or_create_framebuffer(to, render_pass, to, NULL, NULL, false);
 		if (framebuffer == VK_NULL_HANDLE) {
-			_skr_command_release(ctx.cmd);
+			_skr_cmd_release(ctx.cmd);
 			return;
 		}
 	}
@@ -493,8 +493,8 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 
 	// Clean up temporary resources (layered view/framebuffer)
 	if (temp_view != VK_NULL_HANDLE) {
-		_skr_command_destroy_framebuffer(ctx.destroy_list, framebuffer);
-		_skr_command_destroy_image_view (ctx.destroy_list, temp_view);
+		_skr_cmd_destroy_framebuffer(ctx.destroy_list, framebuffer);
+		_skr_cmd_destroy_image_view (ctx.destroy_list, temp_view);
 	}
 
 	// Transition target texture back to shader read layout
@@ -502,14 +502,14 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	_skr_tex_transition_for_shader_read(ctx.cmd, to, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	skr_buffer_destroy(&param_buffer);
-	_skr_command_release(ctx.cmd);
+	_skr_cmd_release(ctx.cmd);
 }
 
 void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t system_data_size, int32_t instance_multiplier) {
 	if (!list || list->count == 0) return;
 	instance_multiplier = (instance_multiplier < 1) ? 1 : instance_multiplier;
 
-	VkCommandBuffer cmd = _skr_command_acquire().cmd;
+	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
 
 	_skr_render_list_sort(list);
 
@@ -661,7 +661,7 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t 
 			material_data_offset += item->material->param_buffer_size;
 		}
 	}
-	_skr_command_release(cmd);
+	_skr_cmd_release(cmd);
 }
 
 float skr_renderer_get_gpu_time_ms() {
