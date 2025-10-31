@@ -192,7 +192,7 @@ int main(int argc, char* argv[]) {
 	// Main loop
 	int      frame_count = 0;
 	bool     running     = true;
-	bool     resized     = false;
+	bool     suspended   = false;
 	uint64_t last_time   = SDL_GetPerformanceCounter();
 
 	while (running) {
@@ -202,11 +202,17 @@ int main(int argc, char* argv[]) {
 			if (event.type == SDL_QUIT) {
 				running = false;
 			} else if (event.type == SDL_WINDOWEVENT) {
-				if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-					resized = true;
-				} else if (event.window.event == SDL_WINDOWEVENT_MINIMIZED) {
-					continue;
+				if (event.window.event == SDL_WINDOWEVENT_MINIMIZED) {
+					suspended = true;
+				} else if (event.window.event == SDL_WINDOWEVENT_RESTORED) {
+					suspended = false;
 				}
+			} else if (event.type == SDL_APP_WILLENTERBACKGROUND) {
+				skr_log(skr_log_info, "App entering background - suspending rendering");
+				suspended = true;
+			} else if (event.type == SDL_APP_DIDENTERFOREGROUND) {
+				skr_log(skr_log_info, "App entering foreground - resuming rendering");
+				suspended = false;
 			} else if (event.type == SDL_KEYDOWN) {
 				if (event.key.keysym.sym == SDLK_LEFT) {
 					app_key_press(app, app_key_left);
@@ -218,11 +224,10 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
-		// Handle resize
-		if (resized) {
-			vkDeviceWaitIdle(skr_get_vk_device());
-			skr_surface_resize(&surface);
-			resized = false;
+		// Skip rendering and updates while suspended (backgrounded/minimized)
+		if (suspended) {
+			SDL_Delay(100);  // Reduce CPU usage while suspended
+			continue;
 		}
 
 		// Calculate delta time
@@ -234,9 +239,52 @@ int main(int argc, char* argv[]) {
 		app_update(app, delta_time);
 
 		// Get next swapchain image
-		skr_tex_t* target = skr_surface_next_tex(&surface);
+		skr_tex_t*   target        = NULL;
+		skr_acquire_ acquire_result = skr_surface_next_tex(&surface, &target);
 
-		// Skip rendering if swapchain is out of date (will be recreated on next frame)
+		// Handle acquisition errors
+		if (acquire_result == skr_acquire_surface_lost) {
+			// Surface was lost - only try to recreate if we're not shutting down
+			if (!running) {
+				skr_log(skr_log_info, "Surface lost during shutdown - exiting gracefully");
+				break;
+			}
+
+			// Surface was lost (Android app resume) - need to recreate from SDL
+			skr_log(skr_log_info, "Recreating surface after loss");
+			vkDeviceWaitIdle(skr_get_vk_device());
+
+			VkSurfaceKHR new_vk_surface;
+			if (!SDL_Vulkan_CreateSurface(window, skr_get_vk_instance(), &new_vk_surface)) {
+				skr_logf(skr_log_critical, "Failed to recreate SDL Vulkan surface: %s", SDL_GetError());
+				running = false;
+				break;
+			}
+
+			skr_surface_destroy(&surface);
+			surface = skr_surface_create(new_vk_surface);
+			if (surface.surface == VK_NULL_HANDLE) {
+				skr_log(skr_log_critical, "Failed to recreate sk_renderer surface");
+				running = false;
+				break;
+			}
+			continue;
+		} else if (acquire_result == skr_acquire_needs_resize) {
+			// Swapchain out of date - resize and retry next frame
+			vkDeviceWaitIdle(skr_get_vk_device());
+			skr_surface_resize(&surface);
+			continue;
+		} else if (acquire_result != skr_acquire_success) {
+			// Other error - if we're shutting down, exit gracefully
+			if (!running) {
+				skr_log(skr_log_info, "Acquire failed during shutdown - exiting gracefully");
+				break;
+			}
+			// Skip frame and retry
+			continue;
+		}
+
+		// Render if we successfully acquired an image
 		if (target) {
 			// Begin frame
 			skr_renderer_frame_begin();

@@ -103,7 +103,7 @@ format_found:
 		.imageArrayLayers = 1,
 		.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.preTransform     = capabilities.currentTransform,
+		.preTransform     = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
 		.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 		.presentMode      = present_mode,
 		.clipped          = VK_TRUE,
@@ -280,8 +280,10 @@ void skr_surface_resize(skr_surface_t* surface) {
 	_skr_surface_create_swapchain(surface, surface->swapchain);
 }
 
-skr_tex_t* skr_surface_next_tex(skr_surface_t* surface) {
-	if (!surface) return NULL;
+skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
+	if (!surface || !out_tex) return skr_acquire_error;
+
+	*out_tex = NULL;
 
 	if (surface->fence_frame[surface->frame_idx] != VK_NULL_HANDLE) {
 		vkWaitForFences(_skr_vk.device, 1, &surface->fence_frame[surface->frame_idx], VK_TRUE, UINT64_MAX);
@@ -295,16 +297,46 @@ skr_tex_t* skr_surface_next_tex(skr_surface_t* surface) {
 		VK_NULL_HANDLE, &surface->current_image
 	);
 
-	// Handle swapchain out-of-date (user should resize)
-	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-		skr_log(skr_log_warning, "Swapchain out of date - resize needed");
-		return NULL;
-	} else if (result != VK_SUCCESS) {
-		skr_logf(skr_log_critical, "Failed to acquire swapchain image: %d", result);
-		return NULL;
+	// Handle surface lost - cannot recover here, caller must recreate surface
+	if (result == VK_ERROR_SURFACE_LOST_KHR) {
+		skr_log(skr_log_critical, "Surface lost - full surface recreation needed");
+		// Advance frame index since we won't call present() for this frame
+		//surface->frame_idx = (surface->frame_idx + 1) % SKR_MAX_FRAMES_IN_FLIGHT;
+		return skr_acquire_surface_lost;
 	}
 
-	return &surface->images[surface->current_image];
+	// Handle swapchain out-of-date or suboptimal
+	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+		skr_log(skr_log_info, "Swapchain out of date - needs resize");
+
+		// If VK_SUBOPTIMAL_KHR, the semaphore was signaled even though we won't use the image
+		// We need to consume the semaphore with a dummy submit to unsignal it
+		if (result == VK_SUBOPTIMAL_KHR) {
+			VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			vkQueueSubmit(_skr_vk.graphics_queue, 1, &(VkSubmitInfo){
+				.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+				.waitSemaphoreCount   = 1,
+				.pWaitSemaphores      = &surface->semaphore_acquire[surface->frame_idx],
+				.pWaitDstStageMask    = &wait_stage,
+				.commandBufferCount   = 0,  // No commands, just consume the semaphore
+			}, VK_NULL_HANDLE);
+
+			// Wait for the dummy submit to complete so semaphore is unsignaled
+			vkQueueWaitIdle(_skr_vk.graphics_queue);
+		}
+
+		// Don't advance frame index - we can reuse the same (now unsignaled) semaphore
+		return skr_acquire_needs_resize;
+	}
+
+	// Handle other errors
+	if (result != VK_SUCCESS) {
+		skr_logf(skr_log_critical, "Failed to acquire swapchain image: %d", result);
+		return skr_acquire_error;
+	}
+
+	*out_tex = &surface->images[surface->current_image];
+	return skr_acquire_success;
 }
 
 void skr_surface_present(skr_surface_t* surface) {

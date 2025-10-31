@@ -269,6 +269,14 @@ typedef enum skr_clear_ {
 	skr_clear_all     = skr_clear_color | skr_clear_depth | skr_clear_stencil,
 } skr_clear_;
 
+typedef enum skr_acquire_ {
+	skr_acquire_success      = 1,   // Successfully acquired image
+	skr_acquire_not_ready    = 0,   // Swapchain minimized/not ready (skip frame)
+	skr_acquire_needs_resize = -1,  // Swapchain out of date, needs resize
+	skr_acquire_surface_lost = -2,  // Surface lost, needs recreation
+	skr_acquire_error        = -3,  // General error
+} skr_acquire_;
+
 typedef struct skr_tex_sampler_t {
 	skr_tex_sample_      sample;
 	skr_tex_address_     address;
@@ -406,7 +414,7 @@ void              skr_tex_set_name                 (      skr_tex_t* tex, const 
 skr_surface_t     skr_surface_create               (void* vk_surface_khr);
 void              skr_surface_destroy              (      skr_surface_t* surface);
 void              skr_surface_resize               (      skr_surface_t* surface);
-skr_tex_t*        skr_surface_next_tex             (      skr_surface_t* surface);
+skr_acquire_      skr_surface_next_tex             (      skr_surface_t* surface, skr_tex_t** out_tex);
 void              skr_surface_present              (      skr_surface_t* surface);
 skr_vec2i_t       skr_surface_get_size             (const skr_surface_t* surface);
 
