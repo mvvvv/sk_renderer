@@ -412,104 +412,104 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
-	// For cubemaps and array textures, we need to create separate image views
-	// and framebuffers for each layer
+	// For cubemaps and array textures, use layered rendering with a single instanced draw call
 	if (is_cubemap || is_array) {
 		VkFormat vk_format = _skr_to_vk_tex_fmt(to->format);
 
-		for (uint32_t layer = 0; layer < layer_count; layer++) {
-			// Create image view for this specific layer
-			VkImageView layer_view = VK_NULL_HANDLE;
-			{
-				VkImageViewCreateInfo view_info = {
-					.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-					.image      = to->image,
-					.viewType   = VK_IMAGE_VIEW_TYPE_2D,
-					.format     = vk_format,
-					.subresourceRange = {
-						.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-						.baseMipLevel   = 0,
-						.levelCount     = 1,
-						.baseArrayLayer = layer,
-						.layerCount     = 1,
-					},
-				};
-				if (vkCreateImageView(_skr_vk.device, &view_info, NULL, &layer_view) != VK_SUCCESS) {
-					continue;
-				}
-			}
-
-			// Create framebuffer for this layer
-			VkFramebuffer framebuffer = VK_NULL_HANDLE;
-			{
-				VkFramebufferCreateInfo fb_info = {
-					.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-					.renderPass      = render_pass,
-					.attachmentCount = 1,
-					.pAttachments    = &layer_view,
-					.width           = bounds_px.w > 0 ? bounds_px.w : to->size.x,
-					.height          = bounds_px.h > 0 ? bounds_px.h : to->size.y,
-					.layers          = 1,
-				};
-				if (vkCreateFramebuffer(_skr_vk.device, &fb_info, NULL, &framebuffer) != VK_SUCCESS) {
-					vkDestroyImageView(_skr_vk.device, layer_view, NULL);
-					continue;
-				}
-			}
-
-			// Begin render pass for this layer
-			vkCmdBeginRenderPass(ctx.cmd, &(VkRenderPassBeginInfo){
-				.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-				.renderPass  = render_pass,
-				.framebuffer = framebuffer,
-				.renderArea  = {
-					.offset = {bounds_px.x, bounds_px.y},
-					.extent = {
-						bounds_px.w > 0 ? bounds_px.w : to->size.x,
-						bounds_px.h > 0 ? bounds_px.h : to->size.y
-					}
+		// Create image view for all layers (2D array view type)
+		VkImageView layered_view = VK_NULL_HANDLE;
+		{
+			VkImageViewCreateInfo view_info = {
+				.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.image      = to->image,
+				.viewType   = is_cubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+				.format     = vk_format,
+				.subresourceRange = {
+					.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel   = 0,
+					.levelCount     = 1,
+					.baseArrayLayer = 0,
+					.layerCount     = layer_count,
 				},
-			}, VK_SUBPASS_CONTENTS_INLINE);
+			};
+			if (vkCreateImageView(_skr_vk.device, &view_info, NULL, &layered_view) != VK_SUCCESS) {
+				_skr_command_release(ctx.cmd);
+				return;
+			}
+		}
 
-			// Get pipeline (we need a dummy vertex type since we're using SV_VertexID)
-			VkPipeline pipeline = _skr_pipeline_get(material->pipeline_material_idx, renderpass_idx, vert_idx);
-			if (pipeline != VK_NULL_HANDLE) {
-				vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+		// Create framebuffer with all layers
+		VkFramebuffer framebuffer = VK_NULL_HANDLE;
+		{
+			VkFramebufferCreateInfo fb_info = {
+				.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+				.renderPass      = render_pass,
+				.attachmentCount = 1,
+				.pAttachments    = &layered_view,
+				.width           = bounds_px.w > 0 ? bounds_px.w : to->size.x,
+				.height          = bounds_px.h > 0 ? bounds_px.h : to->size.y,
+				.layers          = layer_count,  // All layers in one framebuffer
+			};
+			if (vkCreateFramebuffer(_skr_vk.device, &fb_info, NULL, &framebuffer) != VK_SUCCESS) {
+				vkDestroyImageView(_skr_vk.device, layered_view, NULL);
+				_skr_command_release(ctx.cmd);
+				return;
+			}
+		}
 
-				// Set viewport and scissor
-				VkViewport viewport = {
-					.x        = (float)bounds_px.x,
-					.y        = (float)bounds_px.y,
-					.width    = bounds_px.w > 0 ? (float)bounds_px.w : (float)to->size.x,
-					.height   = bounds_px.h > 0 ? (float)bounds_px.h : (float)to->size.y,
-					.minDepth = 0.0f,
-					.maxDepth = 1.0f,
-				};
-				VkRect2D scissor = {
-					.offset = {bounds_px.x, bounds_px.y},
-					.extent = {
-						bounds_px.w > 0 ? bounds_px.w : to->size.x,
-						bounds_px.h > 0 ? bounds_px.h : to->size.y
-					}
-				};
-				vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
-				vkCmdSetScissor (ctx.cmd, 0, 1, &scissor);
-
-				// Bind descriptors
-				if (write_ct > 0) {
-					vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, write_ct, writes);
+		// Begin render pass once for all layers
+		vkCmdBeginRenderPass(ctx.cmd, &(VkRenderPassBeginInfo){
+			.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+			.renderPass  = render_pass,
+			.framebuffer = framebuffer,
+			.renderArea  = {
+				.offset = {bounds_px.x, bounds_px.y},
+				.extent = {
+					bounds_px.w > 0 ? bounds_px.w : to->size.x,
+					bounds_px.h > 0 ? bounds_px.h : to->size.y
 				}
+			},
+		}, VK_SUBPASS_CONTENTS_INLINE);
 
-				// Draw fullscreen triangle (SV_VertexID generates positions)
-				vkCmdDraw(ctx.cmd, 3, 1, 0, layer);
+		// Get pipeline
+		VkPipeline pipeline = _skr_pipeline_get(material->pipeline_material_idx, renderpass_idx, vert_idx);
+		if (pipeline != VK_NULL_HANDLE) {
+			vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+			// Set viewport and scissor
+			VkViewport viewport = {
+				.x        = (float)bounds_px.x,
+				.y        = (float)bounds_px.y,
+				.width    = bounds_px.w > 0 ? (float)bounds_px.w : (float)to->size.x,
+				.height   = bounds_px.h > 0 ? (float)bounds_px.h : (float)to->size.y,
+				.minDepth = 0.0f,
+				.maxDepth = 1.0f,
+			};
+			VkRect2D scissor = {
+				.offset = {bounds_px.x, bounds_px.y},
+				.extent = {
+					bounds_px.w > 0 ? bounds_px.w : to->size.x,
+					bounds_px.h > 0 ? bounds_px.h : to->size.y
+				}
+			};
+			vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
+			vkCmdSetScissor (ctx.cmd, 0, 1, &scissor);
+
+			// Bind descriptors
+			if (write_ct > 0) {
+				vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, write_ct, writes);
 			}
 
-			vkCmdEndRenderPass(ctx.cmd);
-
-			// Queue per-layer resources for deferred destruction
-			_skr_command_destroy_framebuffer(ctx.destroy_list, framebuffer);
-			_skr_command_destroy_image_view (ctx.destroy_list, layer_view);
+			// Draw fullscreen triangle with instancing - one instance per layer
+			// Shader uses SV_InstanceID to determine which layer to render to via SV_RenderTargetArrayIndex
+			vkCmdDraw(ctx.cmd, 3, layer_count, 0, 0);
 		}
+
+		vkCmdEndRenderPass(ctx.cmd);
+
+		// Queue resources for deferred destruction
+		_skr_command_destroy_framebuffer(ctx.destroy_list, framebuffer);
+		_skr_command_destroy_image_view (ctx.destroy_list, layered_view);
 	} else {
 		// Regular 2D texture - use cached framebuffer
 		VkFramebuffer framebuffer = _skr_get_or_create_framebuffer(to, render_pass, to, NULL, NULL, false);
