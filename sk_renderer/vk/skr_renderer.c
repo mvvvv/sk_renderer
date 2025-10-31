@@ -334,16 +334,18 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	if (!skr_material_is_valid(material) || !skr_tex_is_valid(to)) return;
 
 	// Determine if this is a cubemap, array, or regular 2D texture
-	bool is_cubemap = (to->flags & skr_tex_flags_cubemap) != 0;
-	bool is_array   = (to->flags & skr_tex_flags_array) != 0;
+	bool     is_cubemap  = (to->flags & skr_tex_flags_cubemap) != 0;
+	bool     is_array    = (to->flags & skr_tex_flags_array  ) != 0;
 	uint32_t layer_count = to->layer_count;
 
 	// Determine if this is a full-image blit or partial
-	bool is_full_blit = (bounds_px.w <= 0 || bounds_px.h <= 0) ||
-	                    (bounds_px.x == 0 && bounds_px.y == 0 &&
-	                     bounds_px.w == to->size.x && bounds_px.h == to->size.y);
+	bool is_full_blit = 
+		(bounds_px.w <= 0 || bounds_px.h <= 0) ||
+		(bounds_px.x == 0 && bounds_px.y == 0  &&
+		 bounds_px.w == to->size.x && bounds_px.h == to->size.y);
 
-	_skr_command_context_t ctx = _skr_command_acquire();
+	uint32_t width  = bounds_px.w > 0 ? bounds_px.w : to->size.x;
+	uint32_t height = bounds_px.h > 0 ? bounds_px.h : to->size.y;
 
 	// Register render pass format with pipeline system
 	// Use DONT_CARE for full blit (discard previous contents), LOAD for partial (preserve)
@@ -356,14 +358,15 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		.color_load_op  = is_full_blit ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_LOAD,
 	};
 	int32_t renderpass_idx = _skr_pipeline_register_renderpass(&rp_key);
-	int32_t vert_idx = _skr_pipeline_register_vertformat((skr_vert_type_t){});
+	int32_t vert_idx       = _skr_pipeline_register_vertformat((skr_vert_type_t){});
 
 	// Get render pass from pipeline system
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(renderpass_idx);
 	if (render_pass == VK_NULL_HANDLE) {
-		_skr_command_release(ctx.cmd);
 		return;
 	}
+
+	_skr_command_context_t ctx = _skr_command_acquire();
 
 	// Build per-draw descriptor writes
 	VkWriteDescriptorSet   writes      [32];
@@ -407,165 +410,87 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	}
 
 	// Transition target texture to color attachment layout
-	// Automatic system handles this - will use UNDEFINED if first use or track previous layout
 	_skr_tex_transition(ctx.cmd, to, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
-	// For cubemaps and array textures, use layered rendering with a single instanced draw call
+	// Create framebuffer - layered for cubemaps/arrays, cached for 2D
+	VkFramebuffer framebuffer   = VK_NULL_HANDLE;
+	VkImageView   temp_view     = VK_NULL_HANDLE;
+	uint32_t      draw_instances = 1;
+
 	if (is_cubemap || is_array) {
-		VkFormat vk_format = _skr_to_vk_tex_fmt(to->format);
-
-		// Create image view for all layers (2D array view type)
-		VkImageView layered_view = VK_NULL_HANDLE;
-		{
-			VkImageViewCreateInfo view_info = {
-				.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-				.image      = to->image,
-				.viewType   = is_cubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D_ARRAY,
-				.format     = vk_format,
-				.subresourceRange = {
-					.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel   = 0,
-					.levelCount     = 1,
-					.baseArrayLayer = 0,
-					.layerCount     = layer_count,
-				},
-			};
-			if (vkCreateImageView(_skr_vk.device, &view_info, NULL, &layered_view) != VK_SUCCESS) {
-				_skr_command_release(ctx.cmd);
-				return;
-			}
-		}
-
-		// Create framebuffer with all layers
-		VkFramebuffer framebuffer = VK_NULL_HANDLE;
-		{
-			VkFramebufferCreateInfo fb_info = {
-				.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-				.renderPass      = render_pass,
-				.attachmentCount = 1,
-				.pAttachments    = &layered_view,
-				.width           = bounds_px.w > 0 ? bounds_px.w : to->size.x,
-				.height          = bounds_px.h > 0 ? bounds_px.h : to->size.y,
-				.layers          = layer_count,  // All layers in one framebuffer
-			};
-			if (vkCreateFramebuffer(_skr_vk.device, &fb_info, NULL, &framebuffer) != VK_SUCCESS) {
-				vkDestroyImageView(_skr_vk.device, layered_view, NULL);
-				_skr_command_release(ctx.cmd);
-				return;
-			}
-		}
-
-		// Begin render pass once for all layers
-		vkCmdBeginRenderPass(ctx.cmd, &(VkRenderPassBeginInfo){
-			.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-			.renderPass  = render_pass,
-			.framebuffer = framebuffer,
-			.renderArea  = {
-				.offset = {bounds_px.x, bounds_px.y},
-				.extent = {
-					bounds_px.w > 0 ? bounds_px.w : to->size.x,
-					bounds_px.h > 0 ? bounds_px.h : to->size.y
-				}
+		// Layered rendering: create multi-layer view and framebuffer for single instanced draw
+		VkImageViewCreateInfo view_info = {
+			.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.image      = to->image,
+			.viewType   = is_cubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+			.format     = _skr_to_vk_tex_fmt(to->format),
+			.subresourceRange = {
+				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel   = 0,
+				.levelCount     = 1,
+				.baseArrayLayer = 0,
+				.layerCount     = layer_count,
 			},
-		}, VK_SUBPASS_CONTENTS_INLINE);
-
-		// Get pipeline
-		VkPipeline pipeline = _skr_pipeline_get(material->pipeline_material_idx, renderpass_idx, vert_idx);
-		if (pipeline != VK_NULL_HANDLE) {
-			vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-			// Set viewport and scissor
-			VkViewport viewport = {
-				.x        = (float)bounds_px.x,
-				.y        = (float)bounds_px.y,
-				.width    = bounds_px.w > 0 ? (float)bounds_px.w : (float)to->size.x,
-				.height   = bounds_px.h > 0 ? (float)bounds_px.h : (float)to->size.y,
-				.minDepth = 0.0f,
-				.maxDepth = 1.0f,
-			};
-			VkRect2D scissor = {
-				.offset = {bounds_px.x, bounds_px.y},
-				.extent = {
-					bounds_px.w > 0 ? bounds_px.w : to->size.x,
-					bounds_px.h > 0 ? bounds_px.h : to->size.y
-				}
-			};
-			vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
-			vkCmdSetScissor (ctx.cmd, 0, 1, &scissor);
-
-			// Bind descriptors
-			if (write_ct > 0) {
-				vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, write_ct, writes);
-			}
-
-			// Draw fullscreen triangle with instancing - one instance per layer
-			// Shader uses SV_InstanceID to determine which layer to render to via SV_RenderTargetArrayIndex
-			vkCmdDraw(ctx.cmd, 3, layer_count, 0, 0);
-		}
-
-		vkCmdEndRenderPass(ctx.cmd);
-
-		// Queue resources for deferred destruction
-		_skr_command_destroy_framebuffer(ctx.destroy_list, framebuffer);
-		_skr_command_destroy_image_view (ctx.destroy_list, layered_view);
-	} else {
-		// Regular 2D texture - use cached framebuffer
-		VkFramebuffer framebuffer = _skr_get_or_create_framebuffer(to, render_pass, to, NULL, NULL, false);
-		if (framebuffer == VK_NULL_HANDLE) {
+		};
+		if (vkCreateImageView(_skr_vk.device, &view_info, NULL, &temp_view) != VK_SUCCESS) {
 			_skr_command_release(ctx.cmd);
 			return;
 		}
 
-		// Begin render pass
-		vkCmdBeginRenderPass(ctx.cmd, &(VkRenderPassBeginInfo){
-			.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-			.renderPass  = render_pass,
-			.framebuffer = framebuffer,
-			.renderArea  = {
-				.offset = {bounds_px.x, bounds_px.y},
-				.extent = {
-					bounds_px.w > 0 ? bounds_px.w : to->size.x,
-					bounds_px.h > 0 ? bounds_px.h : to->size.y
-				}
-			},
-		}, VK_SUBPASS_CONTENTS_INLINE);
-
-		// Get pipeline
-		VkPipeline pipeline = _skr_pipeline_get(material->pipeline_material_idx, renderpass_idx, 0);
-		if (pipeline != VK_NULL_HANDLE) {
-			vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-			// Set viewport and scissor
-			VkViewport viewport = {
-				.x        = (float)bounds_px.x,
-				.y        = (float)bounds_px.y,
-				.width    = bounds_px.w > 0 ? (float)bounds_px.w : (float)to->size.x,
-				.height   = bounds_px.h > 0 ? (float)bounds_px.h : (float)to->size.y,
-				.minDepth = 0.0f,
-				.maxDepth = 1.0f,
-			};
-			VkRect2D scissor = {
-				.offset = {bounds_px.x, bounds_px.y},
-				.extent = {
-					bounds_px.w > 0 ? bounds_px.w : to->size.x,
-					bounds_px.h > 0 ? bounds_px.h : to->size.y
-				}
-			};
-			vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
-			vkCmdSetScissor (ctx.cmd, 0, 1, &scissor);
-
-			// Bind descriptors
-			if (write_ct > 0) {
-				vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, write_ct, writes);
-			}
-
-			// Draw fullscreen triangle
-			vkCmdDraw(ctx.cmd, 3, 1, 0, 0);
+		VkFramebufferCreateInfo fb_info = {
+			.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+			.renderPass      = render_pass,
+			.attachmentCount = 1,
+			.pAttachments    = &temp_view,
+			.width           = width,
+			.height          = height,
+			.layers          = layer_count,
+		};
+		if (vkCreateFramebuffer(_skr_vk.device, &fb_info, NULL, &framebuffer) != VK_SUCCESS) {
+			vkDestroyImageView(_skr_vk.device, temp_view, NULL);
+			_skr_command_release(ctx.cmd);
+			return;
 		}
 
-		vkCmdEndRenderPass(ctx.cmd);
+		draw_instances = layer_count;  // One instance per layer
+	} else {
+		// Regular 2D: use cached framebuffer
+		framebuffer = _skr_get_or_create_framebuffer(to, render_pass, to, NULL, NULL, false);
+		if (framebuffer == VK_NULL_HANDLE) {
+			_skr_command_release(ctx.cmd);
+			return;
+		}
+	}
+
+	// Common rendering path for all texture types
+	vkCmdBeginRenderPass(ctx.cmd, &(VkRenderPassBeginInfo){
+		.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+		.renderPass  = render_pass,
+		.framebuffer = framebuffer,
+		.renderArea  = {{bounds_px.x, bounds_px.y}, {width, height}},
+	}, VK_SUBPASS_CONTENTS_INLINE);
+
+	VkPipeline pipeline = _skr_pipeline_get(material->pipeline_material_idx, renderpass_idx, vert_idx);
+	if (pipeline != VK_NULL_HANDLE) {
+		vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+		vkCmdSetViewport (ctx.cmd, 0, 1, &(VkViewport){(float)bounds_px.x, (float)bounds_px.y, (float)width, (float)height, 0.0f, 1.0f});
+		vkCmdSetScissor  (ctx.cmd, 0, 1, &(VkRect2D  ){{bounds_px.x, bounds_px.y}, {width, height}});
+
+		if (write_ct > 0) {
+			vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, write_ct, writes);
+		}
+		// Draw fullscreen triangle - instanced for cubemaps/arrays, single for 2D
+		vkCmdDraw(ctx.cmd, 3, draw_instances, 0, 0);
+	}
+
+	vkCmdEndRenderPass(ctx.cmd);
+
+	// Clean up temporary resources (layered view/framebuffer)
+	if (temp_view != VK_NULL_HANDLE) {
+		_skr_command_destroy_framebuffer(ctx.destroy_list, framebuffer);
+		_skr_command_destroy_image_view (ctx.destroy_list, temp_view);
 	}
 
 	// Transition target texture back to shader read layout
