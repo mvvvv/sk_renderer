@@ -80,35 +80,18 @@ static scene_t* _scene_reaction_diffusion_create() {
 	skr_mesh_set_name(&scene->quad_mesh, "quad");
 
 	// Load shaders
-	void*  shader_data = NULL;
-	size_t shader_size = 0;
-	if (app_read_file("shaders/test.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->shader);
-		skr_shader_set_name(&scene->shader, "main_shader");
-		free(shader_data);
-
-		if (skr_shader_is_valid(&scene->shader)) {
-			skr_material_create((skr_material_info_t){
-				.shader       = &scene->shader,
-				.cull         = skr_cull_back,
-				.write_mask   = skr_write_r | skr_write_g | skr_write_b | skr_write_a | skr_write_depth,
-				.depth_test   = skr_compare_less,
-			}, &scene->quad_material);
-		}
-	}
+	scene->shader = skr_shader_load("shaders/test.hlsl.sks", "main_shader");
+	skr_material_create((skr_material_info_t){
+		.shader       = &scene->shader,
+		.cull         = skr_cull_back,
+		.write_mask   = skr_write_default,
+		.depth_test   = skr_compare_less,
+	}, &scene->quad_material);
 
 	// Load compute shader
-	void* compute_data = NULL;
-	size_t compute_size = 0;
-	if (app_read_file("shaders/compute_test.hlsl.sks", &compute_data, &compute_size)) {
-		skr_shader_create(compute_data, compute_size, &scene->compute_sh);
-		free(compute_data);
-
-		if (skr_shader_is_valid(&scene->compute_sh)) {
-			skr_compute_create(&scene->compute_sh, &scene->compute_ping);
-			skr_compute_create(&scene->compute_sh, &scene->compute_pong);
-		}
-	}
+	scene->compute_sh = skr_shader_load("shaders/compute_test.hlsl.sks", NULL);
+	skr_compute_create(&scene->compute_sh, &scene->compute_ping);
+	skr_compute_create(&scene->compute_sh, &scene->compute_pong);
 
 	// Create compute resources
 	typedef struct { float x, y; } float2;
@@ -121,10 +104,8 @@ static scene_t* _scene_reaction_diffusion_create() {
 		}
 	}
 
-	skr_buffer_create(initial_data, scene->sim_size * scene->sim_size, sizeof(float2),
-		skr_buffer_type_storage, skr_use_compute_readwrite, &scene->compute_buffer_a);
-	skr_buffer_create(initial_data, scene->sim_size * scene->sim_size, sizeof(float2),
-		skr_buffer_type_storage, skr_use_compute_readwrite, &scene->compute_buffer_b);
+	skr_buffer_create(initial_data, scene->sim_size * scene->sim_size, sizeof(float2), skr_buffer_type_storage, skr_use_compute_readwrite, &scene->compute_buffer_a);
+	skr_buffer_create(initial_data, scene->sim_size * scene->sim_size, sizeof(float2), skr_buffer_type_storage, skr_use_compute_readwrite, &scene->compute_buffer_b);
 	free(initial_data);
 
 	skr_tex_sampler_t default_sampler = { .sample = skr_tex_sample_linear, .address = skr_tex_address_clamp };
@@ -151,26 +132,21 @@ static scene_t* _scene_reaction_diffusion_create() {
 		.timestep = 0.8f,
 		.size     = scene->sim_size
 	};
-	skr_buffer_create(&compute_params, 1, sizeof(compute_params_t),
-		skr_buffer_type_constant, skr_use_dynamic, &scene->compute_params_buffer);
+	skr_buffer_create(&compute_params, 1, sizeof(compute_params_t), skr_buffer_type_constant, skr_use_dynamic, &scene->compute_params_buffer);
 
 	// Set up compute bindings
-	if (skr_compute_is_valid(&scene->compute_ping) && skr_compute_is_valid(&scene->compute_pong)) {
-		skr_compute_set_buffer(&scene->compute_ping, "input",   &scene->compute_buffer_a);
-		skr_compute_set_buffer(&scene->compute_ping, "output",  &scene->compute_buffer_b);
-		skr_compute_set_buffer(&scene->compute_ping, "$Global", &scene->compute_params_buffer);
-		skr_compute_set_tex   (&scene->compute_ping, "out_tex", &scene->compute_output);
+	skr_compute_set_buffer(&scene->compute_ping, "input",   &scene->compute_buffer_a);
+	skr_compute_set_buffer(&scene->compute_ping, "output",  &scene->compute_buffer_b);
+	skr_compute_set_buffer(&scene->compute_ping, "$Global", &scene->compute_params_buffer);
+	skr_compute_set_tex   (&scene->compute_ping, "out_tex", &scene->compute_output);
 
-		skr_compute_set_buffer(&scene->compute_pong, "input",   &scene->compute_buffer_b);
-		skr_compute_set_buffer(&scene->compute_pong, "output",  &scene->compute_buffer_a);
-		skr_compute_set_buffer(&scene->compute_pong, "$Global", &scene->compute_params_buffer);
-		skr_compute_set_tex   (&scene->compute_pong, "out_tex", &scene->compute_output);
-	}
+	skr_compute_set_buffer(&scene->compute_pong, "input",   &scene->compute_buffer_b);
+	skr_compute_set_buffer(&scene->compute_pong, "output",  &scene->compute_buffer_a);
+	skr_compute_set_buffer(&scene->compute_pong, "$Global", &scene->compute_params_buffer);
+	skr_compute_set_tex   (&scene->compute_pong, "out_tex", &scene->compute_output);
 
 	// Bind texture to material
-	if (skr_material_is_valid(&scene->quad_material)) {
-		skr_material_set_tex(&scene->quad_material, "tex", &scene->compute_output);
-	}
+	skr_material_set_tex(&scene->quad_material, "tex", &scene->compute_output);
 
 	return (scene_t*)scene;
 }
@@ -197,12 +173,10 @@ static void _scene_reaction_diffusion_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time;
 
 	// Execute compute shader
-	if (skr_compute_is_valid(&scene->compute_ping) && skr_compute_is_valid(&scene->compute_pong)) {
-		for (int c = 0; c < 2; c++) {
-			skr_compute_t* current = (scene->compute_iteration % 2 == 0) ? &scene->compute_ping : &scene->compute_pong;
-			skr_compute_execute(current, scene->sim_size / 8, scene->sim_size / 8, 1);
-			scene->compute_iteration++;
-		}
+	for (int c = 0; c < 2; c++) {
+		skr_compute_t* current = (scene->compute_iteration % 2 == 0) ? &scene->compute_ping : &scene->compute_pong;
+		skr_compute_execute(current, scene->sim_size / 8, scene->sim_size / 8, 1);
+		scene->compute_iteration++;
 	}
 }
 
@@ -210,16 +184,13 @@ static void _scene_reaction_diffusion_render(scene_t* base, int32_t width, int32
 	scene_reaction_diffusion_t* scene = (scene_reaction_diffusion_t*)base;
 
 	// Build instance data for quad
-	typedef struct { HMM_Mat4 world; } instance_data_t;
-	instance_data_t quad_instance;
-	HMM_Mat4 quad_transform = HMM_MulM4(
-		HMM_Scale(HMM_V3(6.0f, 6.0f, 6.0f)),
-		HMM_Rotate_RH(-scene->rotation, HMM_V3(0.0f, 1.0f, 0.0f))
-	);
-	quad_instance.world = HMM_Transpose(quad_transform);
+	HMM_Mat4 quad_instance = skr_matrix_trs(
+		HMM_V3(0.0f, 0.0f, 0.0f),
+		HMM_V3(0.0f, -scene->rotation, 0.0f),
+		HMM_V3(6.0f, 6.0f, 6.0f) );
 
 	// Add to render list
-	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->quad_material, &quad_instance, sizeof(instance_data_t), 1);
+	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->quad_material, &quad_instance, sizeof(HMM_Mat4), 1);
 }
 
 const scene_vtable_t scene_reaction_diffusion_vtable = {

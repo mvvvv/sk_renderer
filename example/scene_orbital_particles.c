@@ -122,41 +122,22 @@ static scene_t* _scene_orbital_particles_create() {
 	skr_mesh_set_name(&scene->pyramid_mesh, "tetrahedron");
 
 	// Load shader
-	void*  shader_data = NULL;
-	size_t shader_size = 0;
-	if (app_read_file("shaders/orbital_particles.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->shader);
-		skr_shader_set_name(&scene->shader, "orbital_particles_shader");
-		free(shader_data);
-
-		if (skr_shader_is_valid(&scene->shader)) {
-			skr_material_create((skr_material_info_t){
-				.shader       = &scene->shader,
-				.cull         = skr_cull_back,
-				.write_mask   = skr_write_r | skr_write_g | skr_write_b | skr_write_a | skr_write_depth,
-				.depth_test   = skr_compare_less,
-			}, &scene->material);
-		}
-	}
+	scene->shader = skr_shader_load("shaders/orbital_particles.hlsl.sks", "orbital_particles_shader");
+	skr_material_create((skr_material_info_t){
+		.shader       = &scene->shader,
+		.cull         = skr_cull_back,
+		.write_mask   = skr_write_r | skr_write_g | skr_write_b | skr_write_a | skr_write_depth,
+		.depth_test   = skr_compare_less,
+	}, &scene->material);
 
 	// Create white 1x1 texture
-	uint32_t white_pixel = 0xFFFFFFFF;
-	skr_tex_sampler_t default_sampler = { .sample = skr_tex_sample_linear, .address = skr_tex_address_clamp };
-	skr_tex_create(skr_tex_fmt_rgba32, skr_tex_flags_readable, default_sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &white_pixel, &scene->white_texture);
+	scene->white_texture = skr_tex_create_solid_color(0xFFFFFFFF);
 	skr_tex_set_name(&scene->white_texture, "white_1x1");
 
 	// Load compute shader
-	void* compute_data = NULL;
-	size_t compute_size = 0;
-	if (app_read_file("shaders/orbital_particles_compute.hlsl.sks", &compute_data, &compute_size)) {
-		skr_shader_create(compute_data, compute_size, &scene->compute_shader);
-		free(compute_data);
-
-		if (skr_shader_is_valid(&scene->compute_shader)) {
-			skr_compute_create(&scene->compute_shader, &scene->compute_ping);
-			skr_compute_create(&scene->compute_shader, &scene->compute_pong);
-		}
-	}
+	scene->compute_shader = skr_shader_load("shaders/orbital_particles_compute.hlsl.sks", NULL);
+	skr_compute_create(&scene->compute_shader, &scene->compute_ping);
+	skr_compute_create(&scene->compute_shader, &scene->compute_pong);
 
 	// Initialize particles in a sphere
 	particle_t* particles = malloc(PARTICLE_COUNT * sizeof(particle_t));
@@ -165,13 +146,12 @@ static scene_t* _scene_orbital_particles_create() {
 		float phi     = _hash_f(i, 1) * 3.14159f;
 		float radius  = _hash_f(i, 2) * 5.0f + 1.0f;
 
+		particles[i].velocity = HMM_V3(0, 0, 0);
 		particles[i].position = HMM_V3(
 			sinf(phi) * cosf(theta) * radius,
 			sinf(phi) * sinf(theta) * radius,
 			cosf(phi) * radius
 		);
-
-		particles[i].velocity = HMM_V3(0, 0, 0);
 	}
 
 	// Create particle buffers for ping-pong compute
@@ -260,12 +240,10 @@ static void _scene_orbital_particles_update(scene_t* base, float delta_time) {
 	skr_buffer_set(&scene->compute_params_buffer, &params, sizeof(compute_params_t));
 
 	// Execute compute shader to update particles on GPU
-	if (skr_compute_is_valid(&scene->compute_ping) && skr_compute_is_valid(&scene->compute_pong)) {
-		skr_compute_t* current = (scene->compute_iteration % 2 == 0) ? &scene->compute_ping : &scene->compute_pong;
-		// Dispatch 500k particles / 256 threads per group = 1954 groups (rounded up)
-		skr_compute_execute(current, (PARTICLE_COUNT + 255) / 256, 1, 1);
-		scene->compute_iteration++;
-	}
+	skr_compute_t* current = (scene->compute_iteration % 2 == 0) ? &scene->compute_ping : &scene->compute_pong;
+	// Dispatch 500k particles / 256 threads per group = 1954 groups (rounded up)
+	skr_compute_execute(current, (PARTICLE_COUNT + 255) / 256, 1, 1);
+	scene->compute_iteration++;
 }
 
 static void _scene_orbital_particles_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {

@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "bloom.h"
-#include "app.h"
+#include "scene_util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,23 +42,14 @@ void bloom_create(int32_t width, int32_t height, int32_t mip_count) {
 	}
 
 	printf("Loading bloom shaders...\n");
-	void*  data = NULL;
-	size_t size = 0;
-	if (app_read_file("shaders/bloom_downsample.hlsl.sks", &data, &size)) {
-		skr_shader_create(data, size, &g_bloom.bloom_downsample_shader);
-		free(data);
-	}
+	g_bloom.bloom_downsample_shader = skr_shader_load("shaders/bloom_downsample.hlsl.sks", NULL);
 	printf("  Downsample shader loaded: %d\n", skr_shader_is_valid(&g_bloom.bloom_downsample_shader));
-	if (app_read_file("shaders/bloom_upsample.hlsl.sks", &data, &size)) {
-		skr_shader_create(data, size, &g_bloom.bloom_upsample_shader);
-		free(data);
-	}
-	printf("  Upsample shader loaded:   %d\n", skr_shader_is_valid(&g_bloom.bloom_upsample_shader  ));
-	if (app_read_file("shaders/bloom_composite.hlsl.sks", &data, &size)) {
-		skr_shader_create(data, size, &g_bloom.bloom_composite_shader);
-		free(data);
-	}
-	printf("  Composite shader loaded:  %d\n", skr_shader_is_valid(&g_bloom.bloom_composite_shader ));
+
+	g_bloom.bloom_upsample_shader = skr_shader_load("shaders/bloom_upsample.hlsl.sks", NULL);
+	printf("  Upsample shader loaded:   %d\n", skr_shader_is_valid(&g_bloom.bloom_upsample_shader));
+
+	g_bloom.bloom_composite_shader = skr_shader_load("shaders/bloom_composite.hlsl.sks", NULL);
+	printf("  Composite shader loaded:  %d\n", skr_shader_is_valid(&g_bloom.bloom_composite_shader));
 
 	// Create compute instances
 	skr_material_create((skr_material_info_t){

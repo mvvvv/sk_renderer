@@ -102,50 +102,33 @@ static scene_t* _scene_3d_texture_create() {
 		0, 1, 2,
 		2, 3, 0,
 	};
-	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &scene->quad_mesh);
+	skr_mesh_create  (&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &scene->quad_mesh);
 	skr_mesh_set_name(&scene->quad_mesh, "quad");
 
 	// Load shader
-	void*  shader_data = NULL;
-	size_t shader_size = 0;
-	if (app_read_file("shaders/texture3d.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->shader);
-		skr_shader_set_name(&scene->shader, "texture3d_shader");
-		free(shader_data);
-
-		if (skr_shader_is_valid(&scene->shader)) {
-			skr_material_create((skr_material_info_t){
-				.shader     = &scene->shader,
-				.write_mask = skr_write_default,
-				.depth_test = skr_compare_less,
-				.cull       = skr_cull_none,
-				.alpha_to_coverage = true,
-			}, &scene->material);
-		}
-	}
+	scene->shader = skr_shader_load("shaders/texture3d.hlsl.sks", "texture3d_shader");
+	skr_material_create((skr_material_info_t){
+		.shader     = &scene->shader,
+		.write_mask = skr_write_default,
+		.depth_test = skr_compare_less,
+		.cull       = skr_cull_none,
+		.alpha_to_coverage = true,
+	}, &scene->material);
 
 	// Create 3D texture with colored spheres
-	const int32_t tex_size = 64;  // 64x64x64 volume
-	uint32_t* texture_data = _generate_3d_texture_data(tex_size);
-
-	if (texture_data) {
-		skr_tex_sampler_t sampler = {
-			.sample  = skr_tex_sample_linear,
-			.address = skr_tex_address_clamp
-		};
-		skr_tex_create(
-			skr_tex_fmt_rgba32,
-			skr_tex_flags_readable | skr_tex_flags_3d,
-			sampler,
-			(skr_vec3i_t){tex_size, tex_size, tex_size},
-			1,
-			1,
-			texture_data, &scene->texture_3d
-		);
-		free(texture_data);
-		skr_tex_set_name(&scene->texture_3d, "3d_spheres");
-	}
-	skr_material_set_tex(&scene->material, "tex", &scene->texture_3d);
+	const int32_t tex_size     = 64; // 64x64x64 volume
+	uint32_t*     texture_data = _generate_3d_texture_data(tex_size);
+	skr_tex_create(
+		skr_tex_fmt_rgba32,
+		skr_tex_flags_readable | skr_tex_flags_3d,
+		(skr_tex_sampler_t){ .sample  = skr_tex_sample_linear, .address = skr_tex_address_clamp },
+		(skr_vec3i_t){tex_size, tex_size, tex_size},
+		1,
+		1,
+		texture_data, &scene->texture_3d );
+	free(texture_data);
+	skr_tex_set_name    (&scene->texture_3d, "3d_spheres");
+	skr_material_set_tex(&scene->material,   "tex", &scene->texture_3d);
 
 	return (scene_t*)scene;
 }
@@ -153,10 +136,10 @@ static scene_t* _scene_3d_texture_create() {
 static void _scene_3d_texture_destroy(scene_t* base) {
 	scene_3d_texture_t* scene = (scene_3d_texture_t*)base;
 
-	skr_mesh_destroy(&scene->quad_mesh);
+	skr_mesh_destroy    (&scene->quad_mesh);
 	skr_material_destroy(&scene->material);
-	skr_shader_destroy(&scene->shader);
-	skr_tex_destroy(&scene->texture_3d);
+	skr_shader_destroy  (&scene->shader);
+	skr_tex_destroy     (&scene->texture_3d);
 
 	free(scene);
 }
@@ -169,28 +152,21 @@ static void _scene_3d_texture_update(scene_t* base, float delta_time) {
 static void _scene_3d_texture_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_3d_texture_t* scene = (scene_3d_texture_t*)base;
 
-	// Build instance data - just the world matrix
-	typedef struct {
-		HMM_Mat4 world;
-	} instance_data_t;
-
-	instance_data_t quad_instances[2];
+	HMM_Mat4 quad_instances[2];
 
 	// First quad: moves up and down (horizontal)
-	float y_offset = sinf(scene->time * 2.0f) * 2.0f;
-	HMM_Mat4 transform1 = HMM_Translate(HMM_V3(0.0f, y_offset, 0.0f));
-	quad_instances[0].world = HMM_Transpose(transform1);
-
+	quad_instances[0] = skr_matrix_trs(
+		HMM_V3(0.0f, sinf(scene->time * 2.0f) * 2.0f, 0.0f),
+		HMM_V3(0.0f, 0.0f, 0.0f),
+		HMM_V3(1.0f, 1.0f, 1.0f) );
 	// Second quad: spins around Y axis (vertical, standing up)
-	float rotation_angle = scene->time * 1.5f;  // Rotate at 1.5 radians/second
-	HMM_Mat4 transform2 = HMM_MulM4(
-		HMM_Rotate_RH(rotation_angle, HMM_V3(0.0f, 1.0f, 0.0f)),  // Spin around Y axis
-		HMM_Rotate_RH(1.5708f, HMM_V3(1.0f, 0.0f, 0.0f))  // Rotate 90 degrees to stand it up
-	);
-	quad_instances[1].world = HMM_Transpose(transform2);
+	quad_instances[1] = skr_matrix_trs(
+		HMM_V3(0.0f, 0.0f, 0.0f),
+		HMM_V3(1.5708f, scene->time * 1.5f, 0.0f),
+		HMM_V3(1.0f, 1.0f, 1.0f) );
 
 	// Add both quads to the provided render list
-	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->material, quad_instances, sizeof(instance_data_t), 2);
+	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->material, quad_instances, sizeof(HMM_Mat4), 2);
 }
 
 const scene_vtable_t scene_3d_texture_vtable = {

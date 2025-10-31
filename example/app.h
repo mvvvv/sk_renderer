@@ -48,6 +48,3 @@ void app_key_press(app_t* app, app_key_ key);
 // Per-frame functions
 void app_update(app_t* app, float delta_time);
 void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t height);
-
-// Utility function for reading files (must be implemented by platform layer)
-bool app_read_file(const char* filename, void** out_data, size_t* out_size);

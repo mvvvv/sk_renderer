@@ -416,7 +416,7 @@ static void* _load_gltf_thread(void* arg) {
 	void*  file_data = NULL;
 	size_t file_size = 0;
 
-	if (!app_read_file(ctx->filepath, &file_data, &file_size)) {
+	if (!skr_file_read(ctx->filepath, &file_data, &file_size)) {
 		skr_log(skr_log_critical, "GLTF: Failed to read file");
 		ctx->state = gltf_load_state_error;
 		skr_thread_shutdown();
@@ -561,34 +561,26 @@ static scene_t* _scene_gltf_create() {
 	skr_mesh_set_name(&scene->placeholder_mesh, "gltf_placeholder_sphere");
 
 	// Load PBR shader
-	void*  shader_data = NULL;
-	size_t shader_size = 0;
-	if (app_read_file("shaders/pbr.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->shader);
-		skr_shader_set_name(&scene->shader, "pbr_shader");
-		free(shader_data);
-	}
+	scene->shader = skr_shader_load("shaders/pbr.hlsl.sks", "pbr_shader");
 
 	// Create placeholder material
-	if (skr_shader_is_valid(&scene->shader)) {
-		skr_material_create((skr_material_info_t){
-			.shader     = &scene->shader,
-			.cull       = skr_cull_back,
-			.write_mask = skr_write_default,
-			.depth_test = skr_compare_less,
-		}, &scene->placeholder_material);
+	skr_material_create((skr_material_info_t){
+		.shader     = &scene->shader,
+		.cull       = skr_cull_back,
+		.write_mask = skr_write_default,
+		.depth_test = skr_compare_less,
+	}, &scene->placeholder_material);
 
-		// Set default textures
-		skr_material_set_tex  (&scene->placeholder_material, "albedo_tex",      &scene->white_texture);
-		skr_material_set_tex  (&scene->placeholder_material, "emission_tex",    &scene->black_texture);
-		skr_material_set_tex  (&scene->placeholder_material, "metal_tex",       &scene->white_texture);
-		skr_material_set_tex  (&scene->placeholder_material, "occlusion_tex",   &scene->white_texture);
-		skr_material_set_color(&scene->placeholder_material, "color",           (skr_vec4_t){0.5f, 0.5f, 0.5f, 1.0f});
-		skr_material_set_color(&scene->placeholder_material, "emission_factor", (skr_vec4_t){0.0f, 0.0f, 0.0f, 1.0f});
-		skr_material_set_vec4 (&scene->placeholder_material, "tex_trans",       (skr_vec4_t){0.0f, 0.0f, 1.0f, 1.0f});
-		skr_material_set_float(&scene->placeholder_material, "metallic",        0);
-		skr_material_set_float(&scene->placeholder_material, "roughness",       0.8f);
-	}
+	// Set default textures
+	skr_material_set_tex  (&scene->placeholder_material, "albedo_tex",      &scene->white_texture);
+	skr_material_set_tex  (&scene->placeholder_material, "emission_tex",    &scene->black_texture);
+	skr_material_set_tex  (&scene->placeholder_material, "metal_tex",       &scene->white_texture);
+	skr_material_set_tex  (&scene->placeholder_material, "occlusion_tex",   &scene->white_texture);
+	skr_material_set_color(&scene->placeholder_material, "color",           (skr_vec4_t){0.5f, 0.5f, 0.5f, 1.0f});
+	skr_material_set_color(&scene->placeholder_material, "emission_factor", (skr_vec4_t){0.0f, 0.0f, 0.0f, 1.0f});
+	skr_material_set_vec4 (&scene->placeholder_material, "tex_trans",       (skr_vec4_t){0.0f, 0.0f, 1.0f, 1.0f});
+	skr_material_set_float(&scene->placeholder_material, "metallic",        0);
+	skr_material_set_float(&scene->placeholder_material, "roughness",       0.8f);
 
 	// Start loading GLTF in background thread
 	scene->load_ctx = calloc(1, sizeof(gltf_load_context_t));
@@ -630,63 +622,45 @@ static scene_t* _scene_gltf_create() {
 			skr_tex_set_name(&scene->cubemap_texture, "environment_cubemap");
 
 			// Load equirect to cubemap shader
-			void*  shader_data = NULL;
-			size_t shader_size = 0;
-			if (app_read_file("shaders/equirect_to_cubemap.hlsl.sks", &shader_data, &shader_size)) {
-				skr_shader_create(shader_data, shader_size, &scene->equirect_to_cubemap_shader);
-				skr_shader_set_name(&scene->equirect_to_cubemap_shader, "equirect_to_cubemap");
-				free(shader_data);
-			}
+			scene->equirect_to_cubemap_shader = skr_shader_load("shaders/equirect_to_cubemap.hlsl.sks", "equirect_to_cubemap");
 
 			// Create material for conversion (stored in scene struct to avoid stack variable)
-			if (skr_shader_is_valid(&scene->equirect_to_cubemap_shader)) {
-				skr_material_create((skr_material_info_t){
-					.shader     = &scene->equirect_to_cubemap_shader,
-					.write_mask = skr_write_rgba,
-					.cull       = skr_cull_none,
-				}, &scene->equirect_convert_material);
-				skr_material_set_tex(&scene->equirect_convert_material, "equirect_tex", &scene->equirect_texture);
+			skr_material_create((skr_material_info_t){
+				.shader     = &scene->equirect_to_cubemap_shader,
+				.write_mask = skr_write_rgba,
+				.cull       = skr_cull_none,
+			}, &scene->equirect_convert_material);
+			skr_material_set_tex(&scene->equirect_convert_material, "equirect_tex", &scene->equirect_texture);
 
-				// Convert equirectangular to cubemap using blit
-				skr_renderer_blit(&scene->equirect_convert_material, &scene->cubemap_texture, (skr_recti_t){0, 0, cube_size, cube_size});
+			// Convert equirectangular to cubemap using blit
+			skr_renderer_blit(&scene->equirect_convert_material, &scene->cubemap_texture, (skr_recti_t){0, 0, cube_size, cube_size});
 
-				// Wait for conversion to complete
-				vkDeviceWaitIdle(skr_get_vk_device());
+			// Wait for conversion to complete
+			vkDeviceWaitIdle(skr_get_vk_device());
 
-				skr_material_destroy(&scene->equirect_convert_material);
-			}
+			skr_material_destroy(&scene->equirect_convert_material);
 
 			// Clean up equirectangular texture
 			skr_tex_destroy(&scene->equirect_texture);
 
 			// Load cubemap mipgen shader for high-quality IBL filtering
-			if (app_read_file("shaders/cubemap_mipgen.hlsl.sks", &shader_data, &shader_size)) {
-				skr_shader_create(shader_data, shader_size, &scene->mipgen_shader);
-				skr_shader_set_name(&scene->mipgen_shader, "cubemap_mipgen");
-				free(shader_data);
-			}
+			scene->mipgen_shader = skr_shader_load("shaders/cubemap_mipgen.hlsl.sks", "cubemap_mipgen");
 
 			// Generate mips for the cubemap using custom shader
 			skr_tex_generate_mips(&scene->cubemap_texture, &scene->mipgen_shader);
 
 			// Load skybox shader
-			if (app_read_file("shaders/cubemap_skybox.hlsl.sks", &shader_data, &shader_size)) {
-				skr_shader_create(shader_data, shader_size, &scene->skybox_shader);
-				skr_shader_set_name(&scene->skybox_shader, "skybox_shader");
-				free(shader_data);
-			}
+			scene->skybox_shader = skr_shader_load("shaders/cubemap_skybox.hlsl.sks", "skybox_shader");
 
 			// Create skybox material
-			if (skr_shader_is_valid(&scene->skybox_shader)) {
-				skr_material_create((skr_material_info_t){
-					.shader       = &scene->skybox_shader,
-					.write_mask   = skr_write_rgba,
-					.depth_test   = skr_compare_less_or_eq,
-					.cull         = skr_cull_none,
-					.queue_offset = 100,
-				}, &scene->skybox_material);
-				skr_material_set_tex(&scene->skybox_material, "cubemap", &scene->cubemap_texture);
-			}
+			skr_material_create((skr_material_info_t){
+				.shader       = &scene->skybox_shader,
+				.write_mask   = skr_write_rgba,
+				.depth_test   = skr_compare_less_or_eq,
+				.cull         = skr_cull_none,
+				.queue_offset = 100,
+			}, &scene->skybox_material);
+			skr_material_set_tex(&scene->skybox_material, "cubemap", &scene->cubemap_texture);
 
 			scene->skybox_mesh = skr_mesh_create_fullscreen_quad();
 			skr_mesh_set_name(&scene->skybox_mesh, "skybox_fullscreen_quad");
@@ -729,9 +703,7 @@ static void _scene_gltf_destroy(scene_t* base) {
 		skr_material_destroy(&scene->materials[i]);
 	}
 	for (int32_t i = 0; i < MAX_GLTF_TEXTURES; i++) {
-		if (skr_tex_is_valid(&scene->textures[i])) {
-			skr_tex_destroy(&scene->textures[i]);
-		}
+		skr_tex_destroy(&scene->textures[i]);
 	}
 	skr_tex_destroy   (&scene->white_texture);
 	skr_tex_destroy   (&scene->black_texture);
@@ -757,9 +729,7 @@ static void _scene_gltf_update(scene_t* base, float delta_time) {
 }
 
 static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
-	scene_gltf_t* scene = (scene_gltf_t*)base;
-	typedef struct { HMM_Mat4 world; } instance_data_t;
-
+	scene_gltf_t*    scene = (scene_gltf_t*)base;
 	gltf_load_state_ state = scene->load_ctx ? scene->load_ctx->state : gltf_load_state_loading;
 
 	// Set up environment cubemap info in system buffer for PBR if available
@@ -785,23 +755,23 @@ static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, HMM
 
 	if (state != gltf_load_state_ready) {
 		// Show placeholder while loading or on error
-		instance_data_t instance;
-		HMM_Mat4 rotation = HMM_Rotate_RH(scene->rotation * 2.0f, HMM_V3(0.0f, 1.0f, 0.0f));
-		instance.world = HMM_Transpose(rotation);
-		skr_render_list_add(ref_render_list, &scene->placeholder_mesh, &scene->placeholder_material, &instance, sizeof(instance_data_t), 1);
+		HMM_Mat4 world = skr_matrix_trs(
+			HMM_V3(0.0f, 0.0f, 0.0f),
+			HMM_V3(0.0f, scene->rotation * 2.0f, 0.0f),
+			HMM_V3(1.0f, 1.0f, 1.0f) );
+		skr_render_list_add(ref_render_list, &scene->placeholder_mesh, &scene->placeholder_material, &world, sizeof(HMM_Mat4), 1);
 		return;
 	}
 
 	// Render loaded model
 	for (int32_t i = 0; i < scene->mesh_count; i++) {
-		instance_data_t instance;
 		HMM_Mat4 rotation = HMM_Rotate_RH(scene->rotation, HMM_V3(0.0f, 1.0f, 0.0f));
 		//HMM_Mat4 scale    = HMM_Scale(HMM_V3(80.0f, 80.0f, 80.0f));
 		//HMM_Mat4 tr       = HMM_Translate(HMM_V3(0, -3, 0));
 		HMM_Mat4 scale    = HMM_Scale(HMM_V3(1.0f, 1.0f, 1.0f));
 		HMM_Mat4 tr       = HMM_Translate(HMM_V3(0, 0, 0));
-		instance.world    = HMM_Transpose(HMM_MulM4(tr, HMM_MulM4(scale, HMM_MulM4(rotation, scene->transforms[i]))));
-		skr_render_list_add(ref_render_list, &scene->meshes[i], &scene->materials[i], &instance, sizeof(instance_data_t), 1);
+		HMM_Mat4 world    = HMM_Transpose(HMM_MulM4(tr, HMM_MulM4(scale, HMM_MulM4(rotation, scene->transforms[i]))));
+		skr_render_list_add(ref_render_list, &scene->meshes[i], &scene->materials[i], &world, sizeof(HMM_Mat4), 1);
 	}
 }
 

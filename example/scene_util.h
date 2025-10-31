@@ -160,9 +160,41 @@ unsigned char* skr_image_load_from_memory(
 void skr_image_free(unsigned char* pixels);
 
 ///////////////////////////////////////////////////////////////////////////////
+// File I/O
+///////////////////////////////////////////////////////////////////////////////
+
+// Reads a file into memory (platform-agnostic, handles Android assets)
+// filename: Path to file (relative paths work on all platforms)
+// out_data: Pointer to receive allocated data (must be freed by caller)
+// out_size: Pointer to receive file size in bytes
+// Returns: true on success, false on failure
+bool skr_file_read(const char* filename, void** out_data, size_t* out_size);
+
+///////////////////////////////////////////////////////////////////////////////
+// Shader Loading
+///////////////////////////////////////////////////////////////////////////////
+
+// Loads a shader from a compiled .sks file
+// filename: Path to shader file (e.g., "shaders/my_shader.hlsl.sks")
+// opt_name: Optional debug name for the shader (can be NULL)
+// Returns: Loaded shader, or invalid shader on failure (check with skr_shader_is_valid)
+skr_shader_t skr_shader_load(const char* filename, const char* opt_name);
+
+///////////////////////////////////////////////////////////////////////////////
 // Utility Functions
 ///////////////////////////////////////////////////////////////////////////////
 
 // Generates a pseudo-random float [0.0, 1.0] from integer position and seed
 // Useful for procedural generation with consistent results
 float skr_hash_f(int32_t position, uint32_t seed);
+
+///////////////////////////////////////////////////////////////////////////////
+// Matrix Utilities
+///////////////////////////////////////////////////////////////////////////////
+
+// Creates a Translate-Rotate-Scale matrix ready for sk_renderer (pre-transposed)
+// position: Translation vector
+// rotation_euler_xyz: Rotation in radians (applied in X->Y->Z order)
+// scale: Scale vector
+// Returns: 4x4 transform matrix ready to send to GPU (already transposed)
+HMM_Mat4 skr_matrix_trs(HMM_Vec3 position, HMM_Vec3 rotation_euler_xyz, HMM_Vec3 scale);

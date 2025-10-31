@@ -66,57 +66,48 @@ static scene_t* _scene_meshes_create() {
 	skr_tex_set_name(&scene->white_texture, "white_1x1");
 
 	// Load shader
-	void*  shader_data = NULL;
-	size_t shader_size = 0;
-	if (app_read_file("shaders/test.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->shader);
-		skr_shader_set_name(&scene->shader, "main_shader");
-		free(shader_data);
+	scene->shader = skr_shader_load("shaders/test.hlsl.sks", "main_shader");
+	// Cube material: draws where stencil != 1 (outside sphere)
+	skr_material_create((skr_material_info_t){
+		.shader       = &scene->shader,
+		.write_mask   = skr_write_default,
+		.depth_test   = skr_compare_less,
+		.stencil_front = {
+			.compare      = skr_compare_equal,
+			.compare_mask = 0xFF,
+			.reference    = 1,
+		},
+	}, &scene->cube_material);
+	skr_material_set_tex(&scene->cube_material, "tex", &scene->checkerboard_texture);
 
-		if (skr_shader_is_valid(&scene->shader)) {
-			// Cube material: draws where stencil != 1 (outside sphere)
-			skr_material_create((skr_material_info_t){
-				.shader       = &scene->shader,
-				.write_mask   = skr_write_default,
-				.depth_test   = skr_compare_less,
-				.stencil_front = {
-					.compare      = skr_compare_equal,
-					.compare_mask = 0xFF,
-					.reference    = 1,
-				},
-			}, &scene->cube_material);
-			skr_material_set_tex(&scene->cube_material, "tex", &scene->checkerboard_texture);
+	// Pyramid material: draws where stencil != 1 (outside sphere)
+	skr_material_create((skr_material_info_t){
+		.shader       = &scene->shader,
+		.write_mask   = skr_write_default,
+		.depth_test   = skr_compare_less,
+		.stencil_front = {
+			.compare      = skr_compare_equal,
+			.compare_mask = 0xFF,
+			.reference    = 1,
+		},
+	}, &scene->pyramid_material);
+	skr_material_set_tex(&scene->pyramid_material, "tex", &scene->white_texture);
 
-			// Pyramid material: draws where stencil != 1 (outside sphere)
-			skr_material_create((skr_material_info_t){
-				.shader       = &scene->shader,
-				.write_mask   = skr_write_default,
-				.depth_test   = skr_compare_less,
-				.stencil_front = {
-					.compare      = skr_compare_equal,
-					.compare_mask = 0xFF,
-					.reference    = 1,
-				},
-			}, &scene->pyramid_material);
-			skr_material_set_tex(&scene->pyramid_material, "tex", &scene->white_texture);
-
-			// Sphere material: draws first and marks stencil
-			skr_material_create((skr_material_info_t){
-				.shader       = &scene->shader,
-				.write_mask   = skr_write_stencil,
-				.depth_test   = skr_compare_less,
-				.queue_offset = -100,  // Draw FIRST - before everything else
-				.stencil_front = {
-					.compare      = skr_compare_always,
-					.pass_op      = skr_stencil_op_replace,
-					.compare_mask = 0xFF,
-					.write_mask   = 0xFF,
-					.reference    = 1,  // Mark with value 1
-				},
-			}, &scene->sphere_material);
-			skr_material_set_tex(&scene->sphere_material, "tex", &scene->white_texture);
-		}
-	}
+	// Sphere material: draws first and marks stencil
+	skr_material_create((skr_material_info_t){
+		.shader       = &scene->shader,
+		.write_mask   = skr_write_stencil,
+		.depth_test   = skr_compare_less,
+		.queue_offset = -100,  // Draw FIRST - before everything else
+		.stencil_front = {
+			.compare      = skr_compare_always,
+			.pass_op      = skr_stencil_op_replace,
+			.compare_mask = 0xFF,
+			.write_mask   = 0xFF,
+			.reference    = 1,  // Mark with value 1
+		},
+	}, &scene->sphere_material);
+	skr_material_set_tex(&scene->sphere_material, "tex", &scene->white_texture);
 
 	return (scene_t*)scene;
 }
@@ -148,32 +139,28 @@ static void _scene_meshes_render(scene_t* base, int32_t width, int32_t height, H
 	// Cubes (10x10 grid)
 	for (int z = 0; z < 10; z++) {
 		for (int x = 0; x < 10; x++) {
-			float xpos = (x - 4.5f) * 1.5f;
-			float zpos = (z - 4.5f) * 1.5f;
-			float yrot = scene->rotation + (x + z) * 0.1f;
-			HMM_Mat4 transform =  HMM_Transpose(HMM_MulM4(
-				HMM_Translate(HMM_V3(xpos, 0.0f, zpos)),
-				HMM_Rotate_RH(yrot, HMM_V3(0.0f, 1.0f, 0.0f))
-			));
+			HMM_Mat4 transform = skr_matrix_trs(
+				HMM_V3((x - 4.5f) * 1.5f, 0.0f, (z - 4.5f) * 1.5f),
+				HMM_V3(0.0f, scene->rotation + (x + z) * 0.1f, 0.0f),
+				HMM_V3(1.0f, 1.0f, 1.0f) );
 			skr_render_list_add(ref_render_list, &scene->cube_mesh, &scene->cube_material, &transform, sizeof(HMM_Mat4), 1);
 		}
 	}
 
 	// Pyramids (5 in a line)
 	for (int i = 0; i < 5; i++) {
-		float xpos = (i - 2.0f) * 3.0f;
-		HMM_Mat4 transform = HMM_Transpose(HMM_MulM4(
-			HMM_Translate(HMM_V3(xpos, 2.0f, 0.0f)),
-			HMM_Rotate_RH(-scene->rotation * 2.0f, HMM_V3(0.0f, 1.0f, 0.0f))
-		));
+		HMM_Mat4 transform = skr_matrix_trs(
+			HMM_V3((i - 2.0f) * 3.0f, 2.0f, 0.0f),
+			HMM_V3(0.0f, -scene->rotation * 2.0f, 0.0f),
+			HMM_V3(1.0f, 1.0f, 1.0f) );
 		skr_render_list_add(ref_render_list, &scene->pyramid_mesh, &scene->pyramid_material, &transform, sizeof(HMM_Mat4), 1);
 	}
 
 	// Sphere (center, slowly rotating, scale 3x)
-	HMM_Mat4 sphere_transform = HMM_Transpose(HMM_MulM4(
-		HMM_Scale(HMM_V3(5.0f, 5.0f, 5.0f)),
-		HMM_Rotate_RH(scene->rotation * 0.5f, HMM_V3(0.0f, 1.0f, 0.0f))
-	));
+	HMM_Mat4 sphere_transform = skr_matrix_trs(
+		HMM_V3(0.0f, 0.0f, 0.0f),
+		HMM_V3(0.0f, scene->rotation * 0.5f, 0.0f),
+		HMM_V3(5.0f, 5.0f, 5.0f) );
 	skr_render_list_add(ref_render_list, &scene->sphere_mesh, &scene->sphere_material, &sphere_transform, sizeof(HMM_Mat4), 1);
 }
 

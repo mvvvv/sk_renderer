@@ -133,39 +133,27 @@ static scene_t* _scene_impostor_create() {
 	free(terrain_indices);
 
 	// Load standard shader for both trees and terrain
-	void*  shader_data = NULL;
-	size_t shader_size = 0;
-	if (app_read_file("shaders/test.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->shader);
-		skr_shader_set_name(&scene->shader, "main_shader");
-		free(shader_data);
-	}
+	scene->shader = skr_shader_load("shaders/test.hlsl.sks", "main_shader");
 
 	// Load mipgen shader
-	if (app_read_file("shaders/mipgen_alpha_weighted_render.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->mipgen_shader);
-		skr_shader_set_name(&scene->mipgen_shader, "mipgen_shader");
-		free(shader_data);
-	}
+	scene->mipgen_shader = skr_shader_load("shaders/mipgen_alpha_weighted_render.hlsl.sks", "mipgen_shader");
 
-	if (skr_shader_is_valid(&scene->shader)) {
-		// Tree material with alpha-to-coverage for smooth edges
-		skr_material_create((skr_material_info_t){
-			.shader            = &scene->shader,
-			.cull              = skr_cull_none,  // No culling so both sides are visible
-			.write_mask        = skr_write_default,
-			.depth_test        = skr_compare_less,
-			.alpha_to_coverage = true,  // Alpha-to-coverage for smooth edges
-		}, &scene->tree_material);
+	// Tree material with alpha-to-coverage for smooth edges
+	skr_material_create((skr_material_info_t){
+		.shader            = &scene->shader,
+		.cull              = skr_cull_none,  // No culling so both sides are visible
+		.write_mask        = skr_write_default,
+		.depth_test        = skr_compare_less,
+		.alpha_to_coverage = true,  // Alpha-to-coverage for smooth edges
+	}, &scene->tree_material);
 
-		// Terrain material
-		skr_material_create((skr_material_info_t){
-			.shader     = &scene->shader,
-			.cull       = skr_cull_back,
-			.write_mask = skr_write_default,
-			.depth_test = skr_compare_less,
-		}, &scene->terrain_material);
-	}
+	// Terrain material
+	skr_material_create((skr_material_info_t){
+		.shader     = &scene->shader,
+		.cull       = skr_cull_back,
+		.write_mask = skr_write_default,
+		.depth_test = skr_compare_less,
+	}, &scene->terrain_material);
 
 	// Load tree.png texture using image utility
 	int32_t width, height;
@@ -221,8 +209,7 @@ static void _scene_impostor_render(scene_t* base, int32_t width, int32_t height,
 	scene_impostor_t* scene = (scene_impostor_t*)base;
 
 	// Build instance data - 1000 randomly placed trees
-	typedef struct { HMM_Mat4 world; } instance_data_t;
-	instance_data_t* instances = malloc(1000 * sizeof(instance_data_t));
+	HMM_Mat4* instances = malloc(1000 * sizeof(HMM_Mat4));
 
 	// Simple hash function for consistent random placement
 	for (int i = 0; i < 1000; i++) {
@@ -238,24 +225,22 @@ static void _scene_impostor_render(scene_t* base, int32_t width, int32_t height,
 		// Get terrain height for tree placement
 		float y = _get_terrain_height(x, z);
 
-		HMM_Mat4 transform = HMM_MulM4(
-			HMM_Translate(HMM_V3(x, y, z)),
-			HMM_MulM4(
-				HMM_Rotate_RH(rot, HMM_V3(0.0f, 1.0f, 0.0f)),
-				HMM_Scale(HMM_V3(scale, scale * 2.0f, scale))  // 2x taller than wide, with random scale
-			)
-		);
-		instances[i].world = HMM_Transpose(transform);
+		instances[i] = skr_matrix_trs(
+			HMM_V3(x, y, z),
+			HMM_V3(0.0f, rot, 0.0f),
+			HMM_V3(scale, scale * 2.0f, scale) );  // 2x taller than wide, with random scale
 	}
 
 	// Add to render list
 	// First: Render terrain
-	instance_data_t terrain_instance;
-	terrain_instance.world = HMM_Transpose(HMM_M4D(1.0f));  // Identity matrix
-	skr_render_list_add(ref_render_list, &scene->terrain_mesh, &scene->terrain_material, &terrain_instance, sizeof(instance_data_t), 1);
+	HMM_Mat4 terrain_instance = skr_matrix_trs(
+		HMM_V3(0.0f, 0.0f, 0.0f),
+		HMM_V3(0.0f, 0.0f, 0.0f),
+		HMM_V3(1.0f, 1.0f, 1.0f) );
+	skr_render_list_add(ref_render_list, &scene->terrain_mesh, &scene->terrain_material, &terrain_instance, sizeof(HMM_Mat4), 1);
 
 	// Second: Render trees with alpha-to-coverage for smooth edges
-	skr_render_list_add(ref_render_list, &scene->impostor_mesh, &scene->tree_material, instances, sizeof(instance_data_t), 1000);
+	skr_render_list_add(ref_render_list, &scene->impostor_mesh, &scene->tree_material, instances, sizeof(HMM_Mat4), 1000);
 
 	free(instances);
 }

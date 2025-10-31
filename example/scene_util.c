@@ -12,6 +12,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdio.h>
+
+#ifdef __ANDROID__
+#include <SDL.h>
+#else
+#include <unistd.h>
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common Texture Samplers
@@ -342,6 +349,115 @@ skr_tex_t skr_tex_create_solid_color(uint32_t color) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// File I/O
+///////////////////////////////////////////////////////////////////////////////
+
+bool skr_file_read(const char* filename, void** out_data, size_t* out_size) {
+#ifdef __ANDROID__
+	// Use SDL's RWops to read from Android assets
+	SDL_RWops* rw = SDL_RWFromFile(filename, "rb");
+	if (!rw) {
+		skr_logf(skr_log_critical, "Failed to open file '%s': %s", filename, SDL_GetError());
+		return false;
+	}
+
+	Sint64 size = SDL_RWsize(rw);
+	if (size < 0) {
+		skr_logf(skr_log_critical, "Failed to get size of file '%s': %s", filename, SDL_GetError());
+		SDL_RWclose(rw);
+		return false;
+	}
+
+	*out_size = (size_t)size;
+	*out_data = malloc(*out_size);
+	if (*out_data == NULL) {
+		skr_logf(skr_log_critical, "Failed to allocate %zu bytes for file '%s'", *out_size, filename);
+		SDL_RWclose(rw);
+		*out_size = 0;
+		return false;
+	}
+
+	size_t bytes_read = SDL_RWread(rw, *out_data, 1, *out_size);
+	SDL_RWclose(rw);
+
+	if (bytes_read != *out_size) {
+		skr_logf(skr_log_critical, "Failed to read file '%s': expected %zu bytes, got %zu", filename, *out_size, bytes_read);
+		free(*out_data);
+		*out_data = NULL;
+		*out_size = 0;
+		return false;
+	}
+
+	return true;
+#else
+	// Try to open the file directly first
+	FILE* fp = fopen(filename, "rb");
+
+	// If that fails, try relative to executable directory
+	if (fp == NULL) {
+		char exe_path[1024];
+		ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+		if (len == -1) {
+			skr_logf(skr_log_critical, "Failed to read executable path for file '%s'", filename);
+			return false;
+		}
+		exe_path[len] = '\0';
+
+		char* last_slash = strrchr(exe_path, '/');
+		if (last_slash) *last_slash = '\0';
+
+		// Build full path
+		char full_path[2048];
+		snprintf(full_path, sizeof(full_path), "%s/%s", exe_path, filename);
+
+		fp = fopen(full_path, "rb");
+		if (fp == NULL) {
+			skr_logf(skr_log_critical, "Failed to open file '%s' (tried '%s' and '%s')", filename, filename, full_path);
+			return false;
+		}
+	}
+
+	fseek(fp, 0L, SEEK_END);
+	*out_size = ftell(fp);
+	rewind(fp);
+
+	*out_data = malloc(*out_size);
+	if (*out_data == NULL) {
+		skr_logf(skr_log_critical, "Failed to allocate %zu bytes for file '%s'", *out_size, filename);
+		*out_size = 0;
+		fclose(fp);
+		return false;
+	}
+	fread(*out_data, *out_size, 1, fp);
+	fclose(fp);
+
+	return true;
+#endif
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Shader Loading
+///////////////////////////////////////////////////////////////////////////////
+
+skr_shader_t skr_shader_load(const char* filename, const char* opt_name) {
+	void*  shader_data = NULL;
+	size_t shader_size = 0;
+
+	skr_shader_t shader = {0};
+
+	if (skr_file_read(filename, &shader_data, &shader_size)) {
+		skr_shader_create(shader_data, shader_size, &shader);
+		free(shader_data);
+
+		if (opt_name && skr_shader_is_valid(&shader)) {
+			skr_shader_set_name(&shader, opt_name);
+		}
+	}
+
+	return shader;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // Image Loading
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -349,7 +465,7 @@ unsigned char* skr_image_load(const char* filename, int32_t* opt_out_width, int3
 	void*  file_data = NULL;
 	size_t file_size = 0;
 
-	if (!app_read_file(filename, &file_data, &file_size)) {
+	if (!skr_file_read(filename, &file_data, &file_size)) {
 		return NULL;
 	}
 
@@ -396,4 +512,25 @@ float skr_hash_f(int32_t position, uint32_t seed) {
 	mangled ^= (mangled >> 8);
 
 	return (float)mangled / 4294967296.0f;  // Normalize to [0.0, 1.0]
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Matrix Utilities
+///////////////////////////////////////////////////////////////////////////////
+
+HMM_Mat4 skr_matrix_trs(HMM_Vec3 position, HMM_Vec3 rotation_euler_xyz, HMM_Vec3 scale) {
+	// Build transforms in TRS order
+	HMM_Mat4 t  = HMM_Translate(position);
+	HMM_Mat4 rx = HMM_Rotate_RH(rotation_euler_xyz.X, HMM_V3(1, 0, 0));
+	HMM_Mat4 ry = HMM_Rotate_RH(rotation_euler_xyz.Y, HMM_V3(0, 1, 0));
+	HMM_Mat4 rz = HMM_Rotate_RH(rotation_euler_xyz.Z, HMM_V3(0, 0, 1));
+	HMM_Mat4 s  = HMM_Scale(scale);
+
+	// Combine: T * (Rz * Ry * Rx) * S
+	// Euler XYZ means: apply X first, then Y, then Z (in object space)
+	// In HMM row-major math: T * Rz * Ry * Rx * S
+	HMM_Mat4 result = HMM_MulM4(HMM_MulM4(HMM_MulM4(HMM_MulM4(t, rz), ry), rx), s);
+
+	// Transpose for sk_renderer (HMM is row-major math, GPU expects column-major)
+	return HMM_Transpose(result);
 }

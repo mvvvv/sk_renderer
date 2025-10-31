@@ -62,37 +62,21 @@ static scene_t* _scene_array_texture_create() {
 	skr_mesh_set_name(&scene->fullscreen_quad, "stereo_quad");
 
 	// Load cube shader
-	void*  shader_data = NULL;
-	size_t shader_size = 0;
-	if (app_read_file("shaders/test.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->cube_shader);
-		skr_shader_set_name(&scene->cube_shader, "cube_shader");
-		free(shader_data);
-
-		if (skr_shader_is_valid(&scene->cube_shader)) {
-			skr_material_create((skr_material_info_t){
-				.shader     = &scene->cube_shader,
-				.write_mask = skr_write_default,
-				.depth_test = skr_compare_less,
-			}, &scene->cube_material);
-		}
-	}
+	scene->cube_shader = skr_shader_load("shaders/test.hlsl.sks", "cube_shader");
+	skr_material_create((skr_material_info_t){
+		.shader     = &scene->cube_shader,
+		.write_mask = skr_write_default,
+		.depth_test = skr_compare_less,
+	}, &scene->cube_material);
 
 	// Load stereo display shader
-	if (app_read_file("shaders/stereo_display.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->stereo_shader);
-		skr_shader_set_name(&scene->stereo_shader, "stereo_shader");
-		free(shader_data);
-
-		if (skr_shader_is_valid(&scene->stereo_shader)) {
-			skr_material_create((skr_material_info_t){
-				.shader     = &scene->stereo_shader,
-				.cull       = skr_cull_none,
-				.write_mask = skr_write_rgba,
-				.depth_test = skr_compare_always,
-			}, &scene->stereo_material);
-		}
-	}
+	scene->stereo_shader = skr_shader_load("shaders/stereo_display.hlsl.sks", "stereo_shader");
+	skr_material_create((skr_material_info_t){
+		.shader     = &scene->stereo_shader,
+		.cull       = skr_cull_none,
+		.write_mask = skr_write_rgba,
+		.depth_test = skr_compare_always,
+	}, &scene->stereo_material);
 
 	// Create checkerboard texture using utility function
 	scene->checkerboard_texture = skr_tex_create_checkerboard(512, 32, 0xFFFFFFFF, 0xFF000000, true);
@@ -100,7 +84,7 @@ static scene_t* _scene_array_texture_create() {
 
 	// Create 2-layer array texture (rendered target) - will be created in resize
 	scene->array_render_target.image = VK_NULL_HANDLE;
-	scene->depth_buffer.image = VK_NULL_HANDLE;
+	scene->depth_buffer.image        = VK_NULL_HANDLE;
 
 	// Bind textures to materials
 	skr_material_set_tex(&scene->cube_material, "tex", &scene->checkerboard_texture);
@@ -181,7 +165,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 	HMM_Vec3 up         = HMM_V3(0, 1, 0);
 
 	// Left eye (offset to the left)
-	HMM_Vec3 eye_sep = HMM_V3(-scene->eye_separation * 0.5f, 0, 0);
+	HMM_Vec3 eye_sep   = HMM_V3(-scene->eye_separation * 0.5f, 0, 0);
 	HMM_Mat4 view_left = HMM_LookAt_RH(HMM_AddV3(camera_pos, eye_sep), HMM_AddV3(target, eye_sep), up);
 
 	// Right eye (offset to the right)
@@ -248,15 +232,15 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 
 	for (int z = 0; z < grid_size_z; z++) {
 		for (int x = 0; x < grid_size_x; x++) {
-			int idx = x + z * grid_size_x;
+			int   idx  = x + z * grid_size_x;
 			float xpos = (x - grid_size_x * 0.5f + 0.5f) * spacing;
 			float zpos = (z - grid_size_z * 0.5f + 0.5f) * spacing;
 			float yrot = scene->rotation + (x + z) * 0.2f;
-			HMM_Mat4 transform = HMM_MulM4(
-				HMM_Translate(HMM_V3(xpos, 0.0f, zpos)),
-				HMM_Rotate_RH(yrot, HMM_V3(0.0f, 1.0f, 0.0f))
+			cube_instances[idx].world = skr_matrix_trs(
+				HMM_V3(xpos, 0.0f, zpos),
+				HMM_V3(0.0f, yrot, 0.0f),
+				HMM_V3(1.0f, 1.0f, 1.0f)
 			);
-			cube_instances[idx].world = HMM_Transpose(transform);
 		}
 	}
 

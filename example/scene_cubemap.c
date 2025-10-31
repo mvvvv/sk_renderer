@@ -84,57 +84,35 @@ static scene_t* _scene_cubemap_create() {
 		skr_tex_flags_readable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
 		skr_sampler_linear_clamp,
 		(skr_vec3i_t){cube_size, cube_size, 6},  // 6 faces
-		1, 0, cubemap_data, &scene->cubemap_texture
-	);
+		1, 0, cubemap_data, &scene->cubemap_texture );
 	skr_tex_set_name(&scene->cubemap_texture, "color_cubemap");
 	free(cubemap_data);
 
 	// Load cubemap mipgen shader for high-quality IBL filtering
-	void*  shader_data = NULL;
-	size_t shader_size = 0;
-	if (app_read_file("shaders/cubemap_mipgen.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->mipgen_shader);
-		skr_shader_set_name(&scene->mipgen_shader, "cubemap_mipgen");
-		free(shader_data);
-		shader_data = NULL;
-	}
+	scene->mipgen_shader = skr_shader_load("shaders/cubemap_mipgen.hlsl.sks", "cubemap_mipgen");
 
 	// Generate mips for the cubemap using our custom shader
 	skr_tex_generate_mips(&scene->cubemap_texture, &scene->mipgen_shader);
 
 	// Load reflection shader
-	if (app_read_file("shaders/cubemap_reflection.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->reflection_shader);
-		skr_shader_set_name(&scene->reflection_shader, "reflection_shader");
-		free(shader_data);
-
-		if (skr_shader_is_valid(&scene->reflection_shader)) {
-			skr_material_create((skr_material_info_t){
-				.shader     = &scene->reflection_shader,
-				.write_mask = skr_write_default,
-				.depth_test = skr_compare_less,
-			}, &scene->sphere_material);
-			skr_material_set_tex(&scene->sphere_material, "cubemap", &scene->cubemap_texture);
-		}
-	}
+	scene->reflection_shader = skr_shader_load("shaders/cubemap_reflection.hlsl.sks", "reflection_shader");
+	skr_material_create((skr_material_info_t){
+		.shader     = &scene->reflection_shader,
+		.write_mask = skr_write_default,
+		.depth_test = skr_compare_less,
+	}, &scene->sphere_material);
+	skr_material_set_tex(&scene->sphere_material, "cubemap", &scene->cubemap_texture);
 
 	// Load skybox shader
-	if (app_read_file("shaders/cubemap_skybox.hlsl.sks", &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &scene->skybox_shader);
-		skr_shader_set_name(&scene->skybox_shader, "skybox_shader");
-		free(shader_data);
-
-		if (skr_shader_is_valid(&scene->skybox_shader)) {
-			skr_material_create((skr_material_info_t){
-				.shader       = &scene->skybox_shader,
-				.write_mask   = skr_write_default,
-				.depth_test   = skr_compare_less_or_eq,  // Less-equal for skybox
-				.cull         = skr_cull_front,          // Cull front faces since we're inside
-				.queue_offset = 100,                     // Draw last (after sphere)
-			}, &scene->skybox_material);
-			skr_material_set_tex(&scene->skybox_material, "cubemap", &scene->cubemap_texture);
-		}
-	}
+	scene->skybox_shader = skr_shader_load("shaders/cubemap_skybox.hlsl.sks", "skybox_shader");
+	skr_material_create((skr_material_info_t){
+		.shader       = &scene->skybox_shader,
+		.write_mask   = skr_write_default,
+		.depth_test   = skr_compare_less_or_eq,  // Less-equal for skybox
+		.cull         = skr_cull_front,          // Cull front faces since we're inside
+		.queue_offset = 100,                     // Draw last (after sphere)
+	}, &scene->skybox_material);
+	skr_material_set_tex(&scene->skybox_material, "cubemap", &scene->cubemap_texture);
 
 	return (scene_t*)scene;
 }
@@ -182,17 +160,13 @@ static void _scene_cubemap_render(scene_t* base, int32_t width, int32_t height, 
 
 			// Apply time-based animation to roughness
 			float roughness_cycle = sinf(scene->rotation * 0.5f + x * 2 + z * 7) * 0.5f + 0.5f;
-			float roughness = roughness_cycle;
+			float roughness       = roughness_cycle;
 
-			HMM_Mat4 sphere_transform = HMM_MulM4(
-				HMM_Translate(HMM_V3(xpos, 0.0f, zpos)),
-				HMM_MulM4(
-					HMM_Scale(HMM_V3(1.5f, 1.5f, 1.5f)),
-					HMM_Rotate_RH(scene->rotation * 0.3f + idx, HMM_V3(0.0f, 1.0f, 0.0f))
-				)
+			sphere_instances[idx].world = skr_matrix_trs(
+				HMM_V3(xpos, 0.0f, zpos),
+				HMM_V3(0.0f, scene->rotation * 0.3f + idx, 0.0f),
+				HMM_V3(1.5f, 1.5f, 1.5f)
 			);
-
-			sphere_instances[idx].world = HMM_Transpose(sphere_transform);
 			sphere_instances[idx].roughness = roughness;
 		}
 	}
@@ -208,7 +182,7 @@ static bool _scene_cubemap_get_camera(scene_t* base, scene_camera_t* out_camera)
 	// Orbit camera around the grid of spheres
 	float radius = 12.0f;  // Further back to see whole grid
 	float height = 4.0f;   // Higher up for better view
-	float angle = scene->rotation * 0.4f;  // Smooth orbit
+	float angle  = scene->rotation * 0.4f;  // Smooth orbit
 
 	out_camera->position = HMM_V3(cosf(angle) * radius, height, sinf(angle) * radius);
 	out_camera->target   = HMM_V3(0.0f, 0.0f, 0.0f);  // Look at center of grid
