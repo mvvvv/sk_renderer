@@ -376,7 +376,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	uint32_t buffer_ct = 0;
 	uint32_t image_ct  = 0;
 
-	skr_buffer_t param_buffer;
+	skr_buffer_t param_buffer = {0};
 	if (material->param_buffer_size > 0) {
 		param_buffer = skr_buffer_create(material->param_buffer, 1, material->param_buffer_size, skr_buffer_type_constant, skr_use_static);
 
