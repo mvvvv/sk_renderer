@@ -80,11 +80,11 @@ static scene_t* _scene_shadows_create() {
 	scene->base.size  = sizeof(scene_shadows_t);
 	scene->rotation   = 0.0f;
 	scene->light_dir  = HMM_NormV3(HMM_V3(1, -1, 0));
-	scene->render_list = skr_render_list_create();
-	scene->shadow_list = skr_render_list_create();
+	skr_render_list_create(&scene->render_list);
+	skr_render_list_create(&scene->shadow_list);
 
 	// Create shadow map (depth texture)
-	scene->shadow_map = skr_tex_create(
+	skr_tex_create(
 		skr_tex_fmt_depth16,
 		skr_tex_flags_writeable | skr_tex_flags_readable,
 		(skr_tex_sampler_t){
@@ -94,7 +94,7 @@ static scene_t* _scene_shadows_create() {
 			.anisotropy     = 1,
 		},
 		(skr_vec3i_t){SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION, 1},
-		1, 0, NULL
+		1, 0, NULL, &scene->shadow_map
 	);
 	skr_tex_set_name(&scene->shadow_map, "shadow_map");
 
@@ -120,37 +120,37 @@ static scene_t* _scene_shadows_create() {
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
 	if (app_read_file("shaders/shadow_caster.hlsl.sks", &shader_data, &shader_size)) {
-		scene->shadow_caster_shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->shadow_caster_shader);
 		skr_shader_set_name(&scene->shadow_caster_shader, "shadow_caster");
 		free(shader_data);
 
 		if (skr_shader_is_valid(&scene->shadow_caster_shader)) {
-			scene->shadow_caster_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader     = &scene->shadow_caster_shader,
 				.write_mask = skr_write_depth,
 				.depth_test = skr_compare_less_or_eq,
-			});
+			}, &scene->shadow_caster_material);
 		}
 	}
 
 	// Load shadow receiver shader
 	if (app_read_file("shaders/shadow_receiver.hlsl.sks", &shader_data, &shader_size)) {
-		scene->shadow_receiver_shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->shadow_receiver_shader);
 		skr_shader_set_name(&scene->shadow_receiver_shader, "shadow_receiver");
 		free(shader_data);
 
 		if (skr_shader_is_valid(&scene->shadow_receiver_shader)) {
-			scene->cube_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader     = &scene->shadow_receiver_shader,
 				.write_mask = skr_write_default,
 				.depth_test = skr_compare_less,
-			});
+			}, &scene->cube_material);
 
-			scene->floor_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader     = &scene->shadow_receiver_shader,
 				.write_mask = skr_write_default,
 				.depth_test = skr_compare_less,
-			});
+			}, &scene->floor_material);
 		}
 	}
 
@@ -166,7 +166,7 @@ static scene_t* _scene_shadows_create() {
 
 	// Create shadow buffer (constant buffer for shadow parameters)
 	shadow_buffer_data_t shadow_data = {0};
-	scene->shadow_buffer = skr_buffer_create(&shadow_data, sizeof(shadow_buffer_data_t), 1, skr_buffer_type_constant, skr_use_dynamic);
+	skr_buffer_create(&shadow_data, sizeof(shadow_buffer_data_t), 1, skr_buffer_type_constant, skr_use_dynamic, &scene->shadow_buffer);
 	skr_buffer_set_name(&scene->shadow_buffer, "shadow_constants");
 
 	return (scene_t*)scene;

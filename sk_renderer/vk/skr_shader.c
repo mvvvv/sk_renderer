@@ -72,22 +72,31 @@ skr_shader_t _skr_shader_create_manual(sksc_shader_meta_t* meta, skr_shader_stag
 	return shader;
 }
 
-skr_shader_t skr_shader_create(const void* shader_data, size_t data_size) {
+skr_err_ skr_shader_create(const void* shader_data, size_t data_size, skr_shader_t* out_shader) {
+	if (!out_shader) return skr_err_invalid_parameter;
+
+	// Zero out immediately
+	memset(out_shader, 0, sizeof(skr_shader_t));
+
+	if (!shader_data || data_size == 0) {
+		return skr_err_invalid_parameter;
+	}
+
 	sksc_shader_file_t file = {0};
 
 	sksc_result_ result = sksc_shader_file_load_memory(shader_data, data_size, &file);
 	if (result != sksc_result_success) {
 		const char* extra;
+		skr_err_ err = skr_err_failure;
 		switch(result) {
-			case sksc_result_bad_format:    extra = "unrecognized format"; break;
-			case sksc_result_old_version:   extra = "old version";         break;
-			case sksc_result_out_of_memory: extra = "out of memory";       break;
-			case sksc_result_corrupt_data:  extra = "corrupt data";        break;
-			default:                        extra = "unknown";             break;
+			case sksc_result_bad_format:    extra = "unrecognized format"; err = skr_err_unsupported; break;
+			case sksc_result_old_version:   extra = "old version";         err = skr_err_unsupported; break;
+			case sksc_result_out_of_memory: extra = "out of memory";       err = skr_err_out_of_memory; break;
+			case sksc_result_corrupt_data:  extra = "corrupt data";        err = skr_err_invalid_parameter; break;
+			default:                        extra = "unknown";             err = skr_err_failure; break;
 		}
 		skr_logf(skr_log_critical, "Failed to load shader file: %s", extra);
-		skr_shader_t empty = {0};
-		return empty;
+		return err;
 	}
 
 	// Create shader stages based on what's in the file
@@ -95,7 +104,7 @@ skr_shader_t skr_shader_create(const void* shader_data, size_t data_size) {
 	skr_shader_stage_t p_stage = _skr_shader_file_create_stage(&file, skr_stage_pixel);
 	skr_shader_stage_t c_stage = _skr_shader_file_create_stage(&file, skr_stage_compute);
 
-	skr_shader_t shader = _skr_shader_create_manual(file.meta, v_stage, p_stage, c_stage);
+	*out_shader = _skr_shader_create_manual(file.meta, v_stage, p_stage, c_stage);
 
 	// Don't destroy meta here, it's now owned by the shader
 	// Just clean up the file structure
@@ -104,7 +113,7 @@ skr_shader_t skr_shader_create(const void* shader_data, size_t data_size) {
 	}
 	free(file.stages);
 
-	return shader;
+	return skr_err_success;
 }
 
 bool skr_shader_is_valid(const skr_shader_t* shader) {

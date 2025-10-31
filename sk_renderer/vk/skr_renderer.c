@@ -56,7 +56,7 @@ static void _skr_ensure_buffer(skr_buffer_t* buffer, bool* ref_valid, const void
 			skr_buffer_destroy(buffer);
 		}
 		// Create new buffer with required size
-		*buffer = skr_buffer_create(data, size, 1, type, skr_use_dynamic);
+		skr_buffer_create(data, size, 1, type, skr_use_dynamic, buffer);
 		skr_buffer_set_name(buffer, name);
 		*ref_valid = true;
 	} else {
@@ -378,7 +378,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 
 	skr_buffer_t param_buffer = {0};
 	if (material->param_buffer_size > 0) {
-		param_buffer = skr_buffer_create(material->param_buffer, 1, material->param_buffer_size, skr_buffer_type_constant, skr_use_static);
+		skr_buffer_create(material->param_buffer, 1, material->param_buffer_size, skr_buffer_type_constant, skr_use_static, &param_buffer);
 
 		buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
 			.buffer = param_buffer.buffer,

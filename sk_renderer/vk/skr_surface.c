@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 // Surface
@@ -200,9 +201,14 @@ format_found:
 	return true;
 }
 
-skr_surface_t skr_surface_create(void* vk_surface_khr) {
+skr_err_ skr_surface_create(void* vk_surface_khr, skr_surface_t* out_surface) {
+	if (!out_surface) return skr_err_invalid_parameter;
+
+	// Zero out immediately
+	memset(out_surface, 0, sizeof(skr_surface_t));
+
 	VkSurfaceKHR vk_surface = (VkSurfaceKHR)vk_surface_khr;
-	skr_surface_t surface   = {0};
+	if (!vk_surface) return skr_err_invalid_parameter;
 
 	// Check present support
 	VkBool32 present_support = VK_FALSE;
@@ -210,24 +216,25 @@ skr_surface_t skr_surface_create(void* vk_surface_khr) {
 	if (!present_support) {
 		skr_log(skr_log_critical, "Surface doesn't support presentation");
 		vkDestroySurfaceKHR(_skr_vk.instance, vk_surface, NULL);
-		return surface;
+		return skr_err_unsupported;
 	}
 
-	surface.surface = vk_surface;
+	out_surface->surface = vk_surface;
 
 	// Create swapchain using helper
-	if (!_skr_surface_create_swapchain(&surface, VK_NULL_HANDLE)) {
+	if (!_skr_surface_create_swapchain(out_surface, VK_NULL_HANDLE)) {
 		vkDestroySurfaceKHR(_skr_vk.instance, vk_surface, NULL);
-		return (skr_surface_t){0};
+		memset(out_surface, 0, sizeof(skr_surface_t));
+		return skr_err_device_error;
 	}
 
 	// Create per-frame synchronization objects (fences and acquire semaphores)
 	VkSemaphoreCreateInfo semaphore_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++) {
-		vkCreateSemaphore(_skr_vk.device, &semaphore_info, NULL, &surface.semaphore_acquire[i]);
+		vkCreateSemaphore(_skr_vk.device, &semaphore_info, NULL, &out_surface->semaphore_acquire[i]);
 	}
 
-	return surface;
+	return skr_err_success;
 }
 
 void skr_surface_destroy(skr_surface_t* surface) {

@@ -430,11 +430,11 @@ bool skr_init(skr_settings_t settings) {
 		.address = skr_tex_address_clamp
 	};
 	uint32_t color = 0xFFFFFFFF;
-	_skr_vk.default_tex_white = skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color);
+	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color, &_skr_vk.default_tex_white);
 	color = 0xFF808080;
-	_skr_vk.default_tex_gray  = skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color);
+	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color, &_skr_vk.default_tex_gray);
 	color = 0xFF000000;
-	_skr_vk.default_tex_black = skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color);
+	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color, &_skr_vk.default_tex_black);
 
 	_skr_vk.initialized = true;
 	return true;

@@ -69,13 +69,13 @@ static scene_t* _scene_meshes_create() {
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
 	if (app_read_file("shaders/test.hlsl.sks", &shader_data, &shader_size)) {
-		scene->shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->shader);
 		skr_shader_set_name(&scene->shader, "main_shader");
 		free(shader_data);
 
 		if (skr_shader_is_valid(&scene->shader)) {
 			// Cube material: draws where stencil != 1 (outside sphere)
-			scene->cube_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader       = &scene->shader,
 				.write_mask   = skr_write_default,
 				.depth_test   = skr_compare_less,
@@ -84,11 +84,11 @@ static scene_t* _scene_meshes_create() {
 					.compare_mask = 0xFF,
 					.reference    = 1,
 				},
-			});
+			}, &scene->cube_material);
 			skr_material_set_tex(&scene->cube_material, "tex", &scene->checkerboard_texture);
 
 			// Pyramid material: draws where stencil != 1 (outside sphere)
-			scene->pyramid_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader       = &scene->shader,
 				.write_mask   = skr_write_default,
 				.depth_test   = skr_compare_less,
@@ -97,11 +97,11 @@ static scene_t* _scene_meshes_create() {
 					.compare_mask = 0xFF,
 					.reference    = 1,
 				},
-			});
+			}, &scene->pyramid_material);
 			skr_material_set_tex(&scene->pyramid_material, "tex", &scene->white_texture);
 
 			// Sphere material: draws first and marks stencil
-			scene->sphere_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader       = &scene->shader,
 				.write_mask   = skr_write_stencil,
 				.depth_test   = skr_compare_less,
@@ -113,7 +113,7 @@ static scene_t* _scene_meshes_create() {
 					.write_mask   = 0xFF,
 					.reference    = 1,  // Mark with value 1
 				},
-			});
+			}, &scene->sphere_material);
 			skr_material_set_tex(&scene->sphere_material, "tex", &scene->white_texture);
 		}
 	}

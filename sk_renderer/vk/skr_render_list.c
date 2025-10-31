@@ -13,32 +13,37 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_render_list_t skr_render_list_create() {
-	skr_render_list_t list = (skr_render_list_t){};
-	list.capacity                       = 16;
-	list.items                          = malloc(sizeof(skr_render_item_t) * list.capacity);
-	list.instance_data_capacity         = 1024;
-	list.instance_data                  = malloc(list.instance_data_capacity);
-	list.instance_data_sorted_capacity  = 1024;
-	list.instance_data_sorted           = malloc(list.instance_data_sorted_capacity);
-	list.material_data_capacity         = 1024;
-	list.material_data                  = malloc(list.material_data_capacity);
-	if (!list.items || !list.instance_data || !list.instance_data_sorted || !list.material_data) {
+skr_err_ skr_render_list_create(skr_render_list_t* out_list) {
+	if (!out_list) return skr_err_invalid_parameter;
+
+	// Zero out immediately
+	memset(out_list, 0, sizeof(skr_render_list_t));
+
+	out_list->capacity                       = 16;
+	out_list->items                          = malloc(sizeof(skr_render_item_t) * out_list->capacity);
+	out_list->instance_data_capacity         = 1024;
+	out_list->instance_data                  = malloc(out_list->instance_data_capacity);
+	out_list->instance_data_sorted_capacity  = 1024;
+	out_list->instance_data_sorted           = malloc(out_list->instance_data_sorted_capacity);
+	out_list->material_data_capacity         = 1024;
+	out_list->material_data                  = malloc(out_list->material_data_capacity);
+
+	if (!out_list->items || !out_list->instance_data || !out_list->instance_data_sorted || !out_list->material_data) {
 		skr_log(skr_log_critical, "Failed to allocate render list");
-		free(list.items);
-		free(list.instance_data);
-		free(list.instance_data_sorted);
-		free(list.material_data);
-		list = (skr_render_list_t){};
-		return list;
+		free(out_list->items);
+		free(out_list->instance_data);
+		free(out_list->instance_data_sorted);
+		free(out_list->material_data);
+		memset(out_list, 0, sizeof(skr_render_list_t));
+		return skr_err_out_of_memory;
 	}
 
 	// Buffers will be lazily created in skr_renderer_draw() when needed
-	list.system_buffer_valid = false;
-	list.instance_buffer_valid = false;
-	list.material_param_buffer_valid = false;
+	out_list->system_buffer_valid = false;
+	out_list->instance_buffer_valid = false;
+	out_list->material_param_buffer_valid = false;
 
-	return list;
+	return skr_err_success;
 }
 
 void skr_render_list_destroy(skr_render_list_t* list) {

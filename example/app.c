@@ -48,14 +48,14 @@ static void _create_render_targets(app_t* app, int32_t width, int32_t height, sk
 
 	// MSAA buffer must match the format of its resolve target
 	skr_tex_fmt_ msaa_format = enable_offscreen ? app->offscreen_format : render_target->format;
-	app->color_msaa   = skr_tex_create(msaa_format,       skr_tex_flags_writeable, no_sampler, (skr_vec3i_t){width, height, 1}, app->msaa, 1, NULL);
-	app->depth_buffer = skr_tex_create(app->depth_format, skr_tex_flags_writeable, no_sampler, (skr_vec3i_t){width, height, 1}, app->msaa, 1, NULL);
+	skr_tex_create(msaa_format,       skr_tex_flags_writeable, no_sampler, (skr_vec3i_t){width, height, 1}, app->msaa, 1, NULL, &app->color_msaa);
+	skr_tex_create(app->depth_format, skr_tex_flags_writeable, no_sampler, (skr_vec3i_t){width, height, 1}, app->msaa, 1, NULL, &app->depth_buffer);
 
 	if (enable_offscreen) {
-		app->scene_color = skr_tex_create(app->offscreen_format,
+		skr_tex_create(app->offscreen_format,
 			skr_tex_flags_readable | skr_tex_flags_compute,
 			linear_clamp,
-			(skr_vec3i_t){width, height, 1}, 1, 1, NULL);
+			(skr_vec3i_t){width, height, 1}, 1, 1, NULL, &app->scene_color);
 	}
 
 	app->current_width  = width;
@@ -105,7 +105,7 @@ app_t* app_create() {
 	skr_vertex_types_init();
 
 	// Create shared render list
-	app->render_list = skr_render_list_create();
+	skr_render_list_create(&app->render_list);
 
 	// Register available scenes
 	app->scene_types[0] = &scene_meshes_vtable;

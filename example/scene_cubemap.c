@@ -79,12 +79,12 @@ static scene_t* _scene_cubemap_create() {
 	}
 
 	// Create cubemap texture (6-layer texture with cubemap flag)
-	scene->cubemap_texture = skr_tex_create(
+	skr_tex_create(
 		skr_tex_fmt_rgba32,
 		skr_tex_flags_readable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
 		skr_sampler_linear_clamp,
 		(skr_vec3i_t){cube_size, cube_size, 6},  // 6 faces
-		1, 0, cubemap_data
+		1, 0, cubemap_data, &scene->cubemap_texture
 	);
 	skr_tex_set_name(&scene->cubemap_texture, "color_cubemap");
 	free(cubemap_data);
@@ -93,7 +93,7 @@ static scene_t* _scene_cubemap_create() {
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
 	if (app_read_file("shaders/cubemap_mipgen.hlsl.sks", &shader_data, &shader_size)) {
-		scene->mipgen_shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->mipgen_shader);
 		skr_shader_set_name(&scene->mipgen_shader, "cubemap_mipgen");
 		free(shader_data);
 		shader_data = NULL;
@@ -104,34 +104,34 @@ static scene_t* _scene_cubemap_create() {
 
 	// Load reflection shader
 	if (app_read_file("shaders/cubemap_reflection.hlsl.sks", &shader_data, &shader_size)) {
-		scene->reflection_shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->reflection_shader);
 		skr_shader_set_name(&scene->reflection_shader, "reflection_shader");
 		free(shader_data);
 
 		if (skr_shader_is_valid(&scene->reflection_shader)) {
-			scene->sphere_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader     = &scene->reflection_shader,
 				.write_mask = skr_write_default,
 				.depth_test = skr_compare_less,
-			});
+			}, &scene->sphere_material);
 			skr_material_set_tex(&scene->sphere_material, "cubemap", &scene->cubemap_texture);
 		}
 	}
 
 	// Load skybox shader
 	if (app_read_file("shaders/cubemap_skybox.hlsl.sks", &shader_data, &shader_size)) {
-		scene->skybox_shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->skybox_shader);
 		skr_shader_set_name(&scene->skybox_shader, "skybox_shader");
 		free(shader_data);
 
 		if (skr_shader_is_valid(&scene->skybox_shader)) {
-			scene->skybox_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader       = &scene->skybox_shader,
 				.write_mask   = skr_write_default,
 				.depth_test   = skr_compare_less_or_eq,  // Less-equal for skybox
 				.cull         = skr_cull_front,          // Cull front faces since we're inside
 				.queue_offset = 100,                     // Draw last (after sphere)
-			});
+			}, &scene->skybox_material);
 			skr_material_set_tex(&scene->skybox_material, "cubemap", &scene->cubemap_texture);
 		}
 	}

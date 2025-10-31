@@ -11,15 +11,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-skr_compute_t skr_compute_create(const skr_shader_t* shader) {
-	skr_compute_t compute = {0};
+skr_err_ skr_compute_create(const skr_shader_t* shader, skr_compute_t* out_compute) {
+	if (!out_compute) return skr_err_invalid_parameter;
+
+	// Zero out immediately
+	memset(out_compute, 0, sizeof(skr_compute_t));
 
 	if (!shader || !skr_shader_is_valid(shader) || shader->compute_stage.shader == VK_NULL_HANDLE) {
 		skr_log(skr_log_critical, "Invalid shader or no compute stage");
-		return compute;
+		return skr_err_invalid_parameter;
 	}
 
-	compute.shader = shader;
+	out_compute->shader = shader;
 
 	// Create descriptor set layout
 	if (shader->meta && (shader->meta->buffer_count > 0 || shader->meta->resource_count > 0)) {
@@ -72,26 +75,28 @@ skr_compute_t skr_compute_create(const skr_shader_t* shader) {
 			.pBindings    = bindings,
 		};
 
-		VkResult vr = vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &compute.descriptor_layout);
+		VkResult vr = vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &out_compute->descriptor_layout);
 		if (vr != VK_SUCCESS) {
-			SKR_VK_CHECK_NRET(vr, "vkCreateDescriptorSetLayout");
-			skr_compute_destroy(&compute);
-			return compute;
+			skr_log(skr_log_critical, "vkCreateDescriptorSetLayout failed");
+			return skr_err_device_error;
 		}
 	}
 
 	// Create pipeline layout
 	VkPipelineLayoutCreateInfo pipeline_layout_info = {
 		.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = compute.descriptor_layout != VK_NULL_HANDLE ? 1 : 0,
-		.pSetLayouts    = compute.descriptor_layout != VK_NULL_HANDLE ? &compute.descriptor_layout : NULL,
+		.setLayoutCount = out_compute->descriptor_layout != VK_NULL_HANDLE ? 1 : 0,
+		.pSetLayouts    = out_compute->descriptor_layout != VK_NULL_HANDLE ? &out_compute->descriptor_layout : NULL,
 	};
 
-	VkResult vr = vkCreatePipelineLayout(_skr_vk.device, &pipeline_layout_info, NULL, &compute.layout);
+	VkResult vr = vkCreatePipelineLayout(_skr_vk.device, &pipeline_layout_info, NULL, &out_compute->layout);
 	if (vr != VK_SUCCESS) {
-		SKR_VK_CHECK_NRET(vr, "vkCreatePipelineLayout");
-		skr_compute_destroy(&compute);
-		return compute;
+		skr_log(skr_log_critical, "vkCreatePipelineLayout failed");
+		if (out_compute->descriptor_layout) {
+			vkDestroyDescriptorSetLayout(_skr_vk.device, out_compute->descriptor_layout, NULL);
+		}
+		memset(out_compute, 0, sizeof(skr_compute_t));
+		return skr_err_device_error;
 	}
 
 	// Create compute pipeline
@@ -103,23 +108,27 @@ skr_compute_t skr_compute_create(const skr_shader_t* shader) {
 			.module = shader->compute_stage.shader,
 			.pName  = "cs",
 		},
-		.layout = compute.layout,
+		.layout = out_compute->layout,
 	};
 
-	vr = vkCreateComputePipelines(_skr_vk.device, _skr_vk.pipeline_cache, 1, &pipeline_info, NULL, &compute.pipeline);
+	vr = vkCreateComputePipelines(_skr_vk.device, _skr_vk.pipeline_cache, 1, &pipeline_info, NULL, &out_compute->pipeline);
 	if (vr != VK_SUCCESS) {
-		SKR_VK_CHECK_NRET(vr, "vkCreateComputePipelines");
-		skr_compute_destroy(&compute);
-		return compute;
+		skr_log(skr_log_critical, "vkCreateComputePipelines failed");
+		vkDestroyPipelineLayout(_skr_vk.device, out_compute->layout, NULL);
+		if (out_compute->descriptor_layout) {
+			vkDestroyDescriptorSetLayout(_skr_vk.device, out_compute->descriptor_layout, NULL);
+		}
+		memset(out_compute, 0, sizeof(skr_compute_t));
+		return skr_err_device_error;
 	}
 
 	// Allocate memory for our resource binds
-	compute.bind_count = shader->meta->resource_count + shader->meta->buffer_count;
-	compute.binds      = (skr_material_bind_t*)calloc(compute.bind_count, sizeof(skr_material_bind_t));
-	for (int32_t i = 0; i < shader->meta->buffer_count;   i++) compute.binds[i                           ].bind = shader->meta->buffers  [i].bind;
-	for (int32_t i = 0; i < shader->meta->resource_count; i++) compute.binds[i+shader->meta->buffer_count].bind = shader->meta->resources[i].bind;
+	out_compute->bind_count = shader->meta->resource_count + shader->meta->buffer_count;
+	out_compute->binds      = (skr_material_bind_t*)calloc(out_compute->bind_count, sizeof(skr_material_bind_t));
+	for (int32_t i = 0; i < shader->meta->buffer_count;   i++) out_compute->binds[i                           ].bind = shader->meta->buffers  [i].bind;
+	for (int32_t i = 0; i < shader->meta->resource_count; i++) out_compute->binds[i+shader->meta->buffer_count].bind = shader->meta->resources[i].bind;
 
-	return compute;
+	return skr_err_success;
 }
 
 bool skr_compute_is_valid(const skr_compute_t* compute) {

@@ -19,26 +19,37 @@
 // Vertex type creation
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_vert_type_t skr_vert_type_create(const skr_vert_component_t* items, int32_t item_count) {
-	skr_vert_type_t result = {0};
+skr_err_ skr_vert_type_create(const skr_vert_component_t* items, int32_t item_count, skr_vert_type_t* out_type) {
+	if (!out_type) return skr_err_invalid_parameter;
+
+	// Zero out immediately
+	memset(out_type, 0, sizeof(skr_vert_type_t));
 
 	if (!items || item_count == 0) {
 		skr_log(skr_log_warning, "Cannot create vertex type with no components");
-		return result;
+		return skr_err_invalid_parameter;
 	}
 
 	// Allocate storage
-	result.component_count = item_count;
-	result.components      = malloc(sizeof(skr_vert_component_t) * item_count);
-	result.attributes      = malloc(sizeof(VkVertexInputAttributeDescription) * item_count);
-	memcpy(result.components, items, sizeof(skr_vert_component_t) * item_count);
+	out_type->component_count = item_count;
+	out_type->components      = malloc(sizeof(skr_vert_component_t) * item_count);
+	out_type->attributes      = malloc(sizeof(VkVertexInputAttributeDescription) * item_count);
+
+	if (!out_type->components || !out_type->attributes) {
+		free(out_type->components);
+		free(out_type->attributes);
+		memset(out_type, 0, sizeof(skr_vert_type_t));
+		return skr_err_out_of_memory;
+	}
+
+	memcpy(out_type->components, items, sizeof(skr_vert_component_t) * item_count);
 
 	// Calculate stride and populate attributes
 	uint32_t offset = 0;
 	for (int32_t i = 0; i < item_count; i++) {
 		uint32_t component_size = _skr_vert_fmt_to_size(items[i].format) * items[i].count;
 
-		result.attributes[i] = (VkVertexInputAttributeDescription){
+		out_type->attributes[i] = (VkVertexInputAttributeDescription){
 			.location = i,
 			.binding  = 0,
 			.format   = _skr_to_vk_vert_fmt(items[i].format, items[i].count),
@@ -49,16 +60,16 @@ skr_vert_type_t skr_vert_type_create(const skr_vert_component_t* items, int32_t 
 	}
 
 	// Set up binding description
-	result.binding = (VkVertexInputBindingDescription){
+	out_type->binding = (VkVertexInputBindingDescription){
 		.binding   = 0,
 		.stride    = offset,
 		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
 	};
 
 	// Register with pipeline system (vertex format owns this registration)
-	result.pipeline_idx = _skr_pipeline_register_vertformat(result);
+	out_type->pipeline_idx = _skr_pipeline_register_vertformat(*out_type);
 
-	return result;
+	return skr_err_success;
 }
 
 bool skr_vert_type_is_valid(const skr_vert_component_t* type) {
@@ -83,40 +94,48 @@ void skr_vert_type_destroy(skr_vert_type_t* type) {
 // Mesh creation
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_mesh_t skr_mesh_create(const skr_vert_type_t* vert_type, skr_index_fmt_ ind_type, const void* vert_data, uint32_t vert_count, const void* opt_ind_data, uint32_t ind_count) {
-	skr_mesh_t mesh = {0};
+skr_err_ skr_mesh_create(const skr_vert_type_t* vert_type, skr_index_fmt_ ind_type, const void* vert_data, uint32_t vert_count, const void* opt_ind_data, uint32_t ind_count, skr_mesh_t* out_mesh) {
+	if (!out_mesh) return skr_err_invalid_parameter;
+
+	// Zero out immediately
+	memset(out_mesh, 0, sizeof(skr_mesh_t));
+
+	if (!vert_type || vert_count == 0) {
+		return skr_err_invalid_parameter;
+	}
 
 	// Store counts
-	mesh.vert_count = vert_count;
-	mesh.ind_count  = ind_count;
-	mesh.ind_format = ind_type;
-	mesh.vert_type  = vert_type;
+	out_mesh->vert_count = vert_count;
+	out_mesh->ind_count  = ind_count;
+	out_mesh->ind_format = ind_type;
+	out_mesh->vert_type  = vert_type;
 
 	// Create vertex buffer if data provided
 	if (vert_data && vert_count > 0) {
-		mesh.vertex_buffer = skr_buffer_create(vert_data, vert_count, vert_type->binding.stride, skr_buffer_type_vertex, skr_use_static);
+		skr_err_ err = skr_buffer_create(vert_data, vert_count, vert_type->binding.stride, skr_buffer_type_vertex, skr_use_static, &out_mesh->vertex_buffer);
 
-		if (!skr_buffer_is_valid(&mesh.vertex_buffer)) {
+		if (err != skr_err_success) {
 			skr_log(skr_log_critical, "Failed to create vertex buffer for mesh");
-			skr_mesh_destroy(&mesh);
-			return mesh;
+			memset(out_mesh, 0, sizeof(skr_mesh_t));
+			return err;
 		}
 	}
 
 	// Create index buffer if provided
 	if (opt_ind_data && ind_count > 0) {
-		mesh.ind_format_vk = _skr_to_vk_index_fmt(ind_type);
+		out_mesh->ind_format_vk = _skr_to_vk_index_fmt(ind_type);
 		uint32_t ind_stride = _skr_index_fmt_to_size(ind_type);
-		mesh.index_buffer = skr_buffer_create(opt_ind_data, ind_count, ind_stride, skr_buffer_type_index, skr_use_static);
+		skr_err_ err = skr_buffer_create(opt_ind_data, ind_count, ind_stride, skr_buffer_type_index, skr_use_static, &out_mesh->index_buffer);
 
-		if (!skr_buffer_is_valid(&mesh.index_buffer)) {
+		if (err != skr_err_success) {
 			skr_log(skr_log_critical, "Failed to create index buffer for mesh");
-			skr_mesh_destroy(&mesh);
-			return mesh;
+			skr_buffer_destroy(&out_mesh->vertex_buffer);
+			memset(out_mesh, 0, sizeof(skr_mesh_t));
+			return err;
 		}
 	}
 
-	return mesh;
+	return skr_err_success;
 }
 
 bool skr_mesh_is_valid(const skr_mesh_t* mesh) {

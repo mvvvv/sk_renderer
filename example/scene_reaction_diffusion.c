@@ -76,24 +76,24 @@ static scene_t* _scene_reaction_diffusion_create() {
 		0, 1, 2,  2, 3, 0,  // Front face
 		5, 4, 7,  7, 6, 5,  // Back face (flipped winding)
 	};
-	scene->quad_mesh = skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 8, quad_indices, 12);
+	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 8, quad_indices, 12, &scene->quad_mesh);
 	skr_mesh_set_name(&scene->quad_mesh, "quad");
 
 	// Load shaders
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
 	if (app_read_file("shaders/test.hlsl.sks", &shader_data, &shader_size)) {
-		scene->shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->shader);
 		skr_shader_set_name(&scene->shader, "main_shader");
 		free(shader_data);
 
 		if (skr_shader_is_valid(&scene->shader)) {
-			scene->quad_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader       = &scene->shader,
 				.cull         = skr_cull_back,
 				.write_mask   = skr_write_r | skr_write_g | skr_write_b | skr_write_a | skr_write_depth,
 				.depth_test   = skr_compare_less,
-			});
+			}, &scene->quad_material);
 		}
 	}
 
@@ -101,12 +101,12 @@ static scene_t* _scene_reaction_diffusion_create() {
 	void* compute_data = NULL;
 	size_t compute_size = 0;
 	if (app_read_file("shaders/compute_test.hlsl.sks", &compute_data, &compute_size)) {
-		scene->compute_sh = skr_shader_create(compute_data, compute_size);
+		skr_shader_create(compute_data, compute_size, &scene->compute_sh);
 		free(compute_data);
 
 		if (skr_shader_is_valid(&scene->compute_sh)) {
-			scene->compute_ping = skr_compute_create(&scene->compute_sh);
-			scene->compute_pong = skr_compute_create(&scene->compute_sh);
+			skr_compute_create(&scene->compute_sh, &scene->compute_ping);
+			skr_compute_create(&scene->compute_sh, &scene->compute_pong);
 		}
 	}
 
@@ -121,17 +121,17 @@ static scene_t* _scene_reaction_diffusion_create() {
 		}
 	}
 
-	scene->compute_buffer_a = skr_buffer_create(initial_data, scene->sim_size * scene->sim_size, sizeof(float2),
-		skr_buffer_type_storage, skr_use_compute_readwrite);
-	scene->compute_buffer_b = skr_buffer_create(initial_data, scene->sim_size * scene->sim_size, sizeof(float2),
-		skr_buffer_type_storage, skr_use_compute_readwrite);
+	skr_buffer_create(initial_data, scene->sim_size * scene->sim_size, sizeof(float2),
+		skr_buffer_type_storage, skr_use_compute_readwrite, &scene->compute_buffer_a);
+	skr_buffer_create(initial_data, scene->sim_size * scene->sim_size, sizeof(float2),
+		skr_buffer_type_storage, skr_use_compute_readwrite, &scene->compute_buffer_b);
 	free(initial_data);
 
 	skr_tex_sampler_t default_sampler = { .sample = skr_tex_sample_linear, .address = skr_tex_address_clamp };
-	scene->compute_output = skr_tex_create(skr_tex_fmt_rgba128,
+	skr_tex_create(skr_tex_fmt_rgba128,
 		skr_tex_flags_readable | skr_tex_flags_compute,
 		default_sampler,
-		(skr_vec3i_t){scene->sim_size, scene->sim_size, 1}, 1, 1, NULL);
+		(skr_vec3i_t){scene->sim_size, scene->sim_size, 1}, 1, 1, NULL, &scene->compute_output);
 
 	// Create compute params buffer
 	typedef struct {
@@ -151,8 +151,8 @@ static scene_t* _scene_reaction_diffusion_create() {
 		.timestep = 0.8f,
 		.size     = scene->sim_size
 	};
-	scene->compute_params_buffer = skr_buffer_create(&compute_params, 1, sizeof(compute_params_t),
-		skr_buffer_type_constant, skr_use_dynamic);
+	skr_buffer_create(&compute_params, 1, sizeof(compute_params_t),
+		skr_buffer_type_constant, skr_use_dynamic, &scene->compute_params_buffer);
 
 	// Set up compute bindings
 	if (skr_compute_is_valid(&scene->compute_ping) && skr_compute_is_valid(&scene->compute_pong)) {

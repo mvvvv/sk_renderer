@@ -42,7 +42,7 @@ static scene_t* _scene_array_texture_create() {
 	scene->base.size      = sizeof(scene_array_texture_t);
 	scene->rotation       = 0.0f;
 	scene->eye_separation = 0.2f;
-	scene->render_list    = skr_render_list_create();
+	skr_render_list_create(&scene->render_list);
 
 	// Create cube mesh with per-face colors using utility function
 	// Order: Front, Back, Top, Bottom, Right, Left
@@ -65,32 +65,32 @@ static scene_t* _scene_array_texture_create() {
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
 	if (app_read_file("shaders/test.hlsl.sks", &shader_data, &shader_size)) {
-		scene->cube_shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->cube_shader);
 		skr_shader_set_name(&scene->cube_shader, "cube_shader");
 		free(shader_data);
 
 		if (skr_shader_is_valid(&scene->cube_shader)) {
-			scene->cube_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader     = &scene->cube_shader,
 				.write_mask = skr_write_default,
 				.depth_test = skr_compare_less,
-			});
+			}, &scene->cube_material);
 		}
 	}
 
 	// Load stereo display shader
 	if (app_read_file("shaders/stereo_display.hlsl.sks", &shader_data, &shader_size)) {
-		scene->stereo_shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->stereo_shader);
 		skr_shader_set_name(&scene->stereo_shader, "stereo_shader");
 		free(shader_data);
 
 		if (skr_shader_is_valid(&scene->stereo_shader)) {
-			scene->stereo_material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader     = &scene->stereo_shader,
 				.cull       = skr_cull_none,
 				.write_mask = skr_write_rgba,
 				.depth_test = skr_compare_always,
-			});
+			}, &scene->stereo_material);
 		}
 	}
 
@@ -144,22 +144,22 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 		}
 
 		// Create 2-layer array texture
-		scene->array_render_target = skr_tex_create(
+		skr_tex_create(
 			skr_tex_fmt_rgba32,
 			skr_tex_flags_writeable | skr_tex_flags_readable | skr_tex_flags_array,
 			skr_sampler_linear_clamp,
 			(skr_vec3i_t){width, height, 2},  // 2 layers
-			1, 0, NULL
+			1, 0, NULL, &scene->array_render_target
 		);
 		skr_tex_set_name(&scene->array_render_target, "array_stereo_rt");
 
 		// Create depth buffer
-		scene->depth_buffer = skr_tex_create(
+		skr_tex_create(
 			skr_tex_fmt_depth32,
 			skr_tex_flags_writeable | skr_tex_flags_array,
 			skr_sampler_linear_clamp,
 			(skr_vec3i_t){width, height, 2},  // 2 layers
-			1, 0, NULL
+			1, 0, NULL, &scene->depth_buffer
 		);
 		skr_tex_set_name(&scene->depth_buffer, "array_stereo_depth");
 

@@ -167,7 +167,8 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Create sk_renderer surface
-	skr_surface_t surface = skr_surface_create(vk_surface);
+	skr_surface_t surface;
+	skr_surface_create(vk_surface, &surface);
 	if (surface.surface == VK_NULL_HANDLE) {
 		skr_log(skr_log_critical, "Failed to create surface!");
 		skr_shutdown();
@@ -262,7 +263,7 @@ int main(int argc, char* argv[]) {
 			}
 
 			skr_surface_destroy(&surface);
-			surface = skr_surface_create(new_vk_surface);
+			skr_surface_create(new_vk_surface, &surface);
 			if (surface.surface == VK_NULL_HANDLE) {
 				skr_log(skr_log_critical, "Failed to recreate sk_renderer surface");
 				running = false;

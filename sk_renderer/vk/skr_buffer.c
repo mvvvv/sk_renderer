@@ -33,12 +33,21 @@ static uint32_t _skr_find_memory_type(uint32_t type_filter, VkMemoryPropertyFlag
 // Buffer creation and destruction
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_buffer_t skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_stride,
-                                skr_buffer_type_ type, skr_use_ use) {
-	skr_buffer_t buffer = {0};
-	buffer.size = size_count * size_stride;
-	buffer.type = type;
-	buffer.use  = use;
+skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_stride,
+                            skr_buffer_type_ type, skr_use_ use, skr_buffer_t* out_buffer) {
+	if (!out_buffer) return skr_err_invalid_parameter;
+
+	// Zero out immediately
+	memset(out_buffer, 0, sizeof(skr_buffer_t));
+
+	// Validate inputs
+	if (size_count == 0 || size_stride == 0) {
+		return skr_err_invalid_parameter;
+	}
+
+	out_buffer->size = size_count * size_stride;
+	out_buffer->type = type;
+	out_buffer->use  = use;
 
 	VkBufferUsageFlags usage = _skr_to_vk_buffer_usage(type);
 
@@ -50,17 +59,17 @@ skr_buffer_t skr_buffer_create(const void* data, uint32_t size_count, uint32_t s
 	// Create buffer
 	if (vkCreateBuffer(_skr_vk.device, &(VkBufferCreateInfo){
 		.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size        = buffer.size,
+		.size        = out_buffer->size,
 		.usage       = usage,
 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-	}, NULL, &buffer.buffer) != VK_SUCCESS) {
+	}, NULL, &out_buffer->buffer) != VK_SUCCESS) {
 		skr_log(skr_log_critical, "Failed to create buffer");
-		return buffer;
+		return skr_err_device_error;
 	}
 
 	// Allocate memory
 	VkMemoryRequirements mem_requirements;
-	vkGetBufferMemoryRequirements(_skr_vk.device, buffer.buffer, &mem_requirements);
+	vkGetBufferMemoryRequirements(_skr_vk.device, out_buffer->buffer, &mem_requirements);
 
 	VkMemoryPropertyFlags mem_properties = use == skr_use_dynamic
 		? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
@@ -70,54 +79,67 @@ skr_buffer_t skr_buffer_create(const void* data, uint32_t size_count, uint32_t s
 		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.allocationSize  = mem_requirements.size,
 		.memoryTypeIndex = _skr_find_memory_type(mem_requirements.memoryTypeBits, mem_properties),
-	}, NULL, &buffer.memory) != VK_SUCCESS) {
+	}, NULL, &out_buffer->memory) != VK_SUCCESS) {
 		skr_log(skr_log_critical, "Failed to allocate buffer memory");
-		vkDestroyBuffer(_skr_vk.device, buffer.buffer, NULL);
-		buffer.buffer = VK_NULL_HANDLE;
-		return buffer;
+		vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
+		memset(out_buffer, 0, sizeof(skr_buffer_t));
+		return skr_err_out_of_memory;
 	}
 
-	vkBindBufferMemory(_skr_vk.device, buffer.buffer, buffer.memory, 0);
+	vkBindBufferMemory(_skr_vk.device, out_buffer->buffer, out_buffer->memory, 0);
 
 	// Upload initial data
 	if (data != NULL) {
 		if (use == skr_use_dynamic) {
 			// Direct map and copy for dynamic buffers
 			void* mapped;
-			vkMapMemory(_skr_vk.device, buffer.memory, 0, buffer.size, 0, &mapped);
-			memcpy(mapped, data, buffer.size);
-			vkUnmapMemory(_skr_vk.device, buffer.memory);
+			vkMapMemory(_skr_vk.device, out_buffer->memory, 0, out_buffer->size, 0, &mapped);
+			memcpy(mapped, data, out_buffer->size);
+			vkUnmapMemory(_skr_vk.device, out_buffer->memory);
 		} else {
 			// Use staging buffer for static buffers
 			VkBuffer staging_buffer;
-			vkCreateBuffer(_skr_vk.device, &(VkBufferCreateInfo){
+			if (vkCreateBuffer(_skr_vk.device, &(VkBufferCreateInfo){
 				.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-				.size        = buffer.size,
+				.size        = out_buffer->size,
 				.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 				.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-			}, NULL, &staging_buffer);
+			}, NULL, &staging_buffer) != VK_SUCCESS) {
+				skr_log(skr_log_critical, "Failed to create staging buffer");
+				vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
+				vkFreeMemory(_skr_vk.device, out_buffer->memory, NULL);
+				memset(out_buffer, 0, sizeof(skr_buffer_t));
+				return skr_err_device_error;
+			}
 
 			VkMemoryRequirements staging_mem_req;
 			vkGetBufferMemoryRequirements(_skr_vk.device, staging_buffer, &staging_mem_req);
 
 			VkDeviceMemory staging_memory;
-			vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
+			if (vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
 				.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 				.allocationSize  = staging_mem_req.size,
 				.memoryTypeIndex = _skr_find_memory_type(staging_mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
-			}, NULL, &staging_memory);
+			}, NULL, &staging_memory) != VK_SUCCESS) {
+				skr_log(skr_log_critical, "Failed to allocate staging buffer memory");
+				vkDestroyBuffer(_skr_vk.device, staging_buffer, NULL);
+				vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
+				vkFreeMemory(_skr_vk.device, out_buffer->memory, NULL);
+				memset(out_buffer, 0, sizeof(skr_buffer_t));
+				return skr_err_out_of_memory;
+			}
 			vkBindBufferMemory(_skr_vk.device, staging_buffer, staging_memory, 0);
 
 			// Copy data to staging buffer
 			void* mapped;
-			vkMapMemory(_skr_vk.device, staging_memory, 0, buffer.size, 0, &mapped);
-			memcpy(mapped, data, buffer.size);
+			vkMapMemory(_skr_vk.device, staging_memory, 0, out_buffer->size, 0, &mapped);
+			memcpy(mapped, data, out_buffer->size);
 			vkUnmapMemory(_skr_vk.device, staging_memory);
 
 			_skr_command_context_t ctx = _skr_command_acquire();
 
-			vkCmdCopyBuffer(ctx.cmd, staging_buffer, buffer.buffer, 1, &(VkBufferCopy){
-				.size = buffer.size,
+			vkCmdCopyBuffer(ctx.cmd, staging_buffer, out_buffer->buffer, 1, &(VkBufferCopy){
+				.size = out_buffer->size,
 			});
 
 			_skr_command_destroy_buffer(ctx.destroy_list, staging_buffer);
@@ -125,13 +147,13 @@ skr_buffer_t skr_buffer_create(const void* data, uint32_t size_count, uint32_t s
 			_skr_command_release(ctx.cmd);
 		}
 	}
- 
+
 	// Keep dynamic buffers mapped
 	if (use == skr_use_dynamic) {
-		vkMapMemory(_skr_vk.device, buffer.memory, 0, buffer.size, 0, &buffer.mapped);
+		vkMapMemory(_skr_vk.device, out_buffer->memory, 0, out_buffer->size, 0, &out_buffer->mapped);
 	}
 
-	return buffer;
+	return skr_err_success;
 }
 
 bool skr_buffer_is_valid(const skr_buffer_t* buffer) {

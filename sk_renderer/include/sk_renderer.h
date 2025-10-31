@@ -81,6 +81,22 @@ typedef struct skr_recti_t {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+typedef enum skr_err_ {
+	// Success code (positive)
+	skr_err_success = 1,
+
+	// General failure (zero)
+	skr_err_failure = 0,
+
+	// Specific errors (negative)
+	skr_err_out_of_memory     = -1,  // malloc/calloc/realloc failure
+	skr_err_invalid_parameter = -2,  // NULL pointer, zero size, invalid arguments
+	skr_err_unsupported       = -3,  // Unsupported format, feature, or operation
+	skr_err_device_error      = -4,  // GPU/Vulkan error
+} skr_err_;
+
+///////////////////////////////////////////////////////////////////////////////
+
 typedef enum skr_buffer_type_ {
 	skr_buffer_type_vertex,
 	skr_buffer_type_index,
@@ -379,7 +395,7 @@ void              skr_log                          (skr_log_ level, const char* 
 void              skr_logf                         (skr_log_ level, const char* text, ...);
 uint64_t          skr_hash                         (const char *string);
 
-skr_buffer_t      skr_buffer_create                (const void *data, uint32_t size_count, uint32_t size_stride, skr_buffer_type_ type, skr_use_ use);
+skr_err_          skr_buffer_create                (const void *data, uint32_t size_count, uint32_t size_stride, skr_buffer_type_ type, skr_use_ use, skr_buffer_t *out_buffer);
 void              skr_buffer_destroy               (      skr_buffer_t *buffer);
 bool              skr_buffer_is_valid              (const skr_buffer_t *buffer);
 void              skr_buffer_set                   (      skr_buffer_t *buffer, const void *data, uint32_t size_bytes);
@@ -387,18 +403,18 @@ void              skr_buffer_get                   (const skr_buffer_t *buffer, 
 uint32_t          skr_buffer_get_size              (const skr_buffer_t *buffer);
 void              skr_buffer_set_name              (      skr_buffer_t *buffer, const char* name);
 
-skr_vert_type_t   skr_vert_type_create             (const skr_vert_component_t* items, int32_t item_count);
+skr_err_          skr_vert_type_create             (const skr_vert_component_t* items, int32_t item_count, skr_vert_type_t* out_type);
 bool              skr_vert_type_is_valid           (const skr_vert_component_t* type);
 void              skr_vert_type_destroy            (      skr_vert_type_t* type);
 
-skr_mesh_t        skr_mesh_create                  (const skr_vert_type_t* vert_type, skr_index_fmt_ ind_type, const void* vert_data, uint32_t vert_count, const void* opt_ind_data, uint32_t ind_count);
+skr_err_          skr_mesh_create                  (const skr_vert_type_t* vert_type, skr_index_fmt_ ind_type, const void* vert_data, uint32_t vert_count, const void* opt_ind_data, uint32_t ind_count, skr_mesh_t* out_mesh);
 bool              skr_mesh_is_valid                (const skr_mesh_t* mesh);
 void              skr_mesh_destroy                 (      skr_mesh_t* mesh);
 uint32_t          skr_mesh_get_vert_count          (const skr_mesh_t* mesh);
 uint32_t          skr_mesh_get_ind_count           (const skr_mesh_t* mesh);
 void              skr_mesh_set_name                (      skr_mesh_t* mesh, const char* name);
 
-skr_tex_t         skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data);
+skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data, skr_tex_t* out_tex);
 bool              skr_tex_is_valid                 (const skr_tex_t* tex);
 void              skr_tex_destroy                  (      skr_tex_t* tex);
 skr_tex_t         skr_tex_duplicate                (const skr_tex_t* tex, skr_tex_fmt_ to_format, skr_tex_flags_ to_flags);
@@ -413,20 +429,20 @@ bool              skr_tex_fmt_is_supported         (skr_tex_fmt_ format);
 void              skr_tex_generate_mips            (      skr_tex_t* tex, const skr_shader_t* opt_compute_shader);
 void              skr_tex_set_name                 (      skr_tex_t* tex, const char* name);
 
-skr_surface_t     skr_surface_create               (void* vk_surface_khr);
+skr_err_          skr_surface_create               (void* vk_surface_khr, skr_surface_t* out_surface);
 void              skr_surface_destroy              (      skr_surface_t* surface);
 void              skr_surface_resize               (      skr_surface_t* surface);
 skr_acquire_      skr_surface_next_tex             (      skr_surface_t* surface, skr_tex_t** out_tex);
 void              skr_surface_present              (      skr_surface_t* surface);
 skr_vec2i_t       skr_surface_get_size             (const skr_surface_t* surface);
 
-skr_shader_t      skr_shader_create                (const void *shader_data, size_t data_size);
+skr_err_          skr_shader_create                (const void *shader_data, size_t data_size, skr_shader_t* out_shader);
 bool              skr_shader_is_valid              (const skr_shader_t* shader);
 void              skr_shader_destroy               (      skr_shader_t* shader);
 skr_bind_t        skr_shader_get_bind              (const skr_shader_t* shader, const char* bind_name);
 void              skr_shader_set_name              (      skr_shader_t* shader, const char* name);
 
-skr_compute_t     skr_compute_create               (const skr_shader_t* shader);
+skr_err_          skr_compute_create               (const skr_shader_t* shader, skr_compute_t* out_compute);
 bool              skr_compute_is_valid             (const skr_compute_t* shader);
 void              skr_compute_destroy              (      skr_compute_t* shader);
 skr_bind_t        skr_compute_get_bind             (const skr_compute_t* shader, const char* bind_name);
@@ -435,7 +451,7 @@ void              skr_compute_execute_indirect     (      skr_compute_t* shader,
 void              skr_compute_set_tex              (      skr_compute_t* shader, const char* name, skr_tex_t*    texture);
 void              skr_compute_set_buffer           (      skr_compute_t* shader, const char* name, skr_buffer_t* buffer);
 
-skr_material_t    skr_material_create              (skr_material_info_t info);
+skr_err_          skr_material_create              (skr_material_info_t info, skr_material_t* out_material);
 bool              skr_material_is_valid            (const skr_material_t* material);
 void              skr_material_set_tex             (      skr_material_t* material, const char* name, skr_tex_t*    texture);
 void              skr_material_set_buffer          (      skr_material_t* material, const char* name, skr_buffer_t* buffer);
@@ -459,7 +475,7 @@ skr_vec3_t        skr_material_get_vec3            (const skr_material_t* materi
 skr_vec4_t        skr_material_get_vec4            (const skr_material_t* material, const char* name);
 int32_t           skr_material_get_int             (const skr_material_t* material, const char* name);
 
-skr_render_list_t skr_render_list_create           ();
+skr_err_          skr_render_list_create           (skr_render_list_t* out_list);
 void              skr_render_list_destroy          (skr_render_list_t* list);
 void              skr_render_list_clear            (skr_render_list_t* list);
 void              skr_render_list_add              (skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count);

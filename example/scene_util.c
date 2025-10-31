@@ -39,12 +39,12 @@ const skr_tex_sampler_t skr_sampler_point_clamp = {
 skr_vert_type_t skr_vertex_type_pnuc = {0};
 
 void skr_vertex_types_init(void) {
-	skr_vertex_type_pnuc = skr_vert_type_create(
+	skr_vert_type_create(
 		(skr_vert_component_t[]){
 			{ .format = skr_vertex_fmt_f32, .count = 4, .semantic = skr_semantic_position, .semantic_slot = 0 },
 			{ .format = skr_vertex_fmt_f32, .count = 3, .semantic = skr_semantic_normal,   .semantic_slot = 0 },
 			{ .format = skr_vertex_fmt_f32, .count = 2, .semantic = skr_semantic_texcoord, .semantic_slot = 0 },
-			{ .format = skr_vertex_fmt_f32, .count = 4, .semantic = skr_semantic_color,    .semantic_slot = 0 }}, 4);
+			{ .format = skr_vertex_fmt_f32, .count = 4, .semantic = skr_semantic_color,    .semantic_slot = 0 }}, 4, &skr_vertex_type_pnuc);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -97,7 +97,8 @@ skr_mesh_t skr_mesh_create_sphere(int32_t segments, int32_t rings, float radius,
 		}
 	}
 
-	skr_mesh_t mesh = skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count);
+	skr_mesh_t mesh;
+	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
 	free(verts);
 	free(inds);
 
@@ -156,7 +157,9 @@ skr_mesh_t skr_mesh_create_cube(float size, const skr_vec4_t* opt_face_colors) {
 		20, 21, 22, 22, 23, 20,
 	};
 
-	return skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, 24, indices, 36);
+	skr_mesh_t mesh;
+	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, 24, indices, 36, &mesh);
+	return mesh;
 }
 
 skr_mesh_t skr_mesh_create_pyramid(float base_size, float height, skr_vec4_t color) {
@@ -203,7 +206,9 @@ skr_mesh_t skr_mesh_create_pyramid(float base_size, float height, skr_vec4_t col
 		14, 15, 16,            // Left
 	};
 
-	return skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, 17, indices, 18);
+	skr_mesh_t mesh;
+	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, 17, indices, 18, &mesh);
+	return mesh;
 }
 
 skr_mesh_t skr_mesh_create_quad(float width, float height, skr_vec3_t normal, bool double_sided, skr_vec4_t color) {
@@ -267,7 +272,8 @@ skr_mesh_t skr_mesh_create_quad(float width, float height, skr_vec3_t normal, bo
 		inds[9] = 6; inds[10] = 4; inds[11] = 7;
 	}
 
-	skr_mesh_t mesh = skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count);
+	skr_mesh_t mesh;
+	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
 	free(verts);
 	free(inds);
 
@@ -282,7 +288,9 @@ skr_mesh_t skr_mesh_create_fullscreen_quad(void) {
 		{ .position = {-1.0f,  1.0f, 0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
 	};
 	uint16_t quad_indices[] = { 0, 1, 2,  2, 3, 0 };
-	return skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6);
+	skr_mesh_t mesh;
+	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &mesh);
+	return mesh;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -303,12 +311,13 @@ skr_tex_t skr_tex_create_checkerboard(int32_t resolution, int32_t square_size, u
 	skr_tex_flags_ flags = skr_tex_flags_readable;
 	if (generate_mips) flags |= skr_tex_flags_gen_mips;
 
-	skr_tex_t tex = skr_tex_create(
+	skr_tex_t tex;
+	skr_tex_create(
 		skr_tex_fmt_rgba32,
 		flags,
 		skr_sampler_linear_clamp,
 		(skr_vec3i_t){resolution, resolution, 1},
-		1, 0, pixels
+		1, 0, pixels, &tex
 	);
 
 	free(pixels);
@@ -321,13 +330,15 @@ skr_tex_t skr_tex_create_checkerboard(int32_t resolution, int32_t square_size, u
 }
 
 skr_tex_t skr_tex_create_solid_color(uint32_t color) {
-	return skr_tex_create(
+	skr_tex_t tex;
+	skr_tex_create(
 		skr_tex_fmt_rgba32,
 		skr_tex_flags_readable,
 		skr_sampler_linear_clamp,
 		(skr_vec3i_t){1, 1, 1},
-		1, 1, &color
+		1, 1, &color, &tex
 	);
+	return tex;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

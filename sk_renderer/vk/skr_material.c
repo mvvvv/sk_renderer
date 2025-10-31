@@ -17,59 +17,70 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_material_t skr_material_create(skr_material_info_t info) {
-	skr_material_t material = {0};
+skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_material) {
+	if (!out_material) return skr_err_invalid_parameter;
+
+	// Zero out immediately
+	memset(out_material, 0, sizeof(skr_material_t));
 
 	if (!info.shader || !skr_shader_is_valid(info.shader)) {
 		skr_log(skr_log_warning, "Cannot create material with invalid shader");
-		return material;
+		return skr_err_invalid_parameter;
 	}
 
 	// Store material info
-	material.info = info;
-	if (material.info.shader->meta) {
-		sksc_shader_meta_reference(material.info.shader->meta);
+	out_material->info = info;
+	if (out_material->info.shader->meta) {
+		sksc_shader_meta_reference(out_material->info.shader->meta);
 	}
 
 	// Allocate material parameter buffer if shader has $Global buffer
-	const sksc_shader_meta_t* meta = material.info.shader->meta;
+	const sksc_shader_meta_t* meta = out_material->info.shader->meta;
 	if (meta && meta->global_buffer_id >= 0) {
 		sksc_shader_buffer_t* global_buffer = &meta->buffers[meta->global_buffer_id];
-		material.param_buffer_size = global_buffer->size;
-		material.param_buffer = malloc(material.param_buffer_size);
+		out_material->param_buffer_size = global_buffer->size;
+		out_material->param_buffer = malloc(out_material->param_buffer_size);
 
-		if (!material.param_buffer) {
+		if (!out_material->param_buffer) {
 			skr_log(skr_log_critical, "Failed to allocate material parameter buffer");
-			skr_material_destroy(&material);
-			return material;
+			if (out_material->info.shader->meta) {
+				sksc_shader_meta_release(out_material->info.shader->meta);
+			}
+			memset(out_material, 0, sizeof(skr_material_t));
+			return skr_err_out_of_memory;
 		}
 
 		// Initialize with default values if available
 		if (global_buffer->defaults) {
-			memcpy(material.param_buffer, global_buffer->defaults, material.param_buffer_size);
+			memcpy(out_material->param_buffer, global_buffer->defaults, out_material->param_buffer_size);
 		} else {
-			memset(material.param_buffer, 0, material.param_buffer_size);
+			memset(out_material->param_buffer, 0, out_material->param_buffer_size);
 		}
-		material.param_buffer_dirty = true;
+		out_material->param_buffer_dirty = true;
 	}
 
 	// Allocate memory for our material resource binds
-	material.bind_count = meta->resource_count + meta->buffer_count;
-	material.binds      = (skr_material_bind_t*)calloc(material.bind_count, sizeof(skr_material_bind_t));
-	for (int32_t i = 0; i < meta->buffer_count;   i++) material.binds[i                   ].bind = meta->buffers  [i].bind;
-	for (int32_t i = 0; i < meta->resource_count; i++) material.binds[i+meta->buffer_count].bind = meta->resources[i].bind;
+	out_material->bind_count = meta->resource_count + meta->buffer_count;
+	out_material->binds      = (skr_material_bind_t*)calloc(out_material->bind_count, sizeof(skr_material_bind_t));
+	for (int32_t i = 0; i < meta->buffer_count;   i++) out_material->binds[i                   ].bind = meta->buffers  [i].bind;
+	for (int32_t i = 0; i < meta->resource_count; i++) out_material->binds[i+meta->buffer_count].bind = meta->resources[i].bind;
 
 	// Check if we have a SystemBuffer
 	skr_bind_t system_bind = sksc_shader_meta_get_bind(meta, "SystemBuffer");
-	material.has_system_buffer = system_bind.slot == SKR_BIND_SYSTEM && system_bind.stage_bits != 0;
+	out_material->has_system_buffer = system_bind.slot == SKR_BIND_SYSTEM && system_bind.stage_bits != 0;
 
 	// Register material with pipeline system
-	material.pipeline_material_idx = _skr_pipeline_register_material(&material.info);
+	out_material->pipeline_material_idx = _skr_pipeline_register_material(&out_material->info);
 
-	if (material.pipeline_material_idx < 0) {
+	if (out_material->pipeline_material_idx < 0) {
 		skr_log(skr_log_critical, "Failed to register material with pipeline system");
-		skr_material_destroy(&material);
-		return material;
+		free(out_material->binds);
+		free(out_material->param_buffer);
+		if (out_material->info.shader->meta) {
+			sksc_shader_meta_release(out_material->info.shader->meta);
+		}
+		memset(out_material, 0, sizeof(skr_material_t));
+		return skr_err_device_error;
 	}
 
 	// Fill out default textures
@@ -78,10 +89,10 @@ skr_material_t skr_material_create(skr_material_info_t info) {
 		if      (strcmp(meta->resources[i].value, "black") == 0) tex = &_skr_vk.default_tex_black;
 		else if (strcmp(meta->resources[i].value, "gray" ) == 0) tex = &_skr_vk.default_tex_gray;
 		else if (strcmp(meta->resources[i].value, "grey" ) == 0) tex = &_skr_vk.default_tex_gray;
-		skr_material_set_tex(&material, meta->resources[i].name, tex);
+		skr_material_set_tex(out_material, meta->resources[i].name, tex);
 	}
 
-	return material;
+	return skr_err_success;
 }
 
 bool skr_material_is_valid(const skr_material_t* material) {

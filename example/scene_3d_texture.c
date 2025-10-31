@@ -102,25 +102,25 @@ static scene_t* _scene_3d_texture_create() {
 		0, 1, 2,
 		2, 3, 0,
 	};
-	scene->quad_mesh = skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6);
+	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &scene->quad_mesh);
 	skr_mesh_set_name(&scene->quad_mesh, "quad");
 
 	// Load shader
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
 	if (app_read_file("shaders/texture3d.hlsl.sks", &shader_data, &shader_size)) {
-		scene->shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->shader);
 		skr_shader_set_name(&scene->shader, "texture3d_shader");
 		free(shader_data);
 
 		if (skr_shader_is_valid(&scene->shader)) {
-			scene->material = skr_material_create((skr_material_info_t){
+			skr_material_create((skr_material_info_t){
 				.shader     = &scene->shader,
 				.write_mask = skr_write_default,
 				.depth_test = skr_compare_less,
 				.cull       = skr_cull_none,
 				.alpha_to_coverage = true,
-			});
+			}, &scene->material);
 		}
 	}
 
@@ -133,14 +133,14 @@ static scene_t* _scene_3d_texture_create() {
 			.sample  = skr_tex_sample_linear,
 			.address = skr_tex_address_clamp
 		};
-		scene->texture_3d = skr_tex_create(
+		skr_tex_create(
 			skr_tex_fmt_rgba32,
 			skr_tex_flags_readable | skr_tex_flags_3d,
 			sampler,
 			(skr_vec3i_t){tex_size, tex_size, tex_size},
 			1,
 			1,
-			texture_data
+			texture_data, &scene->texture_3d
 		);
 		free(texture_data);
 		skr_tex_set_name(&scene->texture_3d, "3d_spheres");

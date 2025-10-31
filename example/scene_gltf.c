@@ -355,12 +355,12 @@ static bool _load_texture_from_file(const char* base_path, cgltf_image* img, glt
 static void _create_gpu_texture_and_bind(scene_gltf_t* scene, gltf_load_context_t* ctx, int32_t tex_index, gltf_texture_data_t* tex_data, gltf_tex_type_ tex_type) {
 	if (!tex_data->valid || !tex_data->pixels) return;
 
-	scene->textures[tex_index] = skr_tex_create(
+	skr_tex_create(
 		skr_tex_fmt_rgba32,
 		skr_tex_flags_readable | skr_tex_flags_gen_mips,
 		skr_sampler_linear_wrap,
 		(skr_vec3i_t){tex_data->width, tex_data->height, 1},
-		1, 0, tex_data->pixels
+		1, 0, tex_data->pixels, &scene->textures[tex_index]
 	);
 
 	char tex_name[64];
@@ -460,13 +460,13 @@ static void* _load_gltf_thread(void* arg) {
 		for (int32_t i = 0; i < ctx->mesh_count; i++) {
 			gltf_mesh_data_t* mesh_data = &ctx->meshes[i];
 
-			scene->meshes[i] = skr_mesh_create(
+			skr_mesh_create(
 				&skr_vertex_type_pnuc,
 				skr_index_fmt_u16,
 				mesh_data->vertices,
 				mesh_data->vertex_count,
 				mesh_data->indices,
-				mesh_data->index_count
+				mesh_data->index_count, &scene->meshes[i]
 			);
 
 			char mesh_name[64];
@@ -474,12 +474,12 @@ static void* _load_gltf_thread(void* arg) {
 			skr_mesh_set_name(&scene->meshes[i], mesh_name);
 
 			if (skr_shader_is_valid(&scene->shader)) {
-				scene->materials[i] = skr_material_create((skr_material_info_t){
+				skr_material_create((skr_material_info_t){
 					.shader     = &scene->shader,
 					.cull       = skr_cull_back,
 					.write_mask = skr_write_default,
 					.depth_test = skr_compare_less,
-				});
+				}, &scene->materials[i]);
 
 				// Set default fallback textures for all PBR slots
 				skr_material_set_tex  (&scene->materials[i], "albedo_tex",      &scene->white_texture);
@@ -564,19 +564,19 @@ static scene_t* _scene_gltf_create() {
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
 	if (app_read_file("shaders/pbr.hlsl.sks", &shader_data, &shader_size)) {
-		scene->shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->shader);
 		skr_shader_set_name(&scene->shader, "pbr_shader");
 		free(shader_data);
 	}
 
 	// Create placeholder material
 	if (skr_shader_is_valid(&scene->shader)) {
-		scene->placeholder_material = skr_material_create((skr_material_info_t){
+		skr_material_create((skr_material_info_t){
 			.shader     = &scene->shader,
 			.cull       = skr_cull_back,
 			.write_mask = skr_write_default,
 			.depth_test = skr_compare_less,
-		});
+		}, &scene->placeholder_material);
 
 		// Set default textures
 		skr_material_set_tex  (&scene->placeholder_material, "albedo_tex",      &scene->white_texture);
@@ -608,24 +608,24 @@ static scene_t* _scene_gltf_create() {
 
 		if (equirect_data && equirect_width > 0 && equirect_height > 0) {
 			// Create equirectangular texture (stored in scene struct to avoid stack variable)
-			scene->equirect_texture = skr_tex_create(
+			skr_tex_create(
 				skr_tex_fmt_rgba32,
 				skr_tex_flags_readable,
 				skr_sampler_linear_wrap,
 				(skr_vec3i_t){equirect_width, equirect_height, 1},
-				1, 0, equirect_data
+				1, 0, equirect_data, &scene->equirect_texture
 			);
 			skr_tex_set_name(&scene->equirect_texture, "equirect_source");
 			skr_image_free(equirect_data);
 
 			// Create empty cubemap texture to render into
 			const int32_t cube_size = equirect_height/2;
-			scene->cubemap_texture = skr_tex_create(
+			skr_tex_create(
 				skr_tex_fmt_rgba32,
 				skr_tex_flags_readable | skr_tex_flags_writeable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
 				skr_sampler_linear_clamp,
 				(skr_vec3i_t){cube_size, cube_size, 6},
-				1, 0, NULL
+				1, 0, NULL, &scene->cubemap_texture
 			);
 			skr_tex_set_name(&scene->cubemap_texture, "environment_cubemap");
 
@@ -633,18 +633,18 @@ static scene_t* _scene_gltf_create() {
 			void*  shader_data = NULL;
 			size_t shader_size = 0;
 			if (app_read_file("shaders/equirect_to_cubemap.hlsl.sks", &shader_data, &shader_size)) {
-				scene->equirect_to_cubemap_shader = skr_shader_create(shader_data, shader_size);
+				skr_shader_create(shader_data, shader_size, &scene->equirect_to_cubemap_shader);
 				skr_shader_set_name(&scene->equirect_to_cubemap_shader, "equirect_to_cubemap");
 				free(shader_data);
 			}
 
 			// Create material for conversion (stored in scene struct to avoid stack variable)
 			if (skr_shader_is_valid(&scene->equirect_to_cubemap_shader)) {
-				scene->equirect_convert_material = skr_material_create((skr_material_info_t){
+				skr_material_create((skr_material_info_t){
 					.shader     = &scene->equirect_to_cubemap_shader,
 					.write_mask = skr_write_rgba,
 					.cull       = skr_cull_none,
-				});
+				}, &scene->equirect_convert_material);
 				skr_material_set_tex(&scene->equirect_convert_material, "equirect_tex", &scene->equirect_texture);
 
 				// Convert equirectangular to cubemap using blit
@@ -661,7 +661,7 @@ static scene_t* _scene_gltf_create() {
 
 			// Load cubemap mipgen shader for high-quality IBL filtering
 			if (app_read_file("shaders/cubemap_mipgen.hlsl.sks", &shader_data, &shader_size)) {
-				scene->mipgen_shader = skr_shader_create(shader_data, shader_size);
+				skr_shader_create(shader_data, shader_size, &scene->mipgen_shader);
 				skr_shader_set_name(&scene->mipgen_shader, "cubemap_mipgen");
 				free(shader_data);
 			}
@@ -671,20 +671,20 @@ static scene_t* _scene_gltf_create() {
 
 			// Load skybox shader
 			if (app_read_file("shaders/cubemap_skybox.hlsl.sks", &shader_data, &shader_size)) {
-				scene->skybox_shader = skr_shader_create(shader_data, shader_size);
+				skr_shader_create(shader_data, shader_size, &scene->skybox_shader);
 				skr_shader_set_name(&scene->skybox_shader, "skybox_shader");
 				free(shader_data);
 			}
 
 			// Create skybox material
 			if (skr_shader_is_valid(&scene->skybox_shader)) {
-				scene->skybox_material = skr_material_create((skr_material_info_t){
+				skr_material_create((skr_material_info_t){
 					.shader       = &scene->skybox_shader,
 					.write_mask   = skr_write_rgba,
 					.depth_test   = skr_compare_less_or_eq,
 					.cull         = skr_cull_none,
 					.queue_offset = 100,
-				});
+				}, &scene->skybox_material);
 				skr_material_set_tex(&scene->skybox_material, "cubemap", &scene->cubemap_texture);
 			}
 

@@ -60,7 +60,7 @@ static scene_t* _scene_impostor_create() {
 		0, 1, 2,  2, 3, 0,
 		4, 6, 5,  6, 4, 7,
 	};
-	scene->impostor_mesh = skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, impostor_vertices, 8, impostor_indices, 12);
+	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, impostor_vertices, 8, impostor_indices, 12, &scene->impostor_mesh);
 	skr_mesh_set_name(&scene->impostor_mesh, "impostor_quad");
 
 	// Create terrain mesh - a grid with height field
@@ -127,7 +127,7 @@ static scene_t* _scene_impostor_create() {
 		}
 	}
 
-	scene->terrain_mesh = skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, terrain_vertices, vertex_count, terrain_indices, index_count);
+	skr_mesh_create(&skr_vertex_type_pnuc, skr_index_fmt_u16, terrain_vertices, vertex_count, terrain_indices, index_count, &scene->terrain_mesh);
 	skr_mesh_set_name(&scene->terrain_mesh, "terrain");
 	free(terrain_vertices);
 	free(terrain_indices);
@@ -136,45 +136,45 @@ static scene_t* _scene_impostor_create() {
 	void*  shader_data = NULL;
 	size_t shader_size = 0;
 	if (app_read_file("shaders/test.hlsl.sks", &shader_data, &shader_size)) {
-		scene->shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->shader);
 		skr_shader_set_name(&scene->shader, "main_shader");
 		free(shader_data);
 	}
 
 	// Load mipgen shader
 	if (app_read_file("shaders/mipgen_alpha_weighted_render.hlsl.sks", &shader_data, &shader_size)) {
-		scene->mipgen_shader = skr_shader_create(shader_data, shader_size);
+		skr_shader_create(shader_data, shader_size, &scene->mipgen_shader);
 		skr_shader_set_name(&scene->mipgen_shader, "mipgen_shader");
 		free(shader_data);
 	}
 
 	if (skr_shader_is_valid(&scene->shader)) {
 		// Tree material with alpha-to-coverage for smooth edges
-		scene->tree_material = skr_material_create((skr_material_info_t){
+		skr_material_create((skr_material_info_t){
 			.shader            = &scene->shader,
 			.cull              = skr_cull_none,  // No culling so both sides are visible
 			.write_mask        = skr_write_default,
 			.depth_test        = skr_compare_less,
 			.alpha_to_coverage = true,  // Alpha-to-coverage for smooth edges
-		});
+		}, &scene->tree_material);
 
 		// Terrain material
-		scene->terrain_material = skr_material_create((skr_material_info_t){
+		skr_material_create((skr_material_info_t){
 			.shader     = &scene->shader,
 			.cull       = skr_cull_back,
 			.write_mask = skr_write_default,
 			.depth_test = skr_compare_less,
-		});
+		}, &scene->terrain_material);
 	}
 
 	// Load tree.png texture using image utility
 	int32_t width, height;
 	unsigned char* pixels = skr_image_load("tree.png", &width, &height, NULL, 4);
 	if (pixels) {
-		scene->tree_texture = skr_tex_create(skr_tex_fmt_rgba32,
+		skr_tex_create(skr_tex_fmt_rgba32,
 			skr_tex_flags_readable | skr_tex_flags_gen_mips,
 			skr_sampler_linear_clamp,
-			(skr_vec3i_t){width, height, 1}, 1, 0, pixels);
+			(skr_vec3i_t){width, height, 1}, 1, 0, pixels, &scene->tree_texture);
 		skr_tex_set_name     (&scene->tree_texture, "tree");
 		skr_tex_generate_mips(&scene->tree_texture, &scene->mipgen_shader);
 		skr_image_free(pixels);
@@ -184,10 +184,10 @@ static scene_t* _scene_impostor_create() {
 	// Load ground.png texture for terrain
 	pixels = skr_image_load("ground.jpg", &width, &height, NULL, 4);
 	if (pixels) {
-		scene->ground_texture = skr_tex_create(skr_tex_fmt_rgba32,
+		skr_tex_create(skr_tex_fmt_rgba32,
 			skr_tex_flags_readable | skr_tex_flags_gen_mips,
 			skr_sampler_linear_wrap,  // Wrap for tiling
-			(skr_vec3i_t){width, height, 1}, 1, 0, pixels);
+			(skr_vec3i_t){width, height, 1}, 1, 0, pixels, &scene->ground_texture);
 		skr_tex_set_name     (&scene->ground_texture, "ground");
 		skr_tex_generate_mips(&scene->ground_texture, NULL);
 		skr_image_free(pixels);

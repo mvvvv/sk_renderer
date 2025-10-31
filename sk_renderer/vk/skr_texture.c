@@ -362,50 +362,54 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler,
-                          skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data) {
-	skr_tex_t tex = {0};
-	tex.size             = size;
-	tex.flags            = flags;
-	tex.sampler_settings = sampler;
+skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler,
+                         skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data, skr_tex_t* out_tex) {
+	if (!out_tex) return skr_err_invalid_parameter;
+
+	// Zero out immediately
+	memset(out_tex, 0, sizeof(skr_tex_t));
 
 	// Validate parameters
 	if (size.x <= 0 || size.y <= 0 || size.z <= 0) {
 		skr_log(skr_log_warning, "Invalid texture size");
-		return (skr_tex_t){};
+		return skr_err_invalid_parameter;
 	}
 
-	tex.format = format;
+	out_tex->size             = size;
+	out_tex->flags            = flags;
+	out_tex->sampler_settings = sampler;
+	out_tex->format           = format;
+
 	VkFormat vk_format = _skr_to_vk_tex_fmt(format);
 	if (vk_format == VK_FORMAT_UNDEFINED) {
-		return (skr_tex_t){};
+		return skr_err_unsupported;
 	}
 
 	// Determine image type, layer count, and normalize counts
 	VkImageType image_type;
-	if (tex.flags & skr_tex_flags_3d) {
+	if (out_tex->flags & skr_tex_flags_3d) {
 		image_type  = VK_IMAGE_TYPE_3D;
-		tex.layer_count = 1;
-	} else if (tex.flags & skr_tex_flags_array) {
+		out_tex->layer_count = 1;
+	} else if (out_tex->flags & skr_tex_flags_array) {
 		image_type  = VK_IMAGE_TYPE_2D;
-		tex.layer_count = size.z;
-	} else if (tex.flags & skr_tex_flags_cubemap) {
+		out_tex->layer_count = size.z;
+	} else if (out_tex->flags & skr_tex_flags_cubemap) {
 		image_type  = VK_IMAGE_TYPE_2D;
-		tex.layer_count = 6;
+		out_tex->layer_count = 6;
 	} else {
 		image_type = (size.z > 1) ? VK_IMAGE_TYPE_2D : VK_IMAGE_TYPE_2D;
-		tex.layer_count = 1;
+		out_tex->layer_count = 1;
 	}
 
 	// Normalize mip count (default to 1 if not specified or zero)
-	tex.mip_levels = mip_count <= 0 ? 1 : mip_count;
+	out_tex->mip_levels = mip_count <= 0 ? 1 : mip_count;
 
 	// Normalize sample count
-	tex.samples = (multisample > 1) ? (VkSampleCountFlagBits)multisample : VK_SAMPLE_COUNT_1_BIT;
+	out_tex->samples = (multisample > 1) ? (VkSampleCountFlagBits)multisample : VK_SAMPLE_COUNT_1_BIT;
 
 	// Determine usage flags
 	VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT; // Always allow sampling for readable textures
-	if (tex.flags & skr_tex_flags_readable) {
+	if (out_tex->flags & skr_tex_flags_readable) {
 		usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 	}
 
@@ -413,17 +417,17 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 	bool is_depth = (format == skr_tex_fmt_depth16 || format == skr_tex_fmt_depth32 || format == skr_tex_fmt_depth32s8 || format == skr_tex_fmt_depth24s8 || format == skr_tex_fmt_depth16s8);
 
 	// Determine aspect mask based on format
-	tex.aspect_mask  = 0;
-	if (is_depth)                           { tex.aspect_mask  |= VK_IMAGE_ASPECT_DEPTH_BIT;   }
-	if (_skr_format_has_stencil(vk_format)) { tex.aspect_mask  |= VK_IMAGE_ASPECT_STENCIL_BIT; }
-	if (tex.aspect_mask == 0)               { tex.aspect_mask   = VK_IMAGE_ASPECT_COLOR_BIT;   }
+	out_tex->aspect_mask  = 0;
+	if (is_depth)                           { out_tex->aspect_mask  |= VK_IMAGE_ASPECT_DEPTH_BIT;   }
+	if (_skr_format_has_stencil(vk_format)) { out_tex->aspect_mask  |= VK_IMAGE_ASPECT_STENCIL_BIT; }
+	if (out_tex->aspect_mask == 0)          { out_tex->aspect_mask   = VK_IMAGE_ASPECT_COLOR_BIT;   }
 
 
 	// For MSAA attachments, add transient bit for in-tile resolve optimization
 	// But only if the texture is NOT readable (transient means no memory backing)
-	bool is_msaa_attachment = tex.samples > VK_SAMPLE_COUNT_1_BIT && (tex.flags & skr_tex_flags_writeable) && !(tex.flags & skr_tex_flags_readable);
+	bool is_msaa_attachment = out_tex->samples > VK_SAMPLE_COUNT_1_BIT && (out_tex->flags & skr_tex_flags_writeable) && !(out_tex->flags & skr_tex_flags_readable);
 
-	if (tex.flags & skr_tex_flags_writeable) {
+	if (out_tex->flags & skr_tex_flags_writeable) {
 		if (is_depth) {
 			usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 		} else {
@@ -462,12 +466,12 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 	}
 
 	// For compute shader storage images (RWTexture2D)
-	if (tex.flags & skr_tex_flags_compute) {
+	if (out_tex->flags & skr_tex_flags_compute) {
 		usage |= VK_IMAGE_USAGE_STORAGE_BIT;
 	}
 
 	// For mipmap generation
-	if (tex.flags & skr_tex_flags_gen_mips) {
+	if (out_tex->flags & skr_tex_flags_gen_mips) {
 		usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
 		// Check if format supports STORAGE_BIT (needed for compute-based mipmap filters)
@@ -483,9 +487,9 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 		}
 
 		// Auto-calculate mip count if not specified or is 1
-		if (tex.mip_levels == 1) {
+		if (out_tex->mip_levels == 1) {
 			int32_t max_dim = size.x > size.y ? size.x : size.y;
-			tex.mip_levels = (int32_t)floor(log2(max_dim)) + 1;
+			out_tex->mip_levels = (int32_t)floor(log2(max_dim)) + 1;
 		}
 	}
 
@@ -494,29 +498,32 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 		.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.imageType     = image_type,
 		.format        = vk_format,
-		.extent        = { .width = size.x, .height = size.y, .depth = (tex.flags & skr_tex_flags_3d) ? size.z : 1 },
-		.mipLevels     = tex.mip_levels,
-		.arrayLayers   = tex.layer_count,
-		.samples       = tex.samples,
+		.extent        = { .width = size.x, .height = size.y, .depth = (out_tex->flags & skr_tex_flags_3d) ? size.z : 1 },
+		.mipLevels     = out_tex->mip_levels,
+		.arrayLayers   = out_tex->layer_count,
+		.samples       = out_tex->samples,
 		.tiling        = VK_IMAGE_TILING_OPTIMAL,
 		.usage         = usage,
 		.sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
 		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.flags         = (tex.flags & skr_tex_flags_cubemap) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
+		.flags         = (out_tex->flags & skr_tex_flags_cubemap) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
 	};
 
-	VkResult vr = vkCreateImage(_skr_vk.device, &image_info, NULL, &tex.image);
-	SKR_VK_CHECK_RET(vr, "vkCreateImage", tex);
-
-	// Allocate memory using helper
-	if (_skr_allocate_image_memory(tex.image, is_msaa_attachment, &tex.memory) == VK_NULL_HANDLE) {
-		skr_log(skr_log_critical, "Failed to allocate texture memory");
-		vkDestroyImage(_skr_vk.device, tex.image, NULL);
-		tex.image = VK_NULL_HANDLE;
-		return tex;
+	VkResult vr = vkCreateImage(_skr_vk.device, &image_info, NULL, &out_tex->image);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "vkCreateImage failed");
+		return skr_err_device_error;
 	}
 
-	vkBindImageMemory(_skr_vk.device, tex.image, tex.memory, 0);
+	// Allocate memory using helper
+	if (_skr_allocate_image_memory(out_tex->image, is_msaa_attachment, &out_tex->memory) == VK_NULL_HANDLE) {
+		skr_log(skr_log_critical, "Failed to allocate texture memory");
+		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
+		memset(out_tex, 0, sizeof(skr_tex_t));
+		return skr_err_out_of_memory;
+	}
+
+	vkBindImageMemory(_skr_vk.device, out_tex->image, out_tex->memory, 0);
 
 	// Upload texture data if provided (or just transition to shader read layout)
 	if (opt_tex_data) {
@@ -527,11 +534,10 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 
 		if (!staging.valid) {
 			skr_log(skr_log_critical, "Failed to create staging buffer for texture upload");
-			vkFreeMemory(_skr_vk.device, tex.memory, NULL);
-			vkDestroyImage(_skr_vk.device, tex.image, NULL);
-			tex.image  = VK_NULL_HANDLE;
-			tex.memory = VK_NULL_HANDLE;
-			return tex;
+			vkFreeMemory(_skr_vk.device, out_tex->memory, NULL);
+			vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
+			memset(out_tex, 0, sizeof(skr_tex_t));
+			return skr_err_out_of_memory;
 		}
 
 		// Copy texture data to staging buffer
@@ -541,61 +547,61 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 		_skr_command_context_t ctx = _skr_command_acquire();
 
 		// Transition: UNDEFINED -> TRANSFER_DST (using automatic system)
-		_skr_tex_transition(ctx.cmd, &tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		_skr_tex_transition(ctx.cmd, out_tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
 
 		// Copy buffer to image (all layers at once for arrays/cubemaps)
-		vkCmdCopyBufferToImage(ctx.cmd, staging.buffer, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy){
+		vkCmdCopyBufferToImage(ctx.cmd, staging.buffer, out_tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy){
 			.bufferOffset      = 0,
 			.bufferRowLength   = 0,
 			.bufferImageHeight = 0,
 			.imageSubresource  = {
-				.aspectMask     = tex.aspect_mask,
+				.aspectMask     = out_tex->aspect_mask,
 				.mipLevel       = 0,
 				.baseArrayLayer = 0,
-				.layerCount     = tex.layer_count,
+				.layerCount     = out_tex->layer_count,
 			},
 			.imageOffset = {0, 0, 0},
-			.imageExtent = {size.x, size.y, (tex.flags & skr_tex_flags_3d) ? size.z : 1},
+			.imageExtent = {size.x, size.y, (out_tex->flags & skr_tex_flags_3d) ? size.z : 1},
 		});
 
 		// Transition: TRANSFER_DST -> SHADER_READ_ONLY (using automatic system)
 		// Include compute shader stage if texture has compute flag
 		VkPipelineStageFlags shader_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-		if (tex.flags & skr_tex_flags_compute) {
+		if (out_tex->flags & skr_tex_flags_compute) {
 			shader_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 		}
-		_skr_tex_transition_for_shader_read(ctx.cmd, &tex, shader_stages);
+		_skr_tex_transition_for_shader_read(ctx.cmd, out_tex, shader_stages);
 
 		// Defer destruction of staging resources until GPU completes
 		_skr_command_destroy_buffer(ctx.destroy_list, staging.buffer);
 		_skr_command_destroy_memory(ctx.destroy_list, staging.memory);
 		_skr_command_release(ctx.cmd);
-	} else if (!is_msaa_attachment && !(tex.flags & skr_tex_flags_writeable)) {
+	} else if (!is_msaa_attachment && !(out_tex->flags & skr_tex_flags_writeable)) {
 		// No data provided, transition to appropriate layout for read-only textures
 		// Skip for transient MSAA attachments - they don't need initial layout transition
 		// Skip for writeable textures - let the first render pass handle the transition
 
 		_skr_command_context_t ctx = _skr_command_acquire();
 		// Use automatic transition system - handles storage vs regular textures
-		if (tex.flags & skr_tex_flags_compute) { _skr_tex_transition_for_storage    (ctx.cmd, &tex); }
-		else                                   { _skr_tex_transition_for_shader_read(ctx.cmd, &tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT); }
+		if (out_tex->flags & skr_tex_flags_compute) { _skr_tex_transition_for_storage    (ctx.cmd, out_tex); }
+		else                                        { _skr_tex_transition_for_shader_read(ctx.cmd, out_tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT); }
 		_skr_command_release(ctx.cmd);
 	}
 
 	// Create image view
 	VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
-	if      (tex.flags & skr_tex_flags_3d     ) view_type = VK_IMAGE_VIEW_TYPE_3D;
-	else if (tex.flags & skr_tex_flags_cubemap) view_type = VK_IMAGE_VIEW_TYPE_CUBE;
-	else if (tex.flags & skr_tex_flags_array  ) view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	if      (out_tex->flags & skr_tex_flags_3d     ) view_type = VK_IMAGE_VIEW_TYPE_3D;
+	else if (out_tex->flags & skr_tex_flags_cubemap) view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+	else if (out_tex->flags & skr_tex_flags_array  ) view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 
 	VkImageViewCreateInfo view_info = {
 		.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-		.image    = tex.image,
+		.image    = out_tex->image,
 		.viewType = view_type,
 		.format   = vk_format,
 		.subresourceRange = {
-			.aspectMask     = tex.aspect_mask,
+			.aspectMask     = out_tex->aspect_mask,
 			.baseMipLevel   = 0,
 			.levelCount     = image_info.mipLevels,
 			.baseArrayLayer = 0,
@@ -603,27 +609,26 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 		},
 	};
 
-	vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &tex.view);
+	vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &out_tex->view);
 	if (vr != VK_SUCCESS) {
-		SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
-		vkFreeMemory  (_skr_vk.device, tex.memory, NULL);
-		vkDestroyImage(_skr_vk.device, tex.image,  NULL);
-		tex.image  = VK_NULL_HANDLE;
-		tex.memory = VK_NULL_HANDLE;
-		return tex;
+		skr_log(skr_log_critical, "vkCreateImageView failed");
+		vkFreeMemory  (_skr_vk.device, out_tex->memory, NULL);
+		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+		memset(out_tex, 0, sizeof(skr_tex_t));
+		return skr_err_device_error;
 	}
 
 	// Store texture properties
-	tex.sampler              = _skr_sampler_create_vk(sampler);
+	out_tex->sampler              = _skr_sampler_create_vk(sampler);
 
 	// Initialize layout tracking
-	tex.current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
-	tex.current_queue_family = _skr_vk.graphics_queue_family;
-	tex.first_use            = true;
+	out_tex->current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
+	out_tex->current_queue_family = _skr_vk.graphics_queue_family;
+	out_tex->first_use            = true;
 	// Transient discard optimization for non-readable depth/MSAA (tile GPU optimization)
-	tex.is_transient_discard = (is_msaa_attachment || (is_depth && !(flags & skr_tex_flags_readable)));
+	out_tex->is_transient_discard = (is_msaa_attachment || (is_depth && !(flags & skr_tex_flags_readable)));
 
-	return tex;
+	return skr_err_success;
 }
 
 void skr_tex_destroy(skr_tex_t* tex) {
@@ -794,12 +799,13 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 	}
 
 	// Create material from shader (handles pipeline registration automatically)
-	skr_material_t material = skr_material_create((skr_material_info_t){
+	skr_material_t material;
+	skr_material_create((skr_material_info_t){
 		.shader      = fragment_shader,
 		.cull        = skr_cull_none,
 		.depth_test  = skr_compare_always,
 		.write_mask  = skr_write_rgba,
-	});
+	}, &material);
 	if (!skr_material_is_valid(&material)) {
 		skr_log(skr_log_warning, "Failed to create material for mipmap generation");
 		return;
@@ -883,7 +889,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		}
 
 		// Create GPU buffer with all mip parameters
-		params_buffer = skr_buffer_create(all_params, num_mips, material.param_buffer_size, skr_buffer_type_constant, skr_use_static);
+		skr_buffer_create(all_params, num_mips, material.param_buffer_size, skr_buffer_type_constant, skr_use_static, &params_buffer);
 		free(all_params);
 	}
 
