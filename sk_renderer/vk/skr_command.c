@@ -33,15 +33,16 @@ void _skr_command_shutdown() {
 
 	// Destroy thread command pools and per-thread command ring fences
 	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
-	for (uint32_t i = 0; i < _skr_vk.thread_pool_ct; i++) {
+	for (uint32_t i = 0; i < skr_MAX_THREAD_POOLS; i++) {
 		_skr_vk_thread_t *thread = &_skr_vk.thread_pools[i];
-
+		
 		for (uint32_t c = 0; c < skr_MAX_COMMAND_RING; c++) {
 			// Execute and free any remaining destroy lists
 			_skr_destroy_list_execute(&thread->cmd_ring[c].destroy_list);
 			_skr_destroy_list_free   (&thread->cmd_ring[c].destroy_list);
 
-			vkDestroyFence(_skr_vk.device, thread->cmd_ring[c].fence, NULL);
+			if (thread->cmd_ring[c].fence != VK_NULL_HANDLE)
+				vkDestroyFence(_skr_vk.device, thread->cmd_ring[c].fence, NULL);
 		}
 
 		if (thread->cmd_pool != VK_NULL_HANDLE)
@@ -49,7 +50,6 @@ void _skr_command_shutdown() {
 
 		*thread = (_skr_vk_thread_t){};
 	}
-	_skr_vk.thread_pool_ct = 0;
 	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
 }
 
@@ -59,37 +59,106 @@ _skr_vk_thread_t* _skr_command_get_thread() {
 	if (_skr_thread_idx >= 0) {
 		return &_skr_vk.thread_pools[_skr_thread_idx];
 	}
+	return NULL;
+}
 
-	if (_skr_vk.thread_pool_ct >= skr_MAX_THREAD_POOLS) {
-		skr_logf(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
-		return NULL;
+///////////////////////////////////////////////////////////////////////////////
+
+void skr_thread_init() {
+	// Already initialized for this thread
+	if (_skr_thread_idx >= 0) {
+		skr_logf(skr_log_critical, "Thread already initialized with index %d", _skr_thread_idx);
+		return;
 	}
 
+	// Create command pool first (outside the lock)
 	_skr_vk_thread_t thread = {
 		.alive = true,
 	};
 	VkResult vr = vkCreateCommandPool(_skr_vk.device, &(VkCommandPoolCreateInfo){
 		.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 		.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-		.queueFamilyIndex = _skr_vk.graphics_queue_family,  // Use graphics queue for main commands
+		.queueFamilyIndex = _skr_vk.graphics_queue_family,
 	}, NULL, &thread.cmd_pool);
-	SKR_VK_CHECK_RET(vr, "vkCreateCommandPool", NULL);
+	SKR_VK_CHECK_RET(vr, "vkCreateCommandPool",);
 
-	// Register it in the array, copy and reserve atomically
+	// Lock and find an available slot
 	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
-	_skr_thread_idx   = _skr_vk.thread_pool_ct;
-	thread.thread_idx = _skr_thread_idx;
-	_skr_vk.thread_pools[_skr_thread_idx] = thread; 
-	_skr_vk.thread_pool_ct++;
+
+	// Search for first available slot (either never used or marked non-alive)
+	int32_t thread_idx = -1;
+	for (uint32_t i = 0; i < skr_MAX_THREAD_POOLS; i++) {
+		if (!_skr_vk.thread_pools[i].alive) {
+			thread_idx = i;
+			break;
+		}
+	}
+
+	if (thread_idx < 0) {
+		pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
+		vkDestroyCommandPool(_skr_vk.device, thread.cmd_pool, NULL);
+		skr_logf(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
+		return;
+	}
+
+	// Register thread - set thread_idx and copy to array atomically
+	_skr_thread_idx                  = thread_idx;
+	thread.thread_idx                = thread_idx;
+	_skr_vk.thread_pools[thread_idx] = thread;
+
 	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
 
 	char name[64];
-	snprintf(name,sizeof(name), "CommandPool_thr%d", _skr_thread_idx);
+	snprintf(name, sizeof(name), "CommandPool_thr%d", thread_idx);
 	_skr_set_debug_name(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)thread.cmd_pool, name);
 
-	skr_logf(skr_log_info, "Using thread #%d", _skr_thread_idx);
+	skr_logf(skr_log_info, "Thread slot #%d initialized", thread_idx);
 
-	return &_skr_vk.thread_pools[_skr_thread_idx];
+	return;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+void skr_thread_shutdown() {
+	if (_skr_thread_idx < 0) {
+		skr_logf(skr_log_warning, "Thread not initialized, nothing to shutdown");
+		return;
+	}
+
+	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
+
+	_skr_vk_thread_t *thread = &_skr_vk.thread_pools[_skr_thread_idx];
+
+	// Clean up command ring - wait on each fence individually and destroy
+	for (uint32_t c = 0; c < skr_MAX_COMMAND_RING; c++) {
+		if (thread->cmd_ring[c].fence != VK_NULL_HANDLE) {
+			vkWaitForFences(_skr_vk.device, 1, &thread->cmd_ring[c].fence, VK_TRUE, UINT64_MAX);
+		}
+
+		_skr_destroy_list_execute(&thread->cmd_ring[c].destroy_list);
+		_skr_destroy_list_free   (&thread->cmd_ring[c].destroy_list);
+
+		if (thread->cmd_ring[c].fence != VK_NULL_HANDLE)
+			vkDestroyFence(_skr_vk.device, thread->cmd_ring[c].fence, NULL);
+	}
+
+	// Destroy command pool
+	if (thread->cmd_pool != VK_NULL_HANDLE)
+		vkDestroyCommandPool(_skr_vk.device, thread->cmd_pool, NULL);
+
+	skr_logf(skr_log_info, "Thread #%d shutdown, marking as non-alive for reuse", _skr_thread_idx);
+
+	// Mark as non-alive for reuse (don't zero out the whole struct)
+	thread->alive           = false;
+	thread->cmd_pool        = VK_NULL_HANDLE;
+	thread->active_cmd      = NULL;
+	thread->cmd_ring_index  = 0;
+	thread->ref_count       = 0;
+	memset(thread->cmd_ring, 0, sizeof(thread->cmd_ring));
+
+	_skr_thread_idx = -1;
+
+	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

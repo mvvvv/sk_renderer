@@ -422,6 +422,9 @@ bool skr_init(skr_settings_t settings) {
 		return false;
 	}
 
+	// Initialize main thread
+	skr_thread_init();
+
 	const skr_tex_sampler_t sampler = {
 		.sample  = skr_tex_sample_linear,
 		.address = skr_tex_address_clamp

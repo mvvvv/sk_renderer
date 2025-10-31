@@ -396,6 +396,9 @@ static void _create_gpu_texture_and_bind(scene_gltf_t* scene, gltf_load_context_
 static void* _load_gltf_thread(void* arg) {
 	gltf_load_context_t* ctx = (gltf_load_context_t*)arg;
 
+	// Initialize this thread for sk_renderer
+	skr_thread_init();
+
 	skr_log(skr_log_info, "GLTF: Loading started");
 
 	// Extract directory path for loading external resources
@@ -416,6 +419,7 @@ static void* _load_gltf_thread(void* arg) {
 	if (!app_read_file(ctx->filepath, &file_data, &file_size)) {
 		skr_log(skr_log_critical, "GLTF: Failed to read file");
 		ctx->state = gltf_load_state_error;
+		skr_thread_shutdown();
 		return NULL;
 	}
 
@@ -430,6 +434,7 @@ static void* _load_gltf_thread(void* arg) {
 		skr_log(skr_log_critical, "GLTF: Failed to parse");
 		free(file_data);
 		ctx->state = gltf_load_state_error;
+		skr_thread_shutdown();
 		return NULL;
 	}
 
@@ -440,6 +445,7 @@ static void* _load_gltf_thread(void* arg) {
 		cgltf_free(data);
 		free(file_data);
 		ctx->state = gltf_load_state_error;
+		skr_thread_shutdown();
 		return NULL;
 	}
 
@@ -530,6 +536,7 @@ static void* _load_gltf_thread(void* arg) {
 
 	skr_logf(skr_log_info, "GLTF: Ready (%d meshes, %d textures)", ctx->mesh_count, scene->texture_count);
 	ctx->state = gltf_load_state_ready;
+	skr_thread_shutdown();
 	return NULL;
 }
 
