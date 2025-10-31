@@ -59,7 +59,7 @@ SamplerState environment_map_s : register(s5);
 ///////////////////////////////////////////
 
 struct vsIn {
-	float4 pos   : SV_Position;
+	float3 pos   : SV_POSITION;
 	float3 norm  : NORMAL0;
 	float2 uv    : TEXCOORD0;
 	float4 color : COLOR0;
@@ -87,7 +87,7 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	uint inst_idx = id / view_count;
 
 	// Transform to world space
-	output.world_pos = mul(float4(input.pos.xyz, 1), inst[inst_idx].world).xyz;
+	output.world_pos = mul(float4(input.pos, 1), inst[inst_idx].world).xyz;
 	output.pos       = mul(float4(output.world_pos, 1), viewproj[view_idx]);
 
 	// Transform normal to world space

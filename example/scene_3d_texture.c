@@ -93,10 +93,10 @@ static scene_t* _scene_3d_texture_create() {
 
 	// Create a flat quad mesh (horizontal, on XZ plane)
 	su_vertex_pnuc_t quad_vertices[] = {
-		{ .position = {-2.0f, 0.0f, -2.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 2.0f, 0.0f, -2.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 2.0f, 0.0f,  2.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = {-2.0f, 0.0f,  2.0f, 1.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
+		{ .position = {-2.0f, 0.0f, -2.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 2.0f, 0.0f, -2.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 2.0f, 0.0f,  2.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-2.0f, 0.0f,  2.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
 	};
 	uint16_t quad_indices[] = {
 		0, 1, 2,

@@ -45,16 +45,16 @@ static scene_t* _scene_impostor_create() {
 	// Create impostor mesh - two perpendicular double-sided quads forming an X
 	su_vertex_pnuc_t impostor_vertices[] = {
 		// First quad - front face (facing +Z)
-		{ .position = {-0.5f, 0.0f, 0.0f, 1.0f}, .normal = {-1.0f, 0.0f, 0.0f}, .uv = {0.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 0.5f, 0.0f, 0.0f, 1.0f}, .normal = { 1.0f, 0.0f, 0.0f}, .uv = {1.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 0.5f, 1.0f, 0.0f, 1.0f}, .normal = { 1.0f, 1.0f, 0.0f}, .uv = {1.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = {-0.5f, 1.0f, 0.0f, 1.0f}, .normal = {-1.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
+		{ .position = {-0.5f, 0.0f, 0.0f}, .normal = {-1.0f, 0.0f, 0.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 0.5f, 0.0f, 0.0f}, .normal = { 1.0f, 0.0f, 0.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 0.5f, 1.0f, 0.0f}, .normal = { 1.0f, 1.0f, 0.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-0.5f, 1.0f, 0.0f}, .normal = {-1.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
 
 		// Second quad - front face (facing +X)
-		{ .position = {0.0f, 0.0f, -0.5f, 1.0f}, .normal = { 0.0f, 0.0f,-1.0f}, .uv = {0.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = {0.0f, 0.0f,  0.5f, 1.0f}, .normal = { 0.0f, 0.0f, 1.0f}, .uv = {1.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = {0.0f, 1.0f,  0.5f, 1.0f}, .normal = { 0.0f, 1.0f, 1.0f}, .uv = {1.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = {0.0f, 1.0f, -0.5f, 1.0f}, .normal = { 0.0f, 1.0f,-1.0f}, .uv = {0.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
+		{ .position = {0.0f, 0.0f, -0.5f}, .normal = { 0.0f, 0.0f,-1.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = {0.0f, 0.0f,  0.5f}, .normal = { 0.0f, 0.0f, 1.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = {0.0f, 1.0f,  0.5f}, .normal = { 0.0f, 1.0f, 1.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = {0.0f, 1.0f, -0.5f}, .normal = { 0.0f, 1.0f,-1.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
 	};
 	uint16_t impostor_indices[] = {
 		0, 1, 2,  2, 3, 0,
@@ -80,10 +80,10 @@ static scene_t* _scene_impostor_create() {
 			float world_z = (z - grid_size / 2.0f) * grid_spacing;
 			float height  = _get_terrain_height(world_x, world_z);
 
-			terrain_vertices[idx].position = (skr_vec4_t){world_x, height, world_z, 1.0f};
+			terrain_vertices[idx].position = (skr_vec3_t){world_x, height, world_z};
 			terrain_vertices[idx].normal   = (skr_vec3_t){0.0f, 1.0f, 0.0f};  // Will calculate proper normals below
 			terrain_vertices[idx].uv       = (skr_vec2_t){(x / (float)grid_size) * 16.0f, (z / (float)grid_size) * 16.0f};
-			terrain_vertices[idx].color    = (skr_vec4_t){1,1,1,1};  // Green grass color
+			terrain_vertices[idx].color    = 0xFFFFFFFF;  // Green grass color
 		}
 	}
 

@@ -199,7 +199,7 @@ static void _extract_gltf_node(cgltf_data* data, cgltf_node* node, HMM_Mat4 pare
 				float data[4];
 
 				_read_attribute(pos_accessor,   v, data, 3, (float[]){0, 0, 0});
-				vert->position = (skr_vec4_t){data[0], data[1], data[2], 1.0f};
+				vert->position = (skr_vec3_t){data[0], data[1], data[2]};
 
 				_read_attribute(norm_accessor,  v, data, 3, (float[]){0, 1, 0});
 				vert->normal = (skr_vec3_t){data[0], data[1], data[2]};
@@ -208,7 +208,7 @@ static void _extract_gltf_node(cgltf_data* data, cgltf_node* node, HMM_Mat4 pare
 				vert->uv = (skr_vec2_t){data[0], data[1]};
 
 				_read_attribute(color_accessor, v, data, 4, (float[]){1, 1, 1, 1});
-				vert->color = (skr_vec4_t){data[0], data[1], data[2], data[3]};
+				uint8_t r = (uint8_t)(data[0] * 255.0f); uint8_t g = (uint8_t)(data[1] * 255.0f); uint8_t b = (uint8_t)(data[2] * 255.0f); uint8_t a = (uint8_t)(data[3] * 255.0f); vert->color = (a << 24) | (b << 16) | (g << 8) | r;
 			}
 
 			// Extract indices

@@ -16,10 +16,10 @@
 
 // Standard vertex format: Position + Normal + UV + Color
 typedef struct {
-	skr_vec4_t position;
+	skr_vec3_t position;
 	skr_vec3_t normal;
 	skr_vec2_t uv;
-	skr_vec4_t color;
+	uint32_t   color;
 } su_vertex_pnuc_t;
 
 // Standard vertex type for PNUC format (must call su_vertex_type_init first)

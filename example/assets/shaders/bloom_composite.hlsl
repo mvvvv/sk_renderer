@@ -14,7 +14,7 @@ Texture2D    bloom_tex      : register(t2);
 SamplerState bloom_sampler  : register(s2);
 
 struct vsIn {
-	float4 pos    : SV_POSITION;
+	float3 pos    : SV_POSITION;
 	float3 normal : NORMAL;
 	float2 uv     : TEXCOORD0;
 	float4 color  : COLOR;

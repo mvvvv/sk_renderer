@@ -48,15 +48,24 @@ skr_vert_type_t su_vertex_type_pnuc = {0};
 void su_vertex_types_init(void) {
 	skr_vert_type_create(
 		(skr_vert_component_t[]){
-			{ .format = skr_vertex_fmt_f32, .count = 4, .semantic = skr_semantic_position, .semantic_slot = 0 },
-			{ .format = skr_vertex_fmt_f32, .count = 3, .semantic = skr_semantic_normal,   .semantic_slot = 0 },
-			{ .format = skr_vertex_fmt_f32, .count = 2, .semantic = skr_semantic_texcoord, .semantic_slot = 0 },
-			{ .format = skr_vertex_fmt_f32, .count = 4, .semantic = skr_semantic_color,    .semantic_slot = 0 }}, 4, &su_vertex_type_pnuc);
+			{ .format = skr_vertex_fmt_f32,            .count = 3, .semantic = skr_semantic_position, .semantic_slot = 0 },
+			{ .format = skr_vertex_fmt_f32,            .count = 3, .semantic = skr_semantic_normal,   .semantic_slot = 0 },
+			{ .format = skr_vertex_fmt_f32,            .count = 2, .semantic = skr_semantic_texcoord, .semantic_slot = 0 },
+			{ .format = skr_vertex_fmt_ui8_normalized, .count = 4, .semantic = skr_semantic_color,    .semantic_slot = 0 }}, 4, &su_vertex_type_pnuc);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // Mesh Generation
 ///////////////////////////////////////////////////////////////////////////////
+
+// Helper function to convert vec4 color to packed uint32 (RGBA)
+static inline uint32_t _color_vec4_to_u32(skr_vec4_t color) {
+	uint8_t r = (uint8_t)(color.x * 255.0f);
+	uint8_t g = (uint8_t)(color.y * 255.0f);
+	uint8_t b = (uint8_t)(color.z * 255.0f);
+	uint8_t a = (uint8_t)(color.w * 255.0f);
+	return (a << 24) | (b << 16) | (g << 8) | r;
+}
 
 skr_mesh_t su_mesh_create_sphere(int32_t segments, int32_t rings, float radius, skr_vec4_t color) {
 	const int vert_count = (rings + 1) * (segments + 1);
@@ -64,6 +73,7 @@ skr_mesh_t su_mesh_create_sphere(int32_t segments, int32_t rings, float radius, 
 
 	su_vertex_pnuc_t* verts = malloc(sizeof(su_vertex_pnuc_t) * vert_count);
 	uint16_t*          inds  = malloc(sizeof(uint16_t) * idx_count);
+	uint32_t           color_u32 = _color_vec4_to_u32(color);
 
 	// Generate vertices
 	int v_idx = 0;
@@ -79,10 +89,10 @@ skr_mesh_t su_mesh_create_sphere(int32_t segments, int32_t rings, float radius, 
 			float z = sinf(phi) * sinf(theta);
 
 			verts[v_idx++] = (su_vertex_pnuc_t){
-				.position = {x * radius, y * radius, z * radius, 1.0f},
+				.position = {x * radius, y * radius, z * radius},
 				.normal   = {x, y, z},
 				.uv       = {u, v},
-				.color    = color
+				.color    = color_u32
 			};
 		}
 	}
@@ -122,37 +132,42 @@ skr_mesh_t su_mesh_create_cube(float size, const skr_vec4_t* opt_face_colors) {
 		colors[i] = opt_face_colors ? opt_face_colors[i] : white;
 	}
 
+	uint32_t colors_u32[6];
+	for (int i = 0; i < 6; i++) {
+		colors_u32[i] = _color_vec4_to_u32(colors[i]);
+	}
+
 	su_vertex_pnuc_t verts[24] = {
 		// Front face (Z+)
-		{ .position = {-half, -half,  half, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 0.0f}, .color = colors[0] },
-		{ .position = { half, -half,  half, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 0.0f}, .color = colors[0] },
-		{ .position = { half,  half,  half, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 1.0f}, .color = colors[0] },
-		{ .position = {-half,  half,  half, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 1.0f}, .color = colors[0] },
+		{ .position = {-half, -half,  half}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 0.0f}, .color = colors_u32[0] },
+		{ .position = { half, -half,  half}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 0.0f}, .color = colors_u32[0] },
+		{ .position = { half,  half,  half}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 1.0f}, .color = colors_u32[0] },
+		{ .position = {-half,  half,  half}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 1.0f}, .color = colors_u32[0] },
 		// Back face (Z-)
-		{ .position = { half, -half, -half, 1.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {0.0f, 0.0f}, .color = colors[1] },
-		{ .position = {-half, -half, -half, 1.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {1.0f, 0.0f}, .color = colors[1] },
-		{ .position = {-half,  half, -half, 1.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {1.0f, 1.0f}, .color = colors[1] },
-		{ .position = { half,  half, -half, 1.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {0.0f, 1.0f}, .color = colors[1] },
+		{ .position = { half, -half, -half}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {0.0f, 0.0f}, .color = colors_u32[1] },
+		{ .position = {-half, -half, -half}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {1.0f, 0.0f}, .color = colors_u32[1] },
+		{ .position = {-half,  half, -half}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {1.0f, 1.0f}, .color = colors_u32[1] },
+		{ .position = { half,  half, -half}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {0.0f, 1.0f}, .color = colors_u32[1] },
 		// Top face (Y+)
-		{ .position = {-half,  half,  half, 1.0f}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = colors[2] },
-		{ .position = { half,  half,  half, 1.0f}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = colors[2] },
-		{ .position = { half,  half, -half, 1.0f}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = colors[2] },
-		{ .position = {-half,  half, -half, 1.0f}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = colors[2] },
+		{ .position = {-half,  half,  half}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = colors_u32[2] },
+		{ .position = { half,  half,  half}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = colors_u32[2] },
+		{ .position = { half,  half, -half}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = colors_u32[2] },
+		{ .position = {-half,  half, -half}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = colors_u32[2] },
 		// Bottom face (Y-)
-		{ .position = {-half, -half, -half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = colors[3] },
-		{ .position = { half, -half, -half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = colors[3] },
-		{ .position = { half, -half,  half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = colors[3] },
-		{ .position = {-half, -half,  half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = colors[3] },
+		{ .position = {-half, -half, -half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = colors_u32[3] },
+		{ .position = { half, -half, -half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = colors_u32[3] },
+		{ .position = { half, -half,  half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = colors_u32[3] },
+		{ .position = {-half, -half,  half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = colors_u32[3] },
 		// Right face (X+)
-		{ .position = { half, -half,  half, 1.0f}, .normal = { 1.0f,  0.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = colors[4] },
-		{ .position = { half, -half, -half, 1.0f}, .normal = { 1.0f,  0.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = colors[4] },
-		{ .position = { half,  half, -half, 1.0f}, .normal = { 1.0f,  0.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = colors[4] },
-		{ .position = { half,  half,  half, 1.0f}, .normal = { 1.0f,  0.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = colors[4] },
+		{ .position = { half, -half,  half}, .normal = { 1.0f,  0.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = colors_u32[4] },
+		{ .position = { half, -half, -half}, .normal = { 1.0f,  0.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = colors_u32[4] },
+		{ .position = { half,  half, -half}, .normal = { 1.0f,  0.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = colors_u32[4] },
+		{ .position = { half,  half,  half}, .normal = { 1.0f,  0.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = colors_u32[4] },
 		// Left face (X-)
-		{ .position = {-half, -half, -half, 1.0f}, .normal = {-1.0f,  0.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = colors[5] },
-		{ .position = {-half, -half,  half, 1.0f}, .normal = {-1.0f,  0.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = colors[5] },
-		{ .position = {-half,  half,  half, 1.0f}, .normal = {-1.0f,  0.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = colors[5] },
-		{ .position = {-half,  half, -half, 1.0f}, .normal = {-1.0f,  0.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = colors[5] },
+		{ .position = {-half, -half, -half}, .normal = {-1.0f,  0.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = colors_u32[5] },
+		{ .position = {-half, -half,  half}, .normal = {-1.0f,  0.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = colors_u32[5] },
+		{ .position = {-half,  half,  half}, .normal = {-1.0f,  0.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = colors_u32[5] },
+		{ .position = {-half,  half, -half}, .normal = {-1.0f,  0.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = colors_u32[5] },
 	};
 
 	uint16_t indices[] = {
@@ -179,30 +194,32 @@ skr_mesh_t su_mesh_create_pyramid(float base_size, float height, skr_vec4_t colo
 	float normal_y = half / slant_len;
 	float normal_xz = height / slant_len;
 
+	uint32_t color_u32 = _color_vec4_to_u32(color);
+
 	su_vertex_pnuc_t verts[17] = {
 		// Base (4 vertices)
-		{ .position = {-half, base_y,  half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = color },
-		{ .position = { half, base_y,  half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = color },
-		{ .position = { half, base_y, -half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = color },
-		{ .position = {-half, base_y, -half, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = color },
+		{ .position = {-half, base_y,  half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = color_u32 },
+		{ .position = { half, base_y,  half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = color_u32 },
+		{ .position = { half, base_y, -half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 1.0f}, .color = color_u32 },
+		{ .position = {-half, base_y, -half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = color_u32 },
 		// Apex
-		{ .position = { 0.0f, apex_y,  0.0f, 1.0f}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {0.5f, 0.5f}, .color = color },
+		{ .position = { 0.0f, apex_y,  0.0f}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {0.5f, 0.5f}, .color = color_u32 },
 		// Front face (Z+)
-		{ .position = {-half, base_y,  half, 1.0f}, .normal = { 0.0f,  normal_y,  normal_xz}, .uv = {0.0f, 0.0f}, .color = color },
-		{ .position = { half, base_y,  half, 1.0f}, .normal = { 0.0f,  normal_y,  normal_xz}, .uv = {1.0f, 0.0f}, .color = color },
-		{ .position = { 0.0f, apex_y,  0.0f, 1.0f}, .normal = { 0.0f,  normal_y,  normal_xz}, .uv = {0.5f, 1.0f}, .color = color },
+		{ .position = {-half, base_y,  half}, .normal = { 0.0f,  normal_y,  normal_xz}, .uv = {0.0f, 0.0f}, .color = color_u32 },
+		{ .position = { half, base_y,  half}, .normal = { 0.0f,  normal_y,  normal_xz}, .uv = {1.0f, 0.0f}, .color = color_u32 },
+		{ .position = { 0.0f, apex_y,  0.0f}, .normal = { 0.0f,  normal_y,  normal_xz}, .uv = {0.5f, 1.0f}, .color = color_u32 },
 		// Right face (X+)
-		{ .position = { half, base_y,  half, 1.0f}, .normal = { normal_xz,  normal_y,  0.0f}, .uv = {0.0f, 0.0f}, .color = color },
-		{ .position = { half, base_y, -half, 1.0f}, .normal = { normal_xz,  normal_y,  0.0f}, .uv = {1.0f, 0.0f}, .color = color },
-		{ .position = { 0.0f, apex_y,  0.0f, 1.0f}, .normal = { normal_xz,  normal_y,  0.0f}, .uv = {0.5f, 1.0f}, .color = color },
+		{ .position = { half, base_y,  half}, .normal = { normal_xz,  normal_y,  0.0f}, .uv = {0.0f, 0.0f}, .color = color_u32 },
+		{ .position = { half, base_y, -half}, .normal = { normal_xz,  normal_y,  0.0f}, .uv = {1.0f, 0.0f}, .color = color_u32 },
+		{ .position = { 0.0f, apex_y,  0.0f}, .normal = { normal_xz,  normal_y,  0.0f}, .uv = {0.5f, 1.0f}, .color = color_u32 },
 		// Back face (Z-)
-		{ .position = { half, base_y, -half, 1.0f}, .normal = { 0.0f,  normal_y, -normal_xz}, .uv = {0.0f, 0.0f}, .color = color },
-		{ .position = {-half, base_y, -half, 1.0f}, .normal = { 0.0f,  normal_y, -normal_xz}, .uv = {1.0f, 0.0f}, .color = color },
-		{ .position = { 0.0f, apex_y,  0.0f, 1.0f}, .normal = { 0.0f,  normal_y, -normal_xz}, .uv = {0.5f, 1.0f}, .color = color },
+		{ .position = { half, base_y, -half}, .normal = { 0.0f,  normal_y, -normal_xz}, .uv = {0.0f, 0.0f}, .color = color_u32 },
+		{ .position = {-half, base_y, -half}, .normal = { 0.0f,  normal_y, -normal_xz}, .uv = {1.0f, 0.0f}, .color = color_u32 },
+		{ .position = { 0.0f, apex_y,  0.0f}, .normal = { 0.0f,  normal_y, -normal_xz}, .uv = {0.5f, 1.0f}, .color = color_u32 },
 		// Left face (X-)
-		{ .position = {-half, base_y, -half, 1.0f}, .normal = {-normal_xz,  normal_y,  0.0f}, .uv = {0.0f, 0.0f}, .color = color },
-		{ .position = {-half, base_y,  half, 1.0f}, .normal = {-normal_xz,  normal_y,  0.0f}, .uv = {1.0f, 0.0f}, .color = color },
-		{ .position = { 0.0f, apex_y,  0.0f, 1.0f}, .normal = {-normal_xz,  normal_y,  0.0f}, .uv = {0.5f, 1.0f}, .color = color },
+		{ .position = {-half, base_y, -half}, .normal = {-normal_xz,  normal_y,  0.0f}, .uv = {0.0f, 0.0f}, .color = color_u32 },
+		{ .position = {-half, base_y,  half}, .normal = {-normal_xz,  normal_y,  0.0f}, .uv = {1.0f, 0.0f}, .color = color_u32 },
+		{ .position = { 0.0f, apex_y,  0.0f}, .normal = {-normal_xz,  normal_y,  0.0f}, .uv = {0.5f, 1.0f}, .color = color_u32 },
 	};
 
 	uint16_t indices[] = {
@@ -243,6 +260,7 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 
 	su_vertex_pnuc_t* verts = malloc(sizeof(su_vertex_pnuc_t) * vert_count);
 	uint16_t*          inds  = malloc(sizeof(uint16_t) * idx_count);
+	uint32_t           color_u32 = _color_vec4_to_u32(color);
 
 	// Front face vertices
 	for (int i = 0; i < 4; i++) {
@@ -258,10 +276,10 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 		};
 
 		verts[i] = (su_vertex_pnuc_t){
-			.position = {pos.x, pos.y, pos.z, 1.0f},
+			.position = {pos.x, pos.y, pos.z},
 			.normal   = normal,
 			.uv       = {u, v},
-			.color    = color
+			.color    = color_u32
 		};
 	}
 
@@ -289,10 +307,10 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 
 skr_mesh_t su_mesh_create_fullscreen_quad(void) {
 	su_vertex_pnuc_t quad_vertices[] = {
-		{ .position = {-1.0f, -1.0f, 0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 1.0f, -1.0f, 0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 1.0f,  1.0f, 0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = {-1.0f,  1.0f, 0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
+		{ .position = {-1.0f, -1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 1.0f, -1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 1.0f,  1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-1.0f,  1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
 	};
 	uint16_t quad_indices[] = { 0, 1, 2,  2, 3, 0 };
 	skr_mesh_t mesh;

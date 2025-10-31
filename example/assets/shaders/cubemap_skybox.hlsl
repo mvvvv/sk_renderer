@@ -3,7 +3,7 @@
 #include "common.hlsli"
 
 struct vsIn {
-	float4 pos    : SV_POSITION;
+	float3 pos    : SV_POSITION;
 	float3 normal : NORMAL;
 	float2 uv     : TEXCOORD0;
 	float4 color  : COLOR;
@@ -22,7 +22,7 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	uint view_idx = id % view_count;
 
 	psIn output;
-	output.pos   = input.pos;
+	output.pos   = float4(input.pos, 1.0);
 	output.pos.z = 1; // Force Z to the back
 
 	// Calculate view direction from inverse projection and view matrices

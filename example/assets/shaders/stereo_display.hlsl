@@ -1,7 +1,7 @@
 //--name = stereo_display
 
 struct vsIn {
-	float4 pos    : SV_POSITION;
+	float3 pos    : SV_POSITION;
 	float3 normal : NORMAL;
 	float2 uv     : TEXCOORD0;
 	float4 color  : COLOR;
@@ -17,7 +17,7 @@ SamplerState   array_sampler  : register(s0);
 
 psIn vs(vsIn input) {
 	psIn output;
-	output.pos = input.pos;  // Use full position from vertex
+	output.pos = float4(input.pos, 1.0);  // Convert float3 to float4
 	output.uv  = input.uv;
 	// Note: normal and color are not used, but must be in vertex layout
 	return output;

@@ -9,7 +9,7 @@ struct Inst {
 StructuredBuffer<Inst> inst : register(t2, space0);
 
 struct vsIn {
-	float4 pos  : SV_POSITION;
+	float3 pos  : SV_POSITION;
 	float3 norm : NORMAL;
 	float2 uv   : TEXCOORD0;
 	float4 color: COLOR0;
@@ -32,7 +32,7 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	uint view_idx = id % view_count;
 
 	psIn output;
-	float4 world_position = mul(float4(input.pos.xyz, 1), inst[inst_idx].world);
+	float4 world_position = mul(float4(input.pos, 1), inst[inst_idx].world);
 	output.pos = mul(world_position, viewproj[view_idx]);
 	output.world_pos = world_position.xyz;
 	float3 normal = normalize(mul(float4(input.norm, 0), inst[inst_idx].world).xyz);

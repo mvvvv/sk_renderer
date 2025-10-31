@@ -62,15 +62,15 @@ static scene_t* _scene_reaction_diffusion_create() {
 	// Create double-sided quad mesh (front face + back face with flipped normals)
 	su_vertex_pnuc_t quad_vertices[] = {
 		// Front face (Z+)
-		{ .position = {-0.7f, -0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 0.7f, -0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 0.7f,  0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = {-0.7f,  0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
+		{ .position = {-0.7f, -0.7f, 0.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 0.7f, -0.7f, 0.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 0.7f,  0.7f, 0.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-0.7f,  0.7f, 0.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
 		// Back face (Z-) - same positions, flipped normals and winding
-		{ .position = {-0.7f, -0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {0.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 0.7f, -0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {1.0f, 0.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = { 0.7f,  0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {1.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
-		{ .position = {-0.7f,  0.7f, 0.0f, 1.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {0.0f, 1.0f}, .color = {1.0f, 1.0f, 1.0f, 1.0f} },
+		{ .position = {-0.7f, -0.7f, 0.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 0.7f, -0.7f, 0.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 0.7f,  0.7f, 0.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-0.7f,  0.7f, 0.0f}, .normal = { 0.0f,  0.0f, -1.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
 	};
 	uint16_t quad_indices[] = {
 		0, 1, 2,  2, 3, 0,  // Front face

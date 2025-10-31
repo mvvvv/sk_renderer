@@ -89,24 +89,24 @@ static scene_t* _scene_orbital_particles_create() {
 	const float r = 0.5f;  // Base radius
 	su_vertex_pnuc_t pyramid_vertices[] = {
 		// Base triangle
-		{ .position = { 0.0f,    -h/2, 0.0f, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.5f, 0.5f}, .color = color },
-		{ .position = { r,       -h/2, 0.0f, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = color },
-		{ .position = {-r*0.5f,  -h/2,  r*0.866f, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = color },
-		{ .position = {-r*0.5f,  -h/2, -r*0.866f, 1.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = color },
+		{ .position = { 0.0f,    -h/2, 0.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.5f, 0.5f}, .color = 0xFFFFFFFF },
+		{ .position = { r,       -h/2, 0.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-r*0.5f,  -h/2,  r*0.866f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-r*0.5f,  -h/2, -r*0.866f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
 		// Apex
-		{ .position = { 0.0f,     h/2, 0.0f, 1.0f}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {0.5f, 0.5f}, .color = color },
+		{ .position = { 0.0f,     h/2, 0.0f}, .normal = { 0.0f,  1.0f,  0.0f}, .uv = {0.5f, 0.5f}, .color = 0xFFFFFFFF },
 		// Front right face
-		{ .position = { 0.0f,    -h/2, 0.0f, 1.0f}, .normal = { 0.866f, 0.5f,  0.0f}, .uv = {0.0f, 0.0f}, .color = color },
-		{ .position = { r,       -h/2, 0.0f, 1.0f}, .normal = { 0.866f, 0.5f,  0.0f}, .uv = {1.0f, 0.0f}, .color = color },
-		{ .position = { 0.0f,     h/2, 0.0f, 1.0f}, .normal = { 0.866f, 0.5f,  0.0f}, .uv = {0.5f, 1.0f}, .color = color },
+		{ .position = { 0.0f,    -h/2, 0.0f}, .normal = { 0.866f, 0.5f,  0.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { r,       -h/2, 0.0f}, .normal = { 0.866f, 0.5f,  0.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 0.0f,     h/2, 0.0f}, .normal = { 0.866f, 0.5f,  0.0f}, .uv = {0.5f, 1.0f}, .color = 0xFFFFFFFF },
 		// Back left face
-		{ .position = { r,       -h/2, 0.0f, 1.0f}, .normal = {-0.433f, 0.5f,  0.75f}, .uv = {0.0f, 0.0f}, .color = color },
-		{ .position = {-r*0.5f,  -h/2,  r*0.866f, 1.0f}, .normal = {-0.433f, 0.5f,  0.75f}, .uv = {1.0f, 0.0f}, .color = color },
-		{ .position = { 0.0f,     h/2, 0.0f, 1.0f}, .normal = {-0.433f, 0.5f,  0.75f}, .uv = {0.5f, 1.0f}, .color = color },
+		{ .position = { r,       -h/2, 0.0f}, .normal = {-0.433f, 0.5f,  0.75f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-r*0.5f,  -h/2,  r*0.866f}, .normal = {-0.433f, 0.5f,  0.75f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 0.0f,     h/2, 0.0f}, .normal = {-0.433f, 0.5f,  0.75f}, .uv = {0.5f, 1.0f}, .color = 0xFFFFFFFF },
 		// Back right face
-		{ .position = {-r*0.5f,  -h/2,  r*0.866f, 1.0f}, .normal = {-0.433f, 0.5f, -0.75f}, .uv = {0.0f, 0.0f}, .color = color },
-		{ .position = {-r*0.5f,  -h/2, -r*0.866f, 1.0f}, .normal = {-0.433f, 0.5f, -0.75f}, .uv = {1.0f, 0.0f}, .color = color },
-		{ .position = { 0.0f,     h/2, 0.0f, 1.0f}, .normal = {-0.433f, 0.5f, -0.75f}, .uv = {0.5f, 1.0f}, .color = color },
+		{ .position = {-r*0.5f,  -h/2,  r*0.866f}, .normal = {-0.433f, 0.5f, -0.75f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-r*0.5f,  -h/2, -r*0.866f}, .normal = {-0.433f, 0.5f, -0.75f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 0.0f,     h/2, 0.0f}, .normal = {-0.433f, 0.5f, -0.75f}, .uv = {0.5f, 1.0f}, .color = 0xFFFFFFFF },
 	};
 	uint16_t pyramid_indices[] = {
 		// Base
@@ -126,7 +126,7 @@ static scene_t* _scene_orbital_particles_create() {
 	skr_material_create((skr_material_info_t){
 		.shader       = &scene->shader,
 		.cull         = skr_cull_back,
-		.write_mask   = skr_write_r | skr_write_g | skr_write_b | skr_write_a | skr_write_depth,
+		.write_mask   = skr_write_default,
 		.depth_test   = skr_compare_less,
 	}, &scene->material);
 
