@@ -72,8 +72,9 @@ skr_compute_t skr_compute_create(const skr_shader_t* shader) {
 			.pBindings    = bindings,
 		};
 
-		if (vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &compute.descriptor_layout) != VK_SUCCESS) {
-			skr_log(skr_log_critical, "Failed to create compute descriptor set layout");
+		VkResult vr = vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &compute.descriptor_layout);
+		if (vr != VK_SUCCESS) {
+			SKR_VK_CHECK_NRET(vr, "vkCreateDescriptorSetLayout");
 			skr_compute_destroy(&compute);
 			return compute;
 		}
@@ -86,8 +87,9 @@ skr_compute_t skr_compute_create(const skr_shader_t* shader) {
 		.pSetLayouts    = compute.descriptor_layout != VK_NULL_HANDLE ? &compute.descriptor_layout : NULL,
 	};
 
-	if (vkCreatePipelineLayout(_skr_vk.device, &pipeline_layout_info, NULL, &compute.layout) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create compute pipeline layout");
+	VkResult vr = vkCreatePipelineLayout(_skr_vk.device, &pipeline_layout_info, NULL, &compute.layout);
+	if (vr != VK_SUCCESS) {
+		SKR_VK_CHECK_NRET(vr, "vkCreatePipelineLayout");
 		skr_compute_destroy(&compute);
 		return compute;
 	}
@@ -104,8 +106,9 @@ skr_compute_t skr_compute_create(const skr_shader_t* shader) {
 		.layout = compute.layout,
 	};
 
-	if (vkCreateComputePipelines(_skr_vk.device, _skr_vk.pipeline_cache, 1, &pipeline_info, NULL, &compute.pipeline) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create compute pipeline");
+	vr = vkCreateComputePipelines(_skr_vk.device, _skr_vk.pipeline_cache, 1, &pipeline_info, NULL, &compute.pipeline);
+	if (vr != VK_SUCCESS) {
+		SKR_VK_CHECK_NRET(vr, "vkCreateComputePipelines");
 		skr_compute_destroy(&compute);
 		return compute;
 	}

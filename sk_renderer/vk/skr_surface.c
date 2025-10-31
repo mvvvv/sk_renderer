@@ -111,10 +111,8 @@ format_found:
 	};
 
 	VkSwapchainKHR swapchain;
-	if (vkCreateSwapchainKHR(_skr_vk.device, &swapchain_info, NULL, &swapchain) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create swapchain");
-		return false;
-	}
+	VkResult vr = vkCreateSwapchainKHR(_skr_vk.device, &swapchain_info, NULL, &swapchain);
+	SKR_VK_CHECK_RET(vr, "vkCreateSwapchainKHR", false);
 
 	// Destroy old swapchain if provided
 	if (old_swapchain != VK_NULL_HANDLE) {
@@ -195,9 +193,8 @@ format_found:
 			},
 		};
 
-		if (vkCreateImageView(_skr_vk.device, &view_info, NULL, &surface->images[i].view) != VK_SUCCESS) {
-			skr_logf(skr_log_critical, "Failed to create image view %d", i);
-		}
+		vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &surface->images[i].view);
+		SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 	}
 
 	return true;

@@ -434,7 +434,9 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 				.layerCount     = layer_count,
 			},
 		};
-		if (vkCreateImageView(_skr_vk.device, &view_info, NULL, &temp_view) != VK_SUCCESS) {
+		VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &temp_view);
+		if (vr != VK_SUCCESS) {
+			SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 			_skr_command_release(ctx.cmd);
 			return;
 		}
@@ -448,7 +450,9 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 			.height          = height,
 			.layers          = layer_count,
 		};
-		if (vkCreateFramebuffer(_skr_vk.device, &fb_info, NULL, &framebuffer) != VK_SUCCESS) {
+		vr = vkCreateFramebuffer(_skr_vk.device, &fb_info, NULL, &framebuffer);
+		if (vr != VK_SUCCESS) {
+			SKR_VK_CHECK_NRET(vr, "vkCreateFramebuffer");
 			vkDestroyImageView(_skr_vk.device, temp_view, NULL);
 			_skr_command_release(ctx.cmd);
 			return;

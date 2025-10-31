@@ -61,9 +61,8 @@ static VkDeviceMemory _skr_allocate_image_memory(VkImage image, bool is_transien
 		.memoryTypeIndex = memory_type_index,
 	};
 
-	if (vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, out_memory) != VK_SUCCESS) {
-		return VK_NULL_HANDLE;
-	}
+	VkResult vr = vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, out_memory);
+	SKR_VK_CHECK_RET(vr, "vkAllocateMemory", VK_NULL_HANDLE);
 
 	return *out_memory;
 }
@@ -86,9 +85,8 @@ static staging_buffer_t _skr_create_staging_buffer(VkDeviceSize size) {
 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 	};
 
-	if (vkCreateBuffer(_skr_vk.device, &buffer_info, NULL, &result.buffer) != VK_SUCCESS) {
-		return result;
-	}
+	VkResult vr = vkCreateBuffer(_skr_vk.device, &buffer_info, NULL, &result.buffer);
+	SKR_VK_CHECK_RET(vr, "vkCreateBuffer", result);
 
 	VkMemoryRequirements mem_requirements;
 	vkGetBufferMemoryRequirements(_skr_vk.device, result.buffer, &mem_requirements);
@@ -107,14 +105,18 @@ static staging_buffer_t _skr_create_staging_buffer(VkDeviceSize size) {
 		.memoryTypeIndex = memory_type_index,
 	};
 
-	if (vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, &result.memory) != VK_SUCCESS) {
+	vr = vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, &result.memory);
+	if (vr != VK_SUCCESS) {
+		SKR_VK_CHECK_NRET(vr, "vkAllocateMemory");
 		vkDestroyBuffer(_skr_vk.device, result.buffer, NULL);
 		return result;
 	}
 
 	vkBindBufferMemory(_skr_vk.device, result.buffer, result.memory, 0);
 
-	if (vkMapMemory(_skr_vk.device, result.memory, 0, size, 0, &result.mapped_data) != VK_SUCCESS) {
+	vr = vkMapMemory(_skr_vk.device, result.memory, 0, size, 0, &result.mapped_data);
+	if (vr != VK_SUCCESS) {
+		SKR_VK_CHECK_NRET(vr, "vkMapMemory");
 		vkFreeMemory(_skr_vk.device, result.memory, NULL);
 		vkDestroyBuffer(_skr_vk.device, result.buffer, NULL);
 		return result;
@@ -503,10 +505,8 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 		.flags         = (tex.flags & skr_tex_flags_cubemap) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
 	};
 
-	if (vkCreateImage(_skr_vk.device, &image_info, NULL, &tex.image) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create texture image");
-		return tex;
-	}
+	VkResult vr = vkCreateImage(_skr_vk.device, &image_info, NULL, &tex.image);
+	SKR_VK_CHECK_RET(vr, "vkCreateImage", tex);
 
 	// Allocate memory using helper
 	if (_skr_allocate_image_memory(tex.image, is_msaa_attachment, &tex.memory) == VK_NULL_HANDLE) {
@@ -603,8 +603,9 @@ skr_tex_t skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_samp
 		},
 	};
 
-	if (vkCreateImageView(_skr_vk.device, &view_info, NULL, &tex.view) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create texture image view");
+	vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &tex.view);
+	if (vr != VK_SUCCESS) {
+		SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 		vkFreeMemory  (_skr_vk.device, tex.memory, NULL);
 		vkDestroyImage(_skr_vk.device, tex.image,  NULL);
 		tex.image  = VK_NULL_HANDLE;
@@ -1106,10 +1107,8 @@ VkSampler _skr_sampler_create_vk(skr_tex_sampler_t settings) {
 	};
 
 	VkSampler vk_sampler = VK_NULL_HANDLE;
-	if (vkCreateSampler(_skr_vk.device, &sampler_info, NULL, &vk_sampler) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create sampler");
-		return VK_NULL_HANDLE;
-	}
+	VkResult vr = vkCreateSampler(_skr_vk.device, &sampler_info, NULL, &vk_sampler);
+	SKR_VK_CHECK_RET(vr, "vkCreateSampler", VK_NULL_HANDLE);
 
 	// Generate debug name based on sampler settings
 	const char* filter_str = settings.sample  == skr_tex_sample_linear      ? "linear" :

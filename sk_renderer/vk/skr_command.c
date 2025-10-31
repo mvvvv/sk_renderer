@@ -73,7 +73,7 @@ _skr_vk_thread_t* _skr_command_get_thread() {
 		.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
 		.queueFamilyIndex = _skr_vk.graphics_queue_family,  // Use graphics queue for main commands
 	}, NULL, &thread.cmd_pool);
-	SKR_VK_CHECK(vr, "vkCreateCommandPool", NULL);
+	SKR_VK_CHECK_RET(vr, "vkCreateCommandPool", NULL);
 
 	// Register it in the array, copy and reserve atomically
 	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);

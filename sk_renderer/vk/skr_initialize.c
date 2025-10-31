@@ -64,7 +64,7 @@ static bool _skr_vk_create_debug_messenger() {
 	};
 
 	VkResult vr = vkCreateDebugUtilsMessengerEXT(_skr_vk.instance, &create_info, NULL, &_skr_vk.debug_messenger);
-	SKR_VK_CHECK(vr, "vkCreateDebugUtilsMessengerEXT", false);
+	SKR_VK_CHECK_RET(vr, "vkCreateDebugUtilsMessengerEXT", false);
 
 	_skr_command_destroy_debug_messenger(&_skr_vk.destroy_list, _skr_vk.debug_messenger);
 	return true;
@@ -88,7 +88,7 @@ bool skr_init(skr_settings_t settings) {
 
 	// Initialize volk
 	VkResult vr = volkInitialize();
-	SKR_VK_CHECK(vr, volkInitialize, false);
+	SKR_VK_CHECK_RET(vr, volkInitialize, false);
 
 	// Create instance
 	VkApplicationInfo app_info = {
@@ -330,10 +330,8 @@ bool skr_init(skr_settings_t settings) {
 		.pEnabledFeatures        = &device_features,
 	};
 
-	if (vkCreateDevice(_skr_vk.physical_device, &device_info, NULL, &_skr_vk.device) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create logical device");
-		return false;
-	}
+	vr = vkCreateDevice(_skr_vk.physical_device, &device_info, NULL, &_skr_vk.device);
+	SKR_VK_CHECK_RET(vr, "vkCreateDevice", false);
 
 	volkLoadDevice(_skr_vk.device);
 
@@ -355,10 +353,8 @@ bool skr_init(skr_settings_t settings) {
 		.queueFamilyIndex = _skr_vk.graphics_queue_family,
 	};
 
-	if (vkCreateCommandPool(_skr_vk.device, &pool_info, NULL, &_skr_vk.command_pool) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create command pool");
-		return false;
-	}
+	vr = vkCreateCommandPool(_skr_vk.device, &pool_info, NULL, &_skr_vk.command_pool);
+	SKR_VK_CHECK_RET(vr, "vkCreateCommandPool", false);
 	_skr_command_destroy_command_pool(&_skr_vk.destroy_list, _skr_vk.command_pool);
 
 	// Allocate command buffers (one per frame in flight)
@@ -369,42 +365,34 @@ bool skr_init(skr_settings_t settings) {
 		.commandBufferCount = SKR_MAX_FRAMES_IN_FLIGHT,
 	};
 
-	if (vkAllocateCommandBuffers(_skr_vk.device, &alloc_info, _skr_vk.command_buffers) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to allocate command buffers");
-		return false;
-	}
+	vr = vkAllocateCommandBuffers(_skr_vk.device, &alloc_info, _skr_vk.command_buffers);
+	SKR_VK_CHECK_RET(vr, "vkAllocateCommandBuffers", false);
 
 	for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++) {
-		if (vkCreateFence(_skr_vk.device, &(VkFenceCreateInfo){
+		vr = vkCreateFence(_skr_vk.device, &(VkFenceCreateInfo){
 			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 			.flags = VK_FENCE_CREATE_SIGNALED_BIT, // Start signaled so first frame doesn't wait
-		}, NULL, &_skr_vk.frame_fences[i]) != VK_SUCCESS) {
-			skr_logf(skr_log_critical, "Failed to create frame fence %d", i);
-			return false;
-		}
+		}, NULL, &_skr_vk.frame_fences[i]);
+		SKR_VK_CHECK_RET(vr, "vkCreateFence", false);
 		_skr_command_destroy_fence(&_skr_vk.destroy_list, _skr_vk.frame_fences[i]);
 	}
 
-	if (vkCreateQueryPool(_skr_vk.device, &(VkQueryPoolCreateInfo){
+	vr = vkCreateQueryPool(_skr_vk.device, &(VkQueryPoolCreateInfo){
 		.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
 		.queryType  = VK_QUERY_TYPE_TIMESTAMP,
 		.queryCount = 2 * SKR_MAX_FRAMES_IN_FLIGHT,
-	}, NULL, &_skr_vk.timestamp_pool) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create timestamp query pool");
-		return false;
-	}
+	}, NULL, &_skr_vk.timestamp_pool);
+	SKR_VK_CHECK_RET(vr, "vkCreateQueryPool", false);
 	_skr_command_destroy_query_pool(&_skr_vk.destroy_list, _skr_vk.timestamp_pool);
 
 	for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++) {
 		_skr_vk.timestamps_valid[i] = false;
 	}
 
-	if (vkCreatePipelineCache(_skr_vk.device, &(VkPipelineCacheCreateInfo){
+	vr = vkCreatePipelineCache(_skr_vk.device, &(VkPipelineCacheCreateInfo){
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-	}, NULL, &_skr_vk.pipeline_cache) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create pipeline cache");
-		return false;
-	}
+	}, NULL, &_skr_vk.pipeline_cache);
+	SKR_VK_CHECK_RET(vr, "vkCreatePipelineCache", false);
 	_skr_command_destroy_pipeline_cache(&_skr_vk.destroy_list, _skr_vk.pipeline_cache);
 
 	// Create descriptor pool for compute shaders
@@ -423,10 +411,8 @@ bool skr_init(skr_settings_t settings) {
 		.pPoolSizes    = pool_sizes,
 	};
 
-	if (vkCreateDescriptorPool(_skr_vk.device, &desc_pool_info, NULL, &_skr_vk.descriptor_pool) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create descriptor pool");
-		return false;
-	}
+	vr = vkCreateDescriptorPool(_skr_vk.device, &desc_pool_info, NULL, &_skr_vk.descriptor_pool);
+	SKR_VK_CHECK_RET(vr, "vkCreateDescriptorPool", false);
 	_skr_command_destroy_descriptor_pool(&_skr_vk.destroy_list, _skr_vk.descriptor_pool);
 
 	_skr_pipeline_init();

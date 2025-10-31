@@ -453,10 +453,8 @@ static VkRenderPass _skr_pipeline_create_renderpass(const skr_pipeline_renderpas
 	};
 
 	VkRenderPass render_pass;
-	if (vkCreateRenderPass(_skr_vk.device, &render_pass_info, NULL, &render_pass) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create render pass");
-		return VK_NULL_HANDLE;
-	}
+	VkResult vr = vkCreateRenderPass(_skr_vk.device, &render_pass_info, NULL, &render_pass);
+	SKR_VK_CHECK_RET(vr, "vkCreateRenderPass", VK_NULL_HANDLE);
 
 	// Generate debug name based on render pass configuration
 	char name[256];
@@ -475,10 +473,8 @@ static VkPipelineLayout _skr_pipeline_create_layout(VkDescriptorSetLayout descri
 	};
 
 	VkPipelineLayout layout;
-	if (vkCreatePipelineLayout(_skr_vk.device, &layout_info, NULL, &layout) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create pipeline layout");
-		return VK_NULL_HANDLE;
-	}
+	VkResult vr = vkCreatePipelineLayout(_skr_vk.device, &layout_info, NULL, &layout);
+	SKR_VK_CHECK_RET(vr, "vkCreatePipelineLayout", VK_NULL_HANDLE);
 
 	// Pipeline layouts are created per-material, name will be set during material registration
 	_skr_set_debug_name(VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)layout, "pipeline_layout");
@@ -737,10 +733,8 @@ VkFramebuffer _skr_create_framebuffer(VkRenderPass render_pass, skr_tex_t* color
 	};
 
 	VkFramebuffer framebuffer;
-	if (vkCreateFramebuffer(_skr_vk.device, &framebuffer_info, NULL, &framebuffer) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create framebuffer");
-		return VK_NULL_HANDLE;
-	}
+	VkResult vr = vkCreateFramebuffer(_skr_vk.device, &framebuffer_info, NULL, &framebuffer);
+	SKR_VK_CHECK_RET(vr, "vkCreateFramebuffer", VK_NULL_HANDLE);
 
 	return framebuffer;
 }

@@ -25,10 +25,8 @@ skr_shader_stage_t _skr_shader_stage_create(const void* shader_data, size_t shad
 		.pCode    = (const uint32_t*)shader_data,
 	};
 
-	if (vkCreateShaderModule(_skr_vk.device, &create_info, NULL, &stage.shader) != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create shader module\n");
-		return stage;
-	}
+	VkResult vr = vkCreateShaderModule(_skr_vk.device, &create_info, NULL, &stage.shader);
+	SKR_VK_CHECK_RET(vr, "vkCreateShaderModule", stage);
 
 	return stage;
 }
@@ -237,10 +235,8 @@ VkDescriptorSetLayout _skr_shader_make_layout(const sksc_shader_meta_t* meta, sk
 	};
 
 	VkDescriptorSetLayout layout;
-	if (vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &layout) != VK_SUCCESS) {
-		skr_log(skr_log_warning, "Failed to create descriptor set layout");
-		return VK_NULL_HANDLE;
-	}
+	VkResult vr = vkCreateDescriptorSetLayout(_skr_vk.device, &layout_info, NULL, &layout);
+	SKR_VK_CHECK_RET(vr, "vkCreateDescriptorSetLayout", VK_NULL_HANDLE);
 
 	return layout;
 }
