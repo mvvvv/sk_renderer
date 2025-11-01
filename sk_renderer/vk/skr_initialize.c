@@ -303,11 +303,67 @@ bool skr_init(skr_settings_t settings) {
 		};
 	}
 
-	const char* device_extensions[] = {
+	// Build list of desired device extensions
+	const char* desired_device_extensions[] = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 		VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 		VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME,
 	};
+
+	// Get available device extensions
+	uint32_t available_device_ext_count = 0;
+	vkEnumerateDeviceExtensionProperties(_skr_vk.physical_device, NULL, &available_device_ext_count, NULL);
+	VkExtensionProperties* available_device_exts = malloc(available_device_ext_count * sizeof(VkExtensionProperties));
+	vkEnumerateDeviceExtensionProperties(_skr_vk.physical_device, NULL, &available_device_ext_count, available_device_exts);
+
+	// Log available extensions for debugging
+	skr_logf(skr_log_info, "Available device extensions (%u):", available_device_ext_count);
+	for (uint32_t i = 0; i < available_device_ext_count && i < 10; i++) {
+		skr_logf(skr_log_info, "  %s", available_device_exts[i].extensionName);
+	}
+	if (available_device_ext_count > 10) {
+		skr_logf(skr_log_info, "  ... and %u more", available_device_ext_count - 10);
+	}
+
+	// Filter device extensions to only those available
+	const char* device_extensions[32];
+	uint32_t    device_extension_count = 0;
+	bool has_swapchain = false;
+	bool has_push_descriptor = false;
+	
+	for (uint32_t i = 0; i < sizeof(desired_device_extensions) / sizeof(desired_device_extensions[0]); i++) {
+		bool found = false;
+		for (uint32_t j = 0; j < available_device_ext_count; j++) {
+			if (strcmp(desired_device_extensions[i], available_device_exts[j].extensionName) == 0) {
+				found = true;
+				break;
+			}
+		}
+		if (found) {
+			device_extensions[device_extension_count++] = desired_device_extensions[i];
+			if (strcmp(desired_device_extensions[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
+				has_swapchain = true;
+			}
+			if (strcmp(desired_device_extensions[i], VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME) == 0) {
+				has_push_descriptor = true;
+			}
+		} else {
+			skr_logf(skr_log_warning, "Device extension '%s' not available, skipping", desired_device_extensions[i]);
+		}
+	}
+	free(available_device_exts);
+
+	// Check required extensions
+	if (!has_swapchain) {
+		skr_logf(skr_log_critical, "Required device extension '%s' not available", VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		return false;
+	}
+	
+	// Store push descriptor support and use fallback if unavailable
+	_skr_vk.has_push_descriptors = has_push_descriptor;
+	if (!has_push_descriptor) {
+		skr_logf(skr_log_info, "Device extension '%s' not available, using descriptor set fallback", VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+	}
 
 	// Query available device features
 	VkPhysicalDeviceFeatures available_features;
@@ -325,7 +381,7 @@ bool skr_init(skr_settings_t settings) {
 		.pNext                   = NULL,
 		.queueCreateInfoCount    = queue_info_count,
 		.pQueueCreateInfos       = queue_infos,
-		.enabledExtensionCount   = sizeof(device_extensions) / sizeof(device_extensions[0]),
+		.enabledExtensionCount   = device_extension_count,
 		.ppEnabledExtensionNames = device_extensions,
 		.pEnabledFeatures        = &device_features,
 	};
@@ -414,6 +470,25 @@ bool skr_init(skr_settings_t settings) {
 	vr = vkCreateDescriptorPool(_skr_vk.device, &desc_pool_info, NULL, &_skr_vk.descriptor_pool);
 	SKR_VK_CHECK_RET(vr, "vkCreateDescriptorPool", false);
 	_skr_cmd_destroy_descriptor_pool(&_skr_vk.destroy_list, _skr_vk.descriptor_pool);
+
+	// Create per-frame descriptor pools for non-push-descriptor fallback
+	if (!_skr_vk.has_push_descriptors) {
+		VkDescriptorPoolCreateInfo frame_pool_info = {
+			.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+			.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+			.maxSets       = 2000,  // More sets needed for per-draw allocations
+			.poolSizeCount = sizeof(pool_sizes) / sizeof(pool_sizes[0]),
+			.pPoolSizes    = pool_sizes,
+		};
+		
+		for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++) {
+			vr = vkCreateDescriptorPool(_skr_vk.device, &frame_pool_info, NULL, &_skr_vk.frame_descriptor_pools[i]);
+			SKR_VK_CHECK_RET(vr, "vkCreateDescriptorPool (frame)", false);
+			_skr_cmd_destroy_descriptor_pool(&_skr_vk.destroy_list, _skr_vk.frame_descriptor_pools[i]);
+			_skr_vk.frame_descriptor_set_count[i] = 0;
+		}
+		skr_log(skr_log_info, "Created descriptor set pools for non-push-descriptor fallback");
+	}
 
 	_skr_pipeline_init();
 

@@ -238,7 +238,7 @@ VkDescriptorSetLayout _skr_shader_make_layout(const sksc_shader_meta_t* meta, sk
 
 	VkDescriptorSetLayoutCreateInfo layout_info = {
 		.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+		.flags        = _skr_vk.has_push_descriptors ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0,
 		.bindingCount = binding_count,
 		.pBindings    = bindings,
 	};

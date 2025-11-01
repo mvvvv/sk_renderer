@@ -1111,9 +1111,30 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 
 		// Push descriptors and draw
 		if (write_ct > 0) {
-			vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-			                          _skr_pipeline_get_layout(material.pipeline_material_idx),
-			                          0, write_ct, writes);
+			if (_skr_vk.has_push_descriptors) {
+				vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+				                          _skr_pipeline_get_layout(material.pipeline_material_idx),
+				                          0, write_ct, writes);
+			} else {
+				// Fallback: allocate and bind descriptor set
+				VkDescriptorSetLayout layout = _skr_pipeline_get_descriptor_layout(material.pipeline_material_idx);
+				VkDescriptorSetAllocateInfo alloc_info = {
+					.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+					.descriptorPool     = _skr_vk.frame_descriptor_pools[_skr_vk.flight_idx],
+					.descriptorSetCount = 1,
+					.pSetLayouts        = &layout,
+				};
+				VkDescriptorSet desc_set;
+				VkResult vr = vkAllocateDescriptorSets(_skr_vk.device, &alloc_info, &desc_set);
+				if (vr == VK_SUCCESS) {
+					for (uint32_t i = 0; i < write_ct; i++) {
+						writes[i].dstSet = desc_set;
+					}
+					vkUpdateDescriptorSets(_skr_vk.device, write_ct, writes, 0, NULL);
+					vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material.pipeline_material_idx), 0, 1, &desc_set, 0, NULL);
+					_skr_vk.frame_descriptor_set_count[_skr_vk.flight_idx]++;
+				}
+			}
 		}
 
 		// Draw fullscreen triangle (with instances for each layer/face)

@@ -92,7 +92,12 @@ typedef struct {
 	VkDescriptorPool         descriptor_pool;
 	VkDebugUtilsMessengerEXT debug_messenger;
 	bool                     validation_enabled;
+	bool                     has_push_descriptors;  // VK_KHR_push_descriptor support
 	bool                     initialized;
+	
+	// Descriptor set pool for non-push-descriptor fallback
+	VkDescriptorPool         frame_descriptor_pools[SKR_MAX_FRAMES_IN_FLIGHT];
+	uint32_t                 frame_descriptor_set_count[SKR_MAX_FRAMES_IN_FLIGHT];
 	bool                     in_frame;  // True when between frame_begin and frame_end
 	pthread_t                main_thread_id;  // Thread that calls skr_init
 	uint32_t                 frame;

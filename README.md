@@ -28,6 +28,10 @@ cmake --build build -j8 --target run
 cmake -B build-android -G Ninja -DCMAKE_ANDROID_NDK=$ANDROID_NDK_HOME -DCMAKE_SYSTEM_NAME=Android -DCMAKE_SYSTEM_VERSION=32 -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a
 cmake --build build-android -j8
 cmake --build build-android -j8 --target run_apk
+
+cmake -B build-androidx86 -G Ninja -DCMAKE_ANDROID_NDK=$ANDROID_NDK_HOME -DCMAKE_SYSTEM_NAME=Android -DCMAKE_SYSTEM_VERSION=32 -DCMAKE_ANDROID_ARCH_ABI=x86_64
+cmake --build build-androidx86 -j8
+cmake --build build-androidx86 -j8 --target run_apk
 ```
 
 This builds and runs the example application with multiple demo scenes. Use arrow keys to switch between scenes.
