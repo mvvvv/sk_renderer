@@ -407,14 +407,17 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	// Normalize sample count
 	out_tex->samples = (multisample > 1) ? (VkSampleCountFlagBits)multisample : VK_SAMPLE_COUNT_1_BIT;
 
+	// Check if this is a depth format
+	bool is_depth = (format == skr_tex_fmt_depth16 || format == skr_tex_fmt_depth32 || format == skr_tex_fmt_depth32s8 || format == skr_tex_fmt_depth24s8 || format == skr_tex_fmt_depth16s8);
+
 	// Determine usage flags
-	VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT; // Always allow sampling for readable textures
+	// Don't add SAMPLED_BIT for MSAA depth textures - not supported by some drivers (NVIDIA returns size=0)
+	bool is_msaa_depth = (out_tex->samples > VK_SAMPLE_COUNT_1_BIT) && is_depth;
+	VkImageUsageFlags usage = is_msaa_depth ? 0 : VK_IMAGE_USAGE_SAMPLED_BIT;
+	
 	if (out_tex->flags & skr_tex_flags_readable) {
 		usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 	}
-
-	// Check if this is a depth format
-	bool is_depth = (format == skr_tex_fmt_depth16 || format == skr_tex_fmt_depth32 || format == skr_tex_fmt_depth32s8 || format == skr_tex_fmt_depth24s8 || format == skr_tex_fmt_depth16s8);
 
 	// Determine aspect mask based on format
 	out_tex->aspect_mask  = 0;
@@ -473,14 +476,10 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 			}
 		}
 
-		// Only use transient attachment if both format is supported AND lazy memory is available
-		if (result == VK_SUCCESS && has_lazy_memory) {
-			usage |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
-			// Remove SAMPLED_BIT and TRANSFER_DST_BIT for transient attachments
-			usage &= ~(VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
-		}
-		// If not supported, just use regular memory (no transient optimization)
+		// Transient attachment disabled - some drivers return size=0 for memory requirements
+		// Always use regular memory (no transient optimization)
 	}
+	is_msaa_attachment = false;
 
 	// For compute shader storage images (RWTexture2D)
 	if (out_tex->flags & skr_tex_flags_compute) {
@@ -526,6 +525,39 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		.flags         = (out_tex->flags & skr_tex_flags_cubemap) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
 	};
 
+	// Check if MSAA depth format is supported, try fallbacks if not
+	if (is_msaa_depth) {
+		VkImageFormatProperties format_props;
+		VkResult check = vkGetPhysicalDeviceImageFormatProperties(
+			_skr_vk.physical_device, vk_format, image_type, VK_IMAGE_TILING_OPTIMAL, usage, 0, &format_props);
+		
+		if (check != VK_SUCCESS || !(format_props.sampleCounts & out_tex->samples)) {
+			skr_tex_fmt_ fallbacks[] = { skr_tex_fmt_depth32, skr_tex_fmt_depth24s8, skr_tex_fmt_depth16 };
+			bool found = false;
+			
+			for (int i = 0; i < 3; i++) {
+				if (fallbacks[i] == format) continue;
+				VkFormat fallback_fmt = _skr_to_vk_tex_fmt(fallbacks[i]);
+				check = vkGetPhysicalDeviceImageFormatProperties(
+					_skr_vk.physical_device, fallback_fmt, image_type, VK_IMAGE_TILING_OPTIMAL, usage, 0, &format_props);
+				
+				if (check == VK_SUCCESS && (format_props.sampleCounts & out_tex->samples)) {
+					format = fallbacks[i];
+					vk_format = fallback_fmt;
+					out_tex->format = format;
+					image_info.format = vk_format;
+					found = true;
+					break;
+				}
+			}
+			
+			if (!found) {
+				skr_log(skr_log_critical, "No supported MSAA depth format found");
+				return skr_err_unsupported;
+			}
+		}
+	}
+
 	VkResult vr = vkCreateImage(_skr_vk.device, &image_info, NULL, &out_tex->image);
 	if (vr != VK_SUCCESS) {
 		skr_log(skr_log_critical, "vkCreateImage failed");
@@ -534,7 +566,8 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 
 	// Allocate memory using helper
 	if (_skr_allocate_image_memory(out_tex->image, is_msaa_attachment, &out_tex->memory) == VK_NULL_HANDLE) {
-		skr_log(skr_log_critical, "Failed to allocate texture memory");
+		skr_logf(skr_log_critical, "Failed to allocate texture memory - Format: %d, Size: %dx%dx%d, Mips: %d, Layers: %d, Samples: %d, Usage: 0x%x, Flags: 0x%x",
+			format, size.x, size.y, size.z, out_tex->mip_levels, out_tex->layer_count, out_tex->samples, usage, out_tex->flags);
 		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
 		memset(out_tex, 0, sizeof(skr_tex_t));
 		return skr_err_out_of_memory;
