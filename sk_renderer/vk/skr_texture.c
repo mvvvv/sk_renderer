@@ -476,8 +476,13 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 			}
 		}
 
-		// Transient attachment disabled - some drivers return size=0 for memory requirements
-		// Always use regular memory (no transient optimization)
+		// Only use transient attachment if both format is supported AND lazy memory is available
+		if (result == VK_SUCCESS && has_lazy_memory) {
+			usage |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+			// Remove SAMPLED_BIT and TRANSFER_DST_BIT for transient attachments
+			usage &= ~(VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+		}
+		// If not supported, just use regular memory (no transient optimization)
 	}
 	is_msaa_attachment = false;
 
