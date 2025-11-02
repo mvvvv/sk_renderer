@@ -471,25 +471,6 @@ bool skr_init(skr_settings_t settings) {
 	SKR_VK_CHECK_RET(vr, "vkCreateDescriptorPool", false);
 	_skr_cmd_destroy_descriptor_pool(&_skr_vk.destroy_list, _skr_vk.descriptor_pool);
 
-	// Create per-frame descriptor pools for non-push-descriptor fallback
-	if (!_skr_vk.has_push_descriptors) {
-		VkDescriptorPoolCreateInfo frame_pool_info = {
-			.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-			.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-			.maxSets       = 2000,  // More sets needed for per-draw allocations
-			.poolSizeCount = sizeof(pool_sizes) / sizeof(pool_sizes[0]),
-			.pPoolSizes    = pool_sizes,
-		};
-		
-		for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++) {
-			vr = vkCreateDescriptorPool(_skr_vk.device, &frame_pool_info, NULL, &_skr_vk.frame_descriptor_pools[i]);
-			SKR_VK_CHECK_RET(vr, "vkCreateDescriptorPool (frame)", false);
-			_skr_cmd_destroy_descriptor_pool(&_skr_vk.destroy_list, _skr_vk.frame_descriptor_pools[i]);
-			_skr_vk.frame_descriptor_set_count[i] = 0;
-		}
-		skr_log(skr_log_info, "Created descriptor set pools for non-push-descriptor fallback");
-	}
-
 	_skr_pipeline_init();
 
 	if (!_skr_cmd_init()) {

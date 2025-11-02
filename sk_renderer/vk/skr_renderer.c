@@ -116,12 +116,6 @@ static void _skr_flush_texture_transitions(VkCommandBuffer cmd) {
 void skr_renderer_frame_begin() {
 	_skr_vk.in_frame = true;
 
-	// Reset per-frame descriptor pool if not using push descriptors
-	if (!_skr_vk.has_push_descriptors) {
-		vkResetDescriptorPool(_skr_vk.device, _skr_vk.frame_descriptor_pools[_skr_vk.flight_idx], 0);
-		_skr_vk.frame_descriptor_set_count[_skr_vk.flight_idx] = 0;
-	}
-
 	// Start a command buffer batch for this frame
 	VkCommandBuffer cmd = _skr_cmd_begin().cmd;
 
@@ -488,30 +482,11 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		vkCmdSetViewport (ctx.cmd, 0, 1, &(VkViewport){(float)bounds_px.x, (float)bounds_px.y, (float)width, (float)height, 0.0f, 1.0f});
 		vkCmdSetScissor  (ctx.cmd, 0, 1, &(VkRect2D  ){{bounds_px.x, bounds_px.y}, {width, height}});
 
-		if (write_ct > 0) {
-			if (_skr_vk.has_push_descriptors) {
-				vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, write_ct, writes);
-			} else {
-				// Fallback: allocate and bind descriptor set
-				VkDescriptorSetLayout layout = _skr_pipeline_get_descriptor_layout(material->pipeline_material_idx);
-				VkDescriptorSetAllocateInfo alloc_info = {
-					.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-					.descriptorPool     = _skr_vk.frame_descriptor_pools[_skr_vk.flight_idx],
-					.descriptorSetCount = 1,
-					.pSetLayouts        = &layout,
-				};
-				VkDescriptorSet desc_set;
-				VkResult vr = vkAllocateDescriptorSets(_skr_vk.device, &alloc_info, &desc_set);
-				if (vr == VK_SUCCESS) {
-					for (uint32_t i = 0; i < write_ct; i++) {
-						writes[i].dstSet = desc_set;
-					}
-					vkUpdateDescriptorSets(_skr_vk.device, write_ct, writes, 0, NULL);
-					vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, 1, &desc_set, 0, NULL);
-					_skr_vk.frame_descriptor_set_count[_skr_vk.flight_idx]++;
-				}
-			}
-		}
+		_skr_bind_descriptors(ctx.cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		                      _skr_pipeline_get_layout(material->pipeline_material_idx),
+		                      _skr_pipeline_get_descriptor_layout(material->pipeline_material_idx),
+		                      writes, write_ct);
+
 		// Draw fullscreen triangle - instanced for cubemaps/arrays, single for 2D
 		vkCmdDraw(ctx.cmd, 3, draw_instances, 0, 0);
 	}
@@ -536,7 +511,8 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t 
 	if (!list || list->count == 0) return;
 	instance_multiplier = (instance_multiplier < 1) ? 1 : instance_multiplier;
 
-	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+	VkCommandBuffer cmd = ctx.cmd;
 
 	_skr_render_list_sort(list);
 
@@ -662,30 +638,10 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t 
 			&write_ct, &buffer_ct, &image_ct);
 
 		// Push all descriptors at once
-		if (write_ct > 0) {
-			if (_skr_vk.has_push_descriptors) {
-				vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(mat->pipeline_material_idx), 0, write_ct, writes);
-			} else {
-				// Fallback: allocate and bind descriptor set
-				VkDescriptorSetLayout layout = _skr_pipeline_get_descriptor_layout(mat->pipeline_material_idx);
-				VkDescriptorSetAllocateInfo alloc_info = {
-					.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-					.descriptorPool     = _skr_vk.frame_descriptor_pools[_skr_vk.flight_idx],
-					.descriptorSetCount = 1,
-					.pSetLayouts        = &layout,
-				};
-				VkDescriptorSet desc_set;
-				VkResult vr = vkAllocateDescriptorSets(_skr_vk.device, &alloc_info, &desc_set);
-				if (vr == VK_SUCCESS) {
-					for (uint32_t j = 0; j < write_ct; j++) {
-						writes[j].dstSet = desc_set;
-					}
-					vkUpdateDescriptorSets(_skr_vk.device, write_ct, writes, 0, NULL);
-					vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(mat->pipeline_material_idx), 0, 1, &desc_set, 0, NULL);
-					_skr_vk.frame_descriptor_set_count[_skr_vk.flight_idx]++;
-				}
-			}
-		}
+		_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		                      _skr_pipeline_get_layout(mat->pipeline_material_idx),
+		                      _skr_pipeline_get_descriptor_layout(mat->pipeline_material_idx),
+		                      writes, write_ct);
 
 		// Bind vertex buffer
 		if (skr_buffer_is_valid(&item->mesh->vertex_buffer)) {

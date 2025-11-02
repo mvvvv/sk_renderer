@@ -43,6 +43,8 @@ void _skr_cmd_shutdown() {
 
 			if (thread->cmd_ring[c].fence != VK_NULL_HANDLE)
 				vkDestroyFence(_skr_vk.device, thread->cmd_ring[c].fence, NULL);
+			if (thread->cmd_ring[c].descriptor_pool != VK_NULL_HANDLE)
+				vkDestroyDescriptorPool(_skr_vk.device, thread->cmd_ring[c].descriptor_pool, NULL);
 		}
 
 		if (thread->cmd_pool != VK_NULL_HANDLE)
@@ -140,6 +142,8 @@ void skr_thread_shutdown() {
 
 		if (thread->cmd_ring[c].fence != VK_NULL_HANDLE)
 			vkDestroyFence(_skr_vk.device, thread->cmd_ring[c].fence, NULL);
+		if (thread->cmd_ring[c].descriptor_pool != VK_NULL_HANDLE)
+			vkDestroyDescriptorPool(_skr_vk.device, thread->cmd_ring[c].descriptor_pool, NULL);
 	}
 
 	// Destroy command pool
@@ -211,15 +215,43 @@ static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* pool) {
 		}, NULL, &slot->fence);
 		slot->destroy_list = _skr_destroy_list_create();
 
+		// Create descriptor pool for non-push-descriptor fallback
+		if (!_skr_vk.has_push_descriptors) {
+			VkDescriptorPoolSize pool_sizes[] = {
+				{ .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         .descriptorCount = 1000 },
+				{ .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          .descriptorCount = 1000 },
+				{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1000 },
+				{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         .descriptorCount = 1000 },
+			};
+			VkDescriptorPoolCreateInfo pool_info = {
+				.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+				.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+				.maxSets       = 2000,
+				.poolSizeCount = sizeof(pool_sizes) / sizeof(pool_sizes[0]),
+				.pPoolSizes    = pool_sizes,
+			};
+			VkResult vr = vkCreateDescriptorPool(_skr_vk.device, &pool_info, NULL, &slot->descriptor_pool);
+			SKR_VK_CHECK_NRET(vr, "vkCreateDescriptorPool");
+		}
+
 		char name[64];
 		snprintf(name,sizeof(name), "CommandBuffer_thr%d_%d", pool->thread_idx, idx);
 		_skr_set_debug_name(VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)slot->cmd, name);
 
 		snprintf(name,sizeof(name), "Command_Fence_thr%d_%d", pool->thread_idx, idx);
 		_skr_set_debug_name(VK_OBJECT_TYPE_FENCE, (uint64_t)slot->fence, name);
+
+		if (slot->descriptor_pool != VK_NULL_HANDLE) {
+			snprintf(name,sizeof(name), "DescriptorPool_thr%d_%d", pool->thread_idx, idx);
+			_skr_set_debug_name(VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)slot->descriptor_pool, name);
+		}
 	} else {
 		vkResetCommandBuffer(slot->cmd, 0);
 		vkResetFences       (_skr_vk.device, 1, &slot->fence);
+		// Reset descriptor pool when reusing command buffer slot
+		if (slot->descriptor_pool != VK_NULL_HANDLE) {
+			vkResetDescriptorPool(_skr_vk.device, slot->descriptor_pool, 0);
+		}
 	}
 
 	vkBeginCommandBuffer(slot->cmd, &(VkCommandBufferBeginInfo){
@@ -228,6 +260,36 @@ static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* pool) {
 	});
 
 	return slot;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+// Helper to bind descriptors (handles push descriptors vs descriptor set allocation)
+void _skr_bind_descriptors(VkCommandBuffer cmd, VkDescriptorPool pool, VkPipelineBindPoint bind_point, 
+                            VkPipelineLayout layout, VkDescriptorSetLayout desc_layout, 
+                            VkWriteDescriptorSet* writes, uint32_t write_count) {
+	if (write_count == 0) return;
+
+	if (_skr_vk.has_push_descriptors) {
+		vkCmdPushDescriptorSetKHR(cmd, bind_point, layout, 0, write_count, writes);
+	} else {
+		// Fallback: allocate and bind descriptor set from command buffer's pool
+		VkDescriptorSetAllocateInfo alloc_info = {
+			.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.descriptorPool     = pool,
+			.descriptorSetCount = 1,
+			.pSetLayouts        = &desc_layout,
+		};
+		VkDescriptorSet desc_set;
+		VkResult vr = vkAllocateDescriptorSets(_skr_vk.device, &alloc_info, &desc_set);
+		if (vr == VK_SUCCESS) {
+			for (uint32_t i = 0; i < write_count; i++) {
+				writes[i].dstSet = desc_set;
+			}
+			vkUpdateDescriptorSets(_skr_vk.device, write_count, writes, 0, NULL);
+			vkCmdBindDescriptorSets(cmd, bind_point, layout, 0, 1, &desc_set, 0, NULL);
+		}
+	}
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -250,8 +312,9 @@ bool _skr_cmd_try_get_active(_skr_cmd_ctx_t* out_ctx) {
 	
 	if (pool->active_cmd) {
 		*out_ctx = (_skr_cmd_ctx_t){
-			.cmd          = pool->active_cmd->cmd,
-			.destroy_list = &pool->active_cmd->destroy_list,
+			.cmd              = pool->active_cmd->cmd,
+			.descriptor_pool  = pool->active_cmd->descriptor_pool,
+			.destroy_list     = &pool->active_cmd->destroy_list,
 		};
 		return true;
 	}
@@ -269,8 +332,9 @@ _skr_cmd_ctx_t _skr_cmd_acquire() {
 	
 	pool->ref_count++;
 	return (_skr_cmd_ctx_t){
-		.cmd          = pool->active_cmd->cmd,
-		.destroy_list = &pool->active_cmd->destroy_list,
+		.cmd             = pool->active_cmd->cmd,
+		.descriptor_pool = pool->active_cmd->descriptor_pool,
+		.destroy_list    = &pool->active_cmd->destroy_list,
 	};
 }
 

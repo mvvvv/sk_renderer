@@ -49,6 +49,7 @@ typedef struct skr_destroy_list_t {
 typedef struct {
 	VkCommandBuffer    cmd;
 	VkFence            fence;
+	VkDescriptorPool   descriptor_pool;  // Per-command descriptor pool (for non-push-descriptor fallback)
 	skr_destroy_list_t destroy_list;
 	bool               alive;
 	uint64_t           generation;  // Incremented each time this slot is reused
@@ -57,6 +58,7 @@ typedef struct {
 // Command context returned from command begin/acquire
 typedef struct {
 	VkCommandBuffer     cmd;
+	VkDescriptorPool    descriptor_pool;  // Per-command descriptor pool (VK_NULL_HANDLE if push descriptors enabled)
 	skr_destroy_list_t* destroy_list;
 } _skr_cmd_ctx_t;
 
@@ -94,10 +96,6 @@ typedef struct {
 	bool                     validation_enabled;
 	bool                     has_push_descriptors;  // VK_KHR_push_descriptor support
 	bool                     initialized;
-	
-	// Descriptor set pool for non-push-descriptor fallback
-	VkDescriptorPool         frame_descriptor_pools[SKR_MAX_FRAMES_IN_FLIGHT];
-	uint32_t                 frame_descriptor_set_count[SKR_MAX_FRAMES_IN_FLIGHT];
 	bool                     in_frame;  // True when between frame_begin and frame_end
 	pthread_t                main_thread_id;  // Thread that calls skr_init
 	uint32_t                 frame;
@@ -212,3 +210,6 @@ void                  _skr_cmd_destroy_swapchain            (skr_destroy_list_t*
 void                  _skr_cmd_destroy_surface              (skr_destroy_list_t* opt_list, VkSurfaceKHR             handle);
 void                  _skr_cmd_destroy_debug_messenger      (skr_destroy_list_t* opt_list, VkDebugUtilsMessengerEXT handle);
 void                  _skr_cmd_destroy_memory               (skr_destroy_list_t* opt_list, VkDeviceMemory           handle);
+
+// Descriptor helper (allocates and binds descriptor set, handles push descriptors vs fallback)
+void                  _skr_bind_descriptors                 (VkCommandBuffer cmd, VkDescriptorPool pool, VkPipelineBindPoint bind_point, VkPipelineLayout layout, VkDescriptorSetLayout desc_layout, VkWriteDescriptorSet* writes, uint32_t write_count);
