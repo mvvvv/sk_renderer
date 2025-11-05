@@ -34,7 +34,7 @@ static float _get_terrain_height(float x, float z) {
 	return sinf(x * 0.2f) * cosf(z * 0.2f) * 2.0f;
 }
 
-static scene_t* _scene_impostor_create() {
+static scene_t* _scene_impostor_create(void) {
 	scene_impostor_t* scene = calloc(1, sizeof(scene_impostor_t));
 	if (!scene) return NULL;
 

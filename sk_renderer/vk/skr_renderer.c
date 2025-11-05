@@ -47,7 +47,7 @@ static VkFramebuffer _skr_get_or_create_framebuffer(skr_tex_t* cache_target, VkR
 	return *cached_fb;
 }
 
-static void _skr_ensure_buffer(skr_buffer_t* buffer, bool* ref_valid, const void* data, size_t size, skr_buffer_type_ type, const char* name) {
+static void _skr_ensure_buffer(skr_buffer_t* buffer, bool* ref_valid, const void* data, uint32_t size, skr_buffer_type_ type, const char* name) {
 	bool needs_recreate = !*ref_valid || buffer->size < size;
 
 	if (needs_recreate) {
@@ -403,7 +403,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 
 	// Transition any source textures in material to shader-read layout
 	const sksc_shader_meta_t* meta = material->info.shader->meta;
-	for (int32_t i=0;i<meta->resource_count;i++) {
+	for (uint32_t i=0; i<meta->resource_count; i++) {
 		skr_material_bind_t* res = &material->binds[meta->buffer_count + i];
 		if (res->texture)
 			_skr_tex_transition_for_shader_read(ctx.cmd, res->texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
@@ -507,7 +507,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	_skr_cmd_release(ctx.cmd);
 }
 
-void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t system_data_size, int32_t instance_multiplier) {
+void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_t system_data_size, int32_t instance_multiplier) {
 	if (!list || list->count == 0) return;
 	instance_multiplier = (instance_multiplier < 1) ? 1 : instance_multiplier;
 

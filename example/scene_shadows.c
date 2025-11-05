@@ -73,7 +73,7 @@ static HMM_Vec3 _quantize_light_pos(HMM_Vec3 pos, HMM_Mat4 view_matrix, float te
 	return HMM_V3(world_pos.X, world_pos.Y, world_pos.Z);
 }
 
-static scene_t* _scene_shadows_create() {
+static scene_t* _scene_shadows_create(void) {
 	scene_shadows_t* scene = calloc(1, sizeof(scene_shadows_t));
 	if (!scene) return NULL;
 

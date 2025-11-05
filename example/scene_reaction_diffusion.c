@@ -50,7 +50,7 @@ static float _hash_f(int32_t aPosition, uint32_t aSeed) {
 	return (float)mangled / (float)4294967295;
 }
 
-static scene_t* _scene_reaction_diffusion_create() {
+static scene_t* _scene_reaction_diffusion_create(void) {
 	scene_reaction_diffusion_t* scene = calloc(1, sizeof(scene_reaction_diffusion_t));
 	if (!scene) return NULL;
 

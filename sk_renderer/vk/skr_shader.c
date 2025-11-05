@@ -15,7 +15,7 @@
 // Shader stage creation
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_shader_stage_t _skr_shader_stage_create(const void* shader_data, size_t shader_size, skr_stage_ type) {
+skr_shader_stage_t _skr_shader_stage_create(const void* shader_data, uint32_t shader_size, skr_stage_ type) {
 	skr_shader_stage_t stage = {0};
 	stage.type               = type;
 
@@ -72,7 +72,7 @@ skr_shader_t _skr_shader_create_manual(sksc_shader_meta_t* meta, skr_shader_stag
 	return shader;
 }
 
-skr_err_ skr_shader_create(const void* shader_data, size_t data_size, skr_shader_t* out_shader) {
+skr_err_ skr_shader_create(const void* shader_data, uint32_t data_size, skr_shader_t* out_shader) {
 	if (!out_shader) return skr_err_invalid_parameter;
 
 	// Zero out immediately

@@ -74,7 +74,7 @@ static float _hash_f(int32_t aPosition, uint32_t aSeed) {
 	return (float)mangled / (float)4294967295;
 }
 
-static scene_t* _scene_orbital_particles_create() {
+static scene_t* _scene_orbital_particles_create(void) {
 	scene_orbital_particles_t* scene = calloc(1, sizeof(scene_orbital_particles_t));
 	if (!scene) return NULL;
 

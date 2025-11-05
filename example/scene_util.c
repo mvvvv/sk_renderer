@@ -415,7 +415,7 @@ skr_shader_t su_shader_load(const char* filename, const char* opt_name) {
 	skr_shader_t shader = {0};
 
 	if (su_file_read(filename, &shader_data, &shader_size)) {
-		skr_shader_create(shader_data, shader_size, &shader);
+		skr_shader_create(shader_data, (uint32_t)shader_size, &shader);
 		free(shader_data);
 
 		if (opt_name && skr_shader_is_valid(&shader)) {

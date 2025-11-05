@@ -62,8 +62,8 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 	// Allocate memory for our material resource binds
 	out_material->bind_count = meta->resource_count + meta->buffer_count;
 	out_material->binds      = (skr_material_bind_t*)calloc(out_material->bind_count, sizeof(skr_material_bind_t));
-	for (int32_t i = 0; i < meta->buffer_count;   i++) out_material->binds[i                   ].bind = meta->buffers  [i].bind;
-	for (int32_t i = 0; i < meta->resource_count; i++) out_material->binds[i+meta->buffer_count].bind = meta->resources[i].bind;
+	for (uint32_t i = 0; i < meta->buffer_count;   i++) out_material->binds[i                   ].bind = meta->buffers  [i].bind;
+	for (uint32_t i = 0; i < meta->resource_count; i++) out_material->binds[i+meta->buffer_count].bind = meta->resources[i].bind;
 
 	// Check if we have a SystemBuffer
 	skr_bind_t system_bind = sksc_shader_meta_get_bind(meta, "SystemBuffer");
@@ -84,7 +84,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 	}
 
 	// Fill out default textures
-	for (int32_t i = 0; i < meta->resource_count; i++) {
+	for (uint32_t i = 0; i < meta->resource_count; i++) {
 		skr_tex_t* tex = &_skr_vk.default_tex_white;
 		if      (strcmp(meta->resources[i].value, "black") == 0) tex = &_skr_vk.default_tex_black;
 		else if (strcmp(meta->resources[i].value, "gray" ) == 0) tex = &_skr_vk.default_tex_gray;

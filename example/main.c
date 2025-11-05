@@ -12,10 +12,6 @@
 
 
 int main(int argc, char* argv[]) {
-	char cwd[1024];
-	if (getcwd(cwd, sizeof(cwd)) != NULL) {
-		skr_logf(skr_log_info, "Working directory: %s", cwd);
-	}
 
 	// Configuration
 	const bool enable_validation = true;

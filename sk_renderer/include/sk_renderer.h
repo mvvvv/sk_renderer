@@ -441,7 +441,7 @@ skr_acquire_      skr_surface_next_tex             (      skr_surface_t* surface
 void              skr_surface_present              (      skr_surface_t* surface);
 skr_vec2i_t       skr_surface_get_size             (const skr_surface_t* surface);
 
-skr_err_          skr_shader_create                (const void *shader_data, size_t data_size, skr_shader_t* out_shader);
+skr_err_          skr_shader_create                (const void *shader_data, uint32_t data_size, skr_shader_t* out_shader);
 bool              skr_shader_is_valid              (const skr_shader_t* shader);
 void              skr_shader_destroy               (      skr_shader_t* shader);
 skr_bind_t        skr_shader_get_bind              (const skr_shader_t* shader, const char* bind_name);
@@ -495,7 +495,7 @@ void              skr_renderer_set_viewport        (skr_rect_t viewport);
 void              skr_renderer_set_scissor         (skr_recti_t scissor);
 void              skr_renderer_blit                (skr_material_t* material, skr_tex_t* to, skr_recti_t bounds_px);
 
-void              skr_renderer_draw                (skr_render_list_t* list, const void* system_data, size_t system_data_size, int32_t instance_multiplier);
+void              skr_renderer_draw                (skr_render_list_t* list, const void* system_data, uint32_t system_data_size, int32_t instance_multiplier);
 float             skr_renderer_get_gpu_time_ms     ();
 
 #ifdef __cplusplus

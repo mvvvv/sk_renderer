@@ -57,7 +57,7 @@ void skr_logf (skr_log_ level, const char *text, ...) {
 	va_list args, copy;
 	va_start(args, text);
 	va_copy (copy, args);
-	size_t length = vsnprintf(NULL, 0, text, args) + 1;
+	int32_t length = vsnprintf(NULL, 0, text, args) + 1;
 	char*  buffer = (char*)malloc(sizeof(char) * length);
 	vsnprintf(buffer, length, text, copy);
 

@@ -30,7 +30,7 @@ typedef struct {
 	float rotation;
 } scene_meshes_t;
 
-static scene_t* _scene_meshes_create() {
+static scene_t* _scene_meshes_create(void) {
 	scene_meshes_t* scene = calloc(1, sizeof(scene_meshes_t));
 	if (!scene) return NULL;
 

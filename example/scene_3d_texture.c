@@ -84,7 +84,7 @@ static uint32_t* _generate_3d_texture_data(int32_t size) {
 	return data;
 }
 
-static scene_t* _scene_3d_texture_create() {
+static scene_t* _scene_3d_texture_create(void) {
 	scene_3d_texture_t* scene = calloc(1, sizeof(scene_3d_texture_t));
 	if (!scene) return NULL;
 

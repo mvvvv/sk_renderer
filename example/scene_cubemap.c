@@ -37,7 +37,7 @@ typedef struct {
 	float rotation;
 } scene_cubemap_t;
 
-static scene_t* _scene_cubemap_create() {
+static scene_t* _scene_cubemap_create(void) {
 	scene_cubemap_t* scene = calloc(1, sizeof(scene_cubemap_t));
 	if (!scene) return NULL;
 
