@@ -482,9 +482,11 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		vkCmdSetViewport (ctx.cmd, 0, 1, &(VkViewport){(float)bounds_px.x, (float)bounds_px.y, (float)width, (float)height, 0.0f, 1.0f});
 		vkCmdSetScissor  (ctx.cmd, 0, 1, &(VkRect2D  ){{bounds_px.x, bounds_px.y}, {width, height}});
 
-		if (write_ct > 0) {
-			vkCmdPushDescriptorSetKHR(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(material->pipeline_material_idx), 0, write_ct, writes);
-		}
+		_skr_bind_descriptors(ctx.cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		                      _skr_pipeline_get_layout(material->pipeline_material_idx),
+		                      _skr_pipeline_get_descriptor_layout(material->pipeline_material_idx),
+		                      writes, write_ct);
+
 		// Draw fullscreen triangle - instanced for cubemaps/arrays, single for 2D
 		vkCmdDraw(ctx.cmd, 3, draw_instances, 0, 0);
 	}
@@ -509,7 +511,8 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t 
 	if (!list || list->count == 0) return;
 	instance_multiplier = (instance_multiplier < 1) ? 1 : instance_multiplier;
 
-	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+	VkCommandBuffer cmd = ctx.cmd;
 
 	_skr_render_list_sort(list);
 
@@ -635,9 +638,10 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, size_t 
 			&write_ct, &buffer_ct, &image_ct);
 
 		// Push all descriptors at once
-		if (write_ct > 0) {
-			vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _skr_pipeline_get_layout(mat->pipeline_material_idx), 0, write_ct, writes);
-		}
+		_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		                      _skr_pipeline_get_layout(mat->pipeline_material_idx),
+		                      _skr_pipeline_get_descriptor_layout(mat->pipeline_material_idx),
+		                      writes, write_ct);
 
 		// Bind vertex buffer
 		if (skr_buffer_is_valid(&item->mesh->vertex_buffer)) {

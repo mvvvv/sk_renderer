@@ -79,6 +79,7 @@ endif()
 if(ANDROID)
 	set(ANDROID_NDK ${CMAKE_ANDROID_NDK})
 endif()
+set(SDL_PIPEWIRE OFF CACHE BOOL "Disable PipeWire support" FORCE)
 FetchContent_Declare( sdl2
 	GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
 	GIT_TAG        release-2.30.10

@@ -70,7 +70,7 @@ skr_err_ skr_compute_create(const skr_shader_t* shader, skr_compute_t* out_compu
 
 		VkDescriptorSetLayoutCreateInfo layout_info = {
 			.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			.flags        = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+			.flags        = _skr_vk.has_push_descriptors ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0,
 			.bindingCount = binding_count,
 			.pBindings    = bindings,
 		};
@@ -209,7 +209,8 @@ void skr_compute_set_tex(skr_compute_t* compute, const char* name, skr_tex_t* te
 void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_t z) {
 	if (!skr_compute_is_valid(compute)) return;
 
-	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+	VkCommandBuffer cmd = ctx.cmd;
 	if (!cmd) {
 		skr_log(skr_log_warning, "skr_compute_execute failed to acquire command buffer");
 		return;
@@ -239,8 +240,8 @@ void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_
 
 	//_skr_log_descriptor_writes(writes, buffer_infos, image_infos, write_ct, buffer_ct, image_ct);
 
-	if (write_ct > 0)
-		vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->layout, 0, write_ct, writes);
+	_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_COMPUTE,
+	                      compute->layout, compute->descriptor_layout, writes, write_ct);
 
 	vkCmdDispatch(cmd, x, y, z);
 
@@ -261,7 +262,8 @@ void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_
 void skr_compute_execute_indirect(skr_compute_t* compute, skr_buffer_t* indirect_args) {
 	if (!skr_compute_is_valid(compute) || !indirect_args) return;
 
-	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+	VkCommandBuffer cmd = ctx.cmd;
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline);
 
 	VkWriteDescriptorSet   writes      [32];
@@ -276,8 +278,8 @@ void skr_compute_execute_indirect(skr_compute_t* compute, skr_buffer_t* indirect
 		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 		&write_ct, &buffer_ct, &image_ct);
 
-	if (write_ct > 0)
-		vkCmdPushDescriptorSetKHR(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->layout, 0, write_ct, writes);
+	_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_COMPUTE,
+	                      compute->layout, compute->descriptor_layout, writes, write_ct);
 
 	vkCmdDispatchIndirect(cmd, indirect_args->buffer, 0);
 	_skr_cmd_release(cmd);
