@@ -147,7 +147,7 @@ static void _scene_cubemap_render(scene_t* base, int32_t width, int32_t height, 
 	} instance_data_t;
 
 	// Create 3x3 grid of spheres with varying roughness
-	const int grid_size = 3;
+	#define grid_size 3
 	instance_data_t sphere_instances[grid_size * grid_size];
 
 	for (int z = 0; z < grid_size; z++) {

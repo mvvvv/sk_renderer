@@ -83,7 +83,7 @@ bool skr_init(skr_settings_t settings) {
 	memset(&_skr_vk, 0, sizeof(_skr_vk));
 	_skr_vk.validation_enabled        = settings.enable_validation;
 	_skr_vk.current_renderpass_idx    = -1;
-	_skr_vk.main_thread_id            = pthread_self();
+	_skr_vk.main_thread_id            = thrd_current();
 	_skr_vk.destroy_list              = _skr_destroy_list_create();
 
 	// Initialize volk

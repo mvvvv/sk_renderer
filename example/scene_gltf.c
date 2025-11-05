@@ -15,7 +15,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
+#include <threads.h>
 
 // Maximum number of meshes and textures we'll support
 #define MAX_GLTF_MESHES   32
@@ -62,7 +62,7 @@ typedef struct {
 
 // Data shared between main thread and loading thread
 typedef struct {
-	pthread_t              thread;
+	thrd_t                 thread;
 	gltf_load_state_       state;
 
 	// Loaded data (populated by loading thread)
@@ -393,7 +393,7 @@ static void _create_gpu_texture_and_bind(scene_gltf_t* scene, gltf_load_context_
 }
 
 // Thread function to load GLTF file
-static void* _load_gltf_thread(void* arg) {
+static int32_t _load_gltf_thread(void* arg) {
 	gltf_load_context_t* ctx = (gltf_load_context_t*)arg;
 
 	// Initialize this thread for sk_renderer
@@ -420,7 +420,7 @@ static void* _load_gltf_thread(void* arg) {
 		skr_log(skr_log_critical, "GLTF: Failed to read file");
 		ctx->state = gltf_load_state_error;
 		skr_thread_shutdown();
-		return NULL;
+		return 0;
 	}
 
 	// Parse GLTF with file reader configured
@@ -435,7 +435,7 @@ static void* _load_gltf_thread(void* arg) {
 		free(file_data);
 		ctx->state = gltf_load_state_error;
 		skr_thread_shutdown();
-		return NULL;
+		return 0;
 	}
 
 	// Load buffers
@@ -446,7 +446,7 @@ static void* _load_gltf_thread(void* arg) {
 		free(file_data);
 		ctx->state = gltf_load_state_error;
 		skr_thread_shutdown();
-		return NULL;
+		return 0;
 	}
 
 	// Extract meshes from scene and create GPU resources
@@ -537,10 +537,10 @@ static void* _load_gltf_thread(void* arg) {
 	skr_logf(skr_log_info, "GLTF: Ready (%d meshes, %d textures)", ctx->mesh_count, scene->texture_count);
 	ctx->state = gltf_load_state_ready;
 	skr_thread_shutdown();
-	return NULL;
+	return 0;
 }
 
-static scene_t* _scene_gltf_create() {
+static scene_t* _scene_gltf_create(void) {
 	scene_gltf_t* scene = calloc(1, sizeof(scene_gltf_t));
 	if (!scene) return NULL;
 
@@ -588,7 +588,7 @@ static scene_t* _scene_gltf_create() {
 	scene->load_ctx->scene = scene;
 	snprintf(scene->load_ctx->filepath, sizeof(scene->load_ctx->filepath), "DamagedHelmet.glb");
 
-	pthread_create(&scene->load_ctx->thread, NULL, _load_gltf_thread, scene->load_ctx);
+	thrd_create(&scene->load_ctx->thread, _load_gltf_thread, scene->load_ctx);
 
 	// Load equirectangular image and convert to cubemap
 	scene->cubemap_ready = false;
@@ -677,7 +677,7 @@ static void _scene_gltf_destroy(scene_t* base) {
 
 	// Wait for loading thread to finish
 	if (scene->load_ctx) {
-		pthread_join(scene->load_ctx->thread, NULL);
+		thrd_join(scene->load_ctx->thread, NULL);
 
 		// Free loaded data
 		for (int32_t i = 0; i < scene->load_ctx->mesh_count; i++) {

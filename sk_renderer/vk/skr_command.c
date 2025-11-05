@@ -7,7 +7,6 @@
 #include "../skr_log.h"
 
 #include <assert.h>
-#include <pthread.h>
 #include <threads.h>
 #include <string.h>
 #include <stdlib.h>
@@ -32,7 +31,7 @@ void _skr_cmd_shutdown() {
 	vkDeviceWaitIdle(_skr_vk.device);
 
 	// Destroy thread command pools and per-thread command ring fences
-	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
+	mtx_lock(&_skr_vk.thread_pool_mutex);
 	for (uint32_t i = 0; i < skr_MAX_THREAD_POOLS; i++) {
 		_skr_vk_thread_t *thread = &_skr_vk.thread_pools[i];
 		
@@ -52,7 +51,7 @@ void _skr_cmd_shutdown() {
 
 		*thread = (_skr_vk_thread_t){};
 	}
-	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
+	mtx_unlock(&_skr_vk.thread_pool_mutex);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -85,7 +84,7 @@ void skr_thread_init() {
 	SKR_VK_CHECK_RET(vr, "vkCreateCommandPool",);
 
 	// Lock and find an available slot
-	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
+	mtx_lock(&_skr_vk.thread_pool_mutex);
 
 	// Search for first available slot (either never used or marked non-alive)
 	int32_t thread_idx = -1;
@@ -97,7 +96,7 @@ void skr_thread_init() {
 	}
 
 	if (thread_idx < 0) {
-		pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
+		mtx_unlock(&_skr_vk.thread_pool_mutex);
 		vkDestroyCommandPool(_skr_vk.device, thread.cmd_pool, NULL);
 		skr_logf(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
 		return;
@@ -108,7 +107,7 @@ void skr_thread_init() {
 	thread.thread_idx                = thread_idx;
 	_skr_vk.thread_pools[thread_idx] = thread;
 
-	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
+	mtx_unlock(&_skr_vk.thread_pool_mutex);
 
 	char name[64];
 	snprintf(name, sizeof(name), "CommandPool_thr%d", thread_idx);
@@ -127,7 +126,7 @@ void skr_thread_shutdown() {
 		return;
 	}
 
-	pthread_mutex_lock(&_skr_vk.thread_pool_mutex);
+	mtx_lock(&_skr_vk.thread_pool_mutex);
 
 	_skr_vk_thread_t *thread = &_skr_vk.thread_pools[_skr_thread_idx];
 
@@ -162,7 +161,7 @@ void skr_thread_shutdown() {
 
 	_skr_thread_idx = -1;
 
-	pthread_mutex_unlock(&_skr_vk.thread_pool_mutex);
+	mtx_unlock(&_skr_vk.thread_pool_mutex);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

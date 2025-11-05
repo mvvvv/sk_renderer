@@ -9,7 +9,7 @@
 #include "skr_vulkan.h"
 
 #include <volk.h>
-#include <pthread.h>
+#include <threads.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 // Internal state
@@ -97,7 +97,7 @@ typedef struct {
 	bool                     has_push_descriptors;  // VK_KHR_push_descriptor support
 	bool                     initialized;
 	bool                     in_frame;  // True when between frame_begin and frame_end
-	pthread_t                main_thread_id;  // Thread that calls skr_init
+	thrd_t                   main_thread_id;  // Thread that calls skr_init
 	uint32_t                 frame;
 	uint32_t                 flight_idx;
 
@@ -126,7 +126,7 @@ typedef struct {
 	uint32_t                 transfer_queue_family;
 	bool                     has_dedicated_transfer;
 	_skr_vk_thread_t         thread_pools[skr_MAX_THREAD_POOLS];
-	pthread_mutex_t          thread_pool_mutex;
+	mtx_t                    thread_pool_mutex;
 
 	// Default assets
 	skr_tex_t                default_tex_white;

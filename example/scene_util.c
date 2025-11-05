@@ -14,11 +14,7 @@
 #include <math.h>
 #include <stdio.h>
 
-#ifdef __ANDROID__
 #include <SDL.h>
-#else
-#include <unistd.h>
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common Texture Samplers
@@ -371,7 +367,6 @@ skr_tex_t su_tex_create_solid_color(uint32_t color) {
 ///////////////////////////////////////////////////////////////////////////////
 
 bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
-#ifdef __ANDROID__
 	// Use SDL's RWops to read from Android assets
 	SDL_RWops* rw = SDL_RWFromFile(filename, "rb");
 	if (!rw) {
@@ -407,50 +402,6 @@ bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
 	}
 
 	return true;
-#else
-	// Try to open the file directly first
-	FILE* fp = fopen(filename, "rb");
-
-	// If that fails, try relative to executable directory
-	if (fp == NULL) {
-		char exe_path[1024];
-		ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-		if (len == -1) {
-			skr_logf(skr_log_critical, "Failed to read executable path for file '%s'", filename);
-			return false;
-		}
-		exe_path[len] = '\0';
-
-		char* last_slash = strrchr(exe_path, '/');
-		if (last_slash) *last_slash = '\0';
-
-		// Build full path
-		char full_path[2048];
-		snprintf(full_path, sizeof(full_path), "%s/%s", exe_path, filename);
-
-		fp = fopen(full_path, "rb");
-		if (fp == NULL) {
-			skr_logf(skr_log_critical, "Failed to open file '%s' (tried '%s' and '%s')", filename, filename, full_path);
-			return false;
-		}
-	}
-
-	fseek(fp, 0L, SEEK_END);
-	*out_size = ftell(fp);
-	rewind(fp);
-
-	*out_data = malloc(*out_size);
-	if (*out_data == NULL) {
-		skr_logf(skr_log_critical, "Failed to allocate %zu bytes for file '%s'", *out_size, filename);
-		*out_size = 0;
-		fclose(fp);
-		return false;
-	}
-	fread(*out_data, *out_size, 1, fp);
-	fclose(fp);
-
-	return true;
-#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////

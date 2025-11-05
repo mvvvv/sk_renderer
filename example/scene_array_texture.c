@@ -35,7 +35,7 @@ typedef struct {
 	float eye_separation;
 } scene_array_texture_t;
 
-static scene_t* _scene_array_texture_create() {
+static scene_t* _scene_array_texture_create(void) {
 	scene_array_texture_t* scene = calloc(1, sizeof(scene_array_texture_t));
 	if (!scene) return NULL;
 
@@ -222,13 +222,12 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 	sys_buffer.cam_dir[1][3] = 0.0f;
 
 	// Build cube instance data (configurable grid)
-	const int32_t grid_size_x = 100;
-	const int32_t grid_size_z = 100;
+	#define       grid_size_x 100
+	#define       grid_size_z 100
 	const float   spacing     = 2.0f;
 	const int32_t total_cubes = grid_size_x * grid_size_z;
 
-	typedef struct { HMM_Mat4 world; } instance_data_t;
-	instance_data_t cube_instances[total_cubes];
+	HMM_Mat4 cube_instances[grid_size_x*grid_size_z];
 
 	for (int z = 0; z < grid_size_z; z++) {
 		for (int x = 0; x < grid_size_x; x++) {
@@ -236,7 +235,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 			float xpos = (x - grid_size_x * 0.5f + 0.5f) * spacing;
 			float zpos = (z - grid_size_z * 0.5f + 0.5f) * spacing;
 			float yrot = scene->rotation + (x + z) * 0.2f;
-			cube_instances[idx].world = su_matrix_trs(
+			cube_instances[idx] = su_matrix_trs(
 				HMM_V3(xpos, 0.0f, zpos),
 				HMM_V3(0.0f, yrot, 0.0f),
 				HMM_V3(1.0f, 1.0f, 1.0f)
@@ -249,7 +248,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 	skr_renderer_set_viewport((skr_rect_t ){0, 0, (float)scene->array_render_target.size.x, (float)scene->array_render_target.size.y});
 	skr_renderer_set_scissor ((skr_recti_t){0, 0, scene->array_render_target.size.x, scene->array_render_target.size.y});
 
-	skr_render_list_add  (&scene->render_list, &scene->cube_mesh, &scene->cube_material, cube_instances, sizeof(instance_data_t), total_cubes);
+	skr_render_list_add  (&scene->render_list, &scene->cube_mesh, &scene->cube_material, cube_instances, sizeof(HMM_Mat4), total_cubes);
 	skr_renderer_draw    (&scene->render_list, &sys_buffer, sizeof(app_system_buffer_t), sys_buffer.view_count);
 	skr_render_list_clear(&scene->render_list);
 	skr_renderer_end_pass();

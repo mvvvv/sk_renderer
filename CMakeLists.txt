@@ -68,9 +68,6 @@ target_sources            (sk_renderer PRIVATE
 	sk_renderer/vk/skr_debug.c
 	sk_renderer/vk/skr_destroy_list.c
 )
-if(NOT ANDROID)
-	target_link_libraries(sk_renderer PRIVATE pthread)
-endif()
 
 ###############################################################################
 # sk_renderer test app
@@ -114,7 +111,12 @@ if(ANDROID)
 else()
 	add_executable(sk_renderer_test)
 endif()
-target_link_libraries     (sk_renderer_test PRIVATE SDL2::SDL2 sk_renderer m)
+if (UNIX)
+	target_link_libraries(sk_renderer_test PRIVATE m)
+elseif(WIN32)
+	target_link_libraries(sk_renderer_test PRIVATE SDL2::SDL2main)
+endif()
+target_link_libraries     (sk_renderer_test PRIVATE SDL2::SDL2 sk_renderer)
 target_include_directories(sk_renderer_test PRIVATE ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR})
 target_sources            (sk_renderer_test PRIVATE
 	example/main.c
@@ -156,10 +158,6 @@ skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH}/shaders ""
     example/assets/shaders/test.hlsl
     example/assets/shaders/texture3d.hlsl
 )
-
-if(NOT ANDROID)
-	target_link_libraries(sk_renderer_test PRIVATE pthread)
-endif()
 
 ###############################################################################
 # Android build configuration
