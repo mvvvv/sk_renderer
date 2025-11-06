@@ -74,12 +74,6 @@ typedef struct {
 } _skr_vk_thread_t;
 
 typedef struct {
-	VkDescriptorSet sets[64];      // Pool of descriptor sets
-	uint32_t        next_free;     // Next free index
-	uint32_t        flight_marker; // Which flight owns these sets (for recycling)
-} _skr_compute_descriptor_pool_t;
-
-typedef struct {
 	VkInstance               instance;
 	VkPhysicalDevice         physical_device;
 	VkDevice                 device;
@@ -117,9 +111,10 @@ typedef struct {
 	skr_tex_t*               global_textures[16];
 
 	// Deferred texture transition tracking (to avoid in-renderpass barriers)
-	skr_tex_t*               pending_transitions[64];
-	uint8_t                  pending_transition_types[64];  // 0=shader_read, 1=storage
+	skr_tex_t**              pending_transitions;
+	uint8_t*                 pending_transition_types;  // 0=shader_read, 1=storage
 	uint32_t                 pending_transition_count;
+	uint32_t                 pending_transition_capacity;
 
 	// Command system
 	VkQueue                  transfer_queue;

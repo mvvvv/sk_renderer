@@ -511,6 +511,10 @@ void skr_shutdown() {
 	_skr_destroy_list_execute(&_skr_vk.destroy_list);
 	_skr_destroy_list_free   (&_skr_vk.destroy_list);
 
+	// Free dynamic arrays
+	if (_skr_vk.pending_transitions)      free(_skr_vk.pending_transitions);
+	if (_skr_vk.pending_transition_types) free(_skr_vk.pending_transition_types);
+
 	// Destroy device and instance directly (special cases not in destroy list)
 	if (_skr_vk.device   != VK_NULL_HANDLE) { vkDestroyDevice  (_skr_vk.device,   NULL); }
 	if (_skr_vk.instance != VK_NULL_HANDLE) { vkDestroyInstance(_skr_vk.instance, NULL); }

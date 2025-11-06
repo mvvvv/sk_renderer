@@ -84,12 +84,18 @@ void _skr_tex_transition_enqueue(skr_tex_t* tex, uint8_t type) {
 		}
 	}
 
-	// Add to queue if space available
-	if (_skr_vk.pending_transition_count < 64) {
-		_skr_vk.pending_transitions[_skr_vk.pending_transition_count] = tex;
-		_skr_vk.pending_transition_types[_skr_vk.pending_transition_count] = type;
-		_skr_vk.pending_transition_count++;
+	// Grow array if needed
+	if (_skr_vk.pending_transition_count >= _skr_vk.pending_transition_capacity) {
+		uint32_t new_capacity = _skr_vk.pending_transition_capacity == 0 ? 16 : _skr_vk.pending_transition_capacity * 2;
+		_skr_vk.pending_transitions      = realloc(_skr_vk.pending_transitions, new_capacity * sizeof(skr_tex_t*));
+		_skr_vk.pending_transition_types = realloc(_skr_vk.pending_transition_types, new_capacity * sizeof(uint8_t));
+		_skr_vk.pending_transition_capacity = new_capacity;
 	}
+
+	// Add to queue
+	_skr_vk.pending_transitions[_skr_vk.pending_transition_count] = tex;
+	_skr_vk.pending_transition_types[_skr_vk.pending_transition_count] = type;
+	_skr_vk.pending_transition_count++;
 }
 
 // Flush all pending texture transitions (called before render pass begins)
@@ -289,12 +295,22 @@ void skr_renderer_end_pass() {
 }
 
 void skr_renderer_set_global_constants(int32_t bind, const skr_buffer_t* buffer) {
-	if (bind < 0 || bind >= SKR_MAX_GLOBAL_BINDINGS) return;
+	if (bind < 0 || bind >= SKR_MAX_GLOBAL_BINDINGS) {
+		if (bind >= SKR_MAX_GLOBAL_BINDINGS) {
+			skr_logf(skr_log_critical, "Global buffer binding %d exceeds maximum of %d slots", bind, SKR_MAX_GLOBAL_BINDINGS);
+		}
+		return;
+	}
 	_skr_vk.global_buffers[bind] = (skr_buffer_t*)buffer;
 }
 
 void skr_renderer_set_global_texture(int32_t bind, const skr_tex_t* tex) {
-	if (bind < 0 || bind >= SKR_MAX_GLOBAL_BINDINGS) return;
+	if (bind < 0 || bind >= SKR_MAX_GLOBAL_BINDINGS) {
+		if (bind >= SKR_MAX_GLOBAL_BINDINGS) {
+			skr_logf(skr_log_critical, "Global texture binding %d exceeds maximum of %d slots", bind, SKR_MAX_GLOBAL_BINDINGS);
+		}
+		return;
+	}
 	_skr_vk.global_textures[bind] = (skr_tex_t*)tex;
 
 	// Queue transition for this global texture (only if needed)
