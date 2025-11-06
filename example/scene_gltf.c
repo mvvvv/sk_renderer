@@ -356,7 +356,7 @@ static void _create_gpu_texture_and_bind(scene_gltf_t* scene, gltf_load_context_
 	if (!tex_data->valid || !tex_data->pixels) return;
 
 	skr_tex_create(
-		skr_tex_fmt_rgba32,
+		skr_tex_fmt_rgba32_srgb,
 		skr_tex_flags_readable | skr_tex_flags_gen_mips,
 		su_sampler_linear_wrap,
 		(skr_vec3i_t){tex_data->width, tex_data->height, 1},
@@ -601,7 +601,7 @@ static scene_t* _scene_gltf_create(void) {
 		if (equirect_data && equirect_width > 0 && equirect_height > 0) {
 			// Create equirectangular texture (stored in scene struct to avoid stack variable)
 			skr_tex_create(
-				skr_tex_fmt_rgba32,
+				skr_tex_fmt_rgba32_srgb,
 				skr_tex_flags_readable,
 				su_sampler_linear_wrap,
 				(skr_vec3i_t){equirect_width, equirect_height, 1},
@@ -613,7 +613,7 @@ static scene_t* _scene_gltf_create(void) {
 			// Create empty cubemap texture to render into
 			const int32_t cube_size = equirect_height/2;
 			skr_tex_create(
-				skr_tex_fmt_rgba32,
+				skr_tex_fmt_rgba32_srgb,
 				skr_tex_flags_readable | skr_tex_flags_writeable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
 				su_sampler_linear_clamp,
 				(skr_vec3i_t){cube_size, cube_size, 6},

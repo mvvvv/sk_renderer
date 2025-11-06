@@ -334,7 +334,7 @@ skr_tex_t su_tex_create_checkerboard(int32_t resolution, int32_t square_size, ui
 
 	skr_tex_t tex;
 	skr_tex_create(
-		skr_tex_fmt_rgba32,
+		skr_tex_fmt_rgba32_srgb,
 		flags,
 		su_sampler_linear_clamp,
 		(skr_vec3i_t){resolution, resolution, 1},
@@ -353,7 +353,7 @@ skr_tex_t su_tex_create_checkerboard(int32_t resolution, int32_t square_size, ui
 skr_tex_t su_tex_create_solid_color(uint32_t color) {
 	skr_tex_t tex;
 	skr_tex_create(
-		skr_tex_fmt_rgba32,
+		skr_tex_fmt_rgba32_srgb,
 		skr_tex_flags_readable,
 		su_sampler_linear_clamp,
 		(skr_vec3i_t){1, 1, 1},

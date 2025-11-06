@@ -159,7 +159,7 @@ static scene_t* _scene_impostor_create(void) {
 	int32_t width, height;
 	unsigned char* pixels = su_image_load("tree.png", &width, &height, NULL, 4);
 	if (pixels) {
-		skr_tex_create(skr_tex_fmt_rgba32,
+		skr_tex_create(skr_tex_fmt_rgba32_srgb,
 			skr_tex_flags_readable | skr_tex_flags_gen_mips,
 			su_sampler_linear_clamp,
 			(skr_vec3i_t){width, height, 1}, 1, 0, pixels, &scene->tree_texture);
@@ -172,7 +172,7 @@ static scene_t* _scene_impostor_create(void) {
 	// Load ground.png texture for terrain
 	pixels = su_image_load("ground.jpg", &width, &height, NULL, 4);
 	if (pixels) {
-		skr_tex_create(skr_tex_fmt_rgba32,
+		skr_tex_create(skr_tex_fmt_rgba32_srgb,
 			skr_tex_flags_readable | skr_tex_flags_gen_mips,
 			su_sampler_linear_wrap,  // Wrap for tiling
 			(skr_vec3i_t){width, height, 1}, 1, 0, pixels, &scene->ground_texture);

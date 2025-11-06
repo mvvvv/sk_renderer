@@ -1189,3 +1189,18 @@ VkSampler _skr_sampler_create_vk(skr_tex_sampler_t settings) {
 
 	return vk_sampler;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+bool skr_tex_fmt_is_supported(skr_tex_fmt_ format) {
+	VkFormat vk_format = _skr_to_vk_tex_fmt(format);
+	if (vk_format == VK_FORMAT_UNDEFINED) {
+		return false;
+	}
+
+	VkFormatProperties props;
+	vkGetPhysicalDeviceFormatProperties(_skr_vk.physical_device, vk_format, &props);
+
+	// Check if format supports either optimal tiling (for sampling/rendering) or linear tiling
+	return (props.optimalTilingFeatures != 0) || (props.linearTilingFeatures != 0);
+}

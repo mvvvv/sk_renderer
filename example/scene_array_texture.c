@@ -129,7 +129,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 
 		// Create 2-layer array texture
 		skr_tex_create(
-			skr_tex_fmt_rgba32,
+			skr_tex_fmt_rgba32_srgb,
 			skr_tex_flags_writeable | skr_tex_flags_readable | skr_tex_flags_array,
 			su_sampler_linear_clamp,
 			(skr_vec3i_t){width, height, 2},  // 2 layers

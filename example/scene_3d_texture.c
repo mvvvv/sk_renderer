@@ -119,7 +119,7 @@ static scene_t* _scene_3d_texture_create(void) {
 	const int32_t tex_size     = 64; // 64x64x64 volume
 	uint32_t*     texture_data = _generate_3d_texture_data(tex_size);
 	skr_tex_create(
-		skr_tex_fmt_rgba32,
+		skr_tex_fmt_rgba32_srgb,
 		skr_tex_flags_readable | skr_tex_flags_3d,
 		(skr_tex_sampler_t){ .sample  = skr_tex_sample_linear, .address = skr_tex_address_clamp },
 		(skr_vec3i_t){tex_size, tex_size, tex_size},

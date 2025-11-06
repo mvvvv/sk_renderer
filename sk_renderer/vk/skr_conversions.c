@@ -11,9 +11,9 @@
 
 VkFormat _skr_to_vk_tex_fmt(skr_tex_fmt_ format) {
 	switch (format) {
-		case skr_tex_fmt_rgba32:        return VK_FORMAT_R8G8B8A8_SRGB;
+		case skr_tex_fmt_rgba32_srgb:   return VK_FORMAT_R8G8B8A8_SRGB;
 		case skr_tex_fmt_rgba32_linear: return VK_FORMAT_R8G8B8A8_UNORM;
-		case skr_tex_fmt_bgra32:        return VK_FORMAT_B8G8R8A8_SRGB;
+		case skr_tex_fmt_bgra32_srgb:   return VK_FORMAT_B8G8R8A8_SRGB;
 		case skr_tex_fmt_bgra32_linear: return VK_FORMAT_B8G8R8A8_UNORM;
 		case skr_tex_fmt_rg11b10:       return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
 		case skr_tex_fmt_rgb10a2:       return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
@@ -25,7 +25,7 @@ VkFormat _skr_to_vk_tex_fmt(skr_tex_fmt_ format) {
 		case skr_tex_fmt_r16u:          return VK_FORMAT_R16_UINT;
 		case skr_tex_fmt_r16s:          return VK_FORMAT_R16_SINT;
 		case skr_tex_fmt_r16f:          return VK_FORMAT_R16_SFLOAT;
-		case skr_tex_fmt_r32:           return VK_FORMAT_R32_SFLOAT;
+		case skr_tex_fmt_r32f:          return VK_FORMAT_R32_SFLOAT;
 		case skr_tex_fmt_depth32s8:     return VK_FORMAT_D32_SFLOAT_S8_UINT;
 		case skr_tex_fmt_depth24s8:     return VK_FORMAT_D24_UNORM_S8_UINT;
 		case skr_tex_fmt_depth16s8:     return VK_FORMAT_D16_UNORM_S8_UINT;
@@ -64,9 +64,9 @@ VkFormat _skr_to_vk_tex_fmt(skr_tex_fmt_ format) {
 
 skr_tex_fmt_ _skr_from_vk_tex_fmt(VkFormat format) {
 	switch (format) {
-		case VK_FORMAT_R8G8B8A8_SRGB:              return skr_tex_fmt_rgba32;
+		case VK_FORMAT_R8G8B8A8_SRGB:              return skr_tex_fmt_rgba32_srgb;
 		case VK_FORMAT_R8G8B8A8_UNORM:             return skr_tex_fmt_rgba32_linear;
-		case VK_FORMAT_B8G8R8A8_SRGB:              return skr_tex_fmt_bgra32;
+		case VK_FORMAT_B8G8R8A8_SRGB:              return skr_tex_fmt_bgra32_srgb;
 		case VK_FORMAT_B8G8R8A8_UNORM:             return skr_tex_fmt_bgra32_linear;
 		case VK_FORMAT_B10G11R11_UFLOAT_PACK32:    return skr_tex_fmt_rg11b10;
 		case VK_FORMAT_A2B10G10R10_UNORM_PACK32:   return skr_tex_fmt_rgb10a2;
@@ -78,7 +78,7 @@ skr_tex_fmt_ _skr_from_vk_tex_fmt(VkFormat format) {
 		case VK_FORMAT_R16_UINT:                   return skr_tex_fmt_r16u;
 		case VK_FORMAT_R16_SINT:                   return skr_tex_fmt_r16s;
 		case VK_FORMAT_R16_SFLOAT:                 return skr_tex_fmt_r16f;
-		case VK_FORMAT_R32_SFLOAT:                 return skr_tex_fmt_r32;
+		case VK_FORMAT_R32_SFLOAT:                 return skr_tex_fmt_r32f;
 		case VK_FORMAT_D32_SFLOAT_S8_UINT:         return skr_tex_fmt_depth32s8;
 		case VK_FORMAT_D24_UNORM_S8_UINT:          return skr_tex_fmt_depth24s8;
 		case VK_FORMAT_D16_UNORM_S8_UINT:          return skr_tex_fmt_depth16s8;
@@ -102,11 +102,11 @@ skr_tex_fmt_ _skr_from_vk_tex_fmt(VkFormat format) {
 		case VK_FORMAT_EAC_R11_UNORM_BLOCK:        return skr_tex_fmt_etc2_r11;
 		case VK_FORMAT_EAC_R11G11_UNORM_BLOCK:     return skr_tex_fmt_etc2_rg11;
 		case VK_FORMAT_PVRTC1_2BPP_SRGB_BLOCK_IMG: return skr_tex_fmt_pvrtc1_rgb_srgb;
-		case VK_FORMAT_PVRTC1_2BPP_UNORM_BLOCK_IMG: return skr_tex_fmt_pvrtc1_rgb;
+		case VK_FORMAT_PVRTC1_2BPP_UNORM_BLOCK_IMG:return skr_tex_fmt_pvrtc1_rgb;
 		case VK_FORMAT_PVRTC1_4BPP_SRGB_BLOCK_IMG: return skr_tex_fmt_pvrtc1_rgba_srgb;
-		case VK_FORMAT_PVRTC1_4BPP_UNORM_BLOCK_IMG: return skr_tex_fmt_pvrtc1_rgba;
+		case VK_FORMAT_PVRTC1_4BPP_UNORM_BLOCK_IMG:return skr_tex_fmt_pvrtc1_rgba;
 		case VK_FORMAT_PVRTC2_4BPP_SRGB_BLOCK_IMG: return skr_tex_fmt_pvrtc2_rgba_srgb;
-		case VK_FORMAT_PVRTC2_4BPP_UNORM_BLOCK_IMG: return skr_tex_fmt_pvrtc2_rgba;
+		case VK_FORMAT_PVRTC2_4BPP_UNORM_BLOCK_IMG:return skr_tex_fmt_pvrtc2_rgba;
 		case VK_FORMAT_ASTC_4x4_SRGB_BLOCK:        return skr_tex_fmt_astc4x4_rgba_srgb;
 		case VK_FORMAT_ASTC_4x4_UNORM_BLOCK:       return skr_tex_fmt_astc4x4_rgba;
 		default:                                   return skr_tex_fmt_none;
@@ -119,9 +119,9 @@ skr_tex_fmt_ _skr_from_vk_tex_fmt(VkFormat format) {
 
 uint32_t _skr_tex_fmt_to_size(skr_tex_fmt_ format) {
 	switch (format) {
-		case skr_tex_fmt_rgba32:
+		case skr_tex_fmt_rgba32_srgb:
 		case skr_tex_fmt_rgba32_linear:
-		case skr_tex_fmt_bgra32:
+		case skr_tex_fmt_bgra32_srgb:
 		case skr_tex_fmt_bgra32_linear:
 		case skr_tex_fmt_rg11b10:
 		case skr_tex_fmt_rgb10a2:       return 4;
@@ -133,7 +133,7 @@ uint32_t _skr_tex_fmt_to_size(skr_tex_fmt_ format) {
 		case skr_tex_fmt_r16u:
 		case skr_tex_fmt_r16s:
 		case skr_tex_fmt_r16f:          return 2;
-		case skr_tex_fmt_r32:           return 4;
+		case skr_tex_fmt_r32f:          return 4;
 		case skr_tex_fmt_depth32s8:     return 5;
 		case skr_tex_fmt_depth24s8:     return 4;
 		case skr_tex_fmt_depth16s8:     return 3;

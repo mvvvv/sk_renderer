@@ -114,9 +114,9 @@ typedef enum skr_use_ {
 
 typedef enum skr_tex_fmt_ {
 	skr_tex_fmt_none = 0,
-	skr_tex_fmt_rgba32 = 1,
+	skr_tex_fmt_rgba32_srgb = 1,
 	skr_tex_fmt_rgba32_linear = 2,
-	skr_tex_fmt_bgra32 = 3,
+	skr_tex_fmt_bgra32_srgb = 3,
 	skr_tex_fmt_bgra32_linear = 4,
 	skr_tex_fmt_rg11b10 = 5,
 	skr_tex_fmt_rgb10a2 = 6,
@@ -128,7 +128,7 @@ typedef enum skr_tex_fmt_ {
 	skr_tex_fmt_r16u = 12,
 	skr_tex_fmt_r16s = 13,
 	skr_tex_fmt_r16f = 14,
-	skr_tex_fmt_r32 = 15,
+	skr_tex_fmt_r32f = 15,
 	skr_tex_fmt_depth24s8 = 16,
 	skr_tex_fmt_depth32 = 17,
 	skr_tex_fmt_depth16 = 18,
@@ -137,7 +137,6 @@ typedef enum skr_tex_fmt_ {
 
 	skr_tex_fmt_depth32s8,
 	skr_tex_fmt_depth16s8,
-
 
 	skr_tex_fmt_bc1_rgb_srgb,
 	skr_tex_fmt_bc1_rgb,

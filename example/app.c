@@ -94,12 +94,24 @@ app_t* app_create() {
 	if (!app) return NULL;
 
 	app->msaa             = 4;
-	app->offscreen_format = skr_tex_fmt_rgba32;//skr_tex_fmt_bgra32;
-	#if ANDROID
-	app->depth_format     = skr_tex_fmt_depth16;  // Use depth+stencil for stencil masking demo
-	#else
-	app->depth_format     = skr_tex_fmt_depth16s8;  // Use depth+stencil for stencil masking demo
-	#endif
+	app->offscreen_format = skr_tex_fmt_rgba32_srgb;//skr_tex_fmt_bgra32_srgb;
+
+	// Choose depth format (prefer smaller/faster formats with stencil for stencil masking demo)
+	if (skr_tex_fmt_is_supported(skr_tex_fmt_depth16s8)) {
+		app->depth_format = skr_tex_fmt_depth16s8;
+	} else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth24s8)) {
+		app->depth_format = skr_tex_fmt_depth24s8;
+	} else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth32s8)) {
+		app->depth_format = skr_tex_fmt_depth32s8;
+	}else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth16)) {
+		app->depth_format = skr_tex_fmt_depth16;
+	}  else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth32)) {
+		app->depth_format = skr_tex_fmt_depth32;
+	} else {
+		skr_log(skr_log_critical, "No supported depth format found!");
+		free(app);
+		return NULL;
+	}
 
 	// Initialize standard vertex types
 	su_vertex_types_init();

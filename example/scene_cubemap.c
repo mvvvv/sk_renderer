@@ -80,7 +80,7 @@ static scene_t* _scene_cubemap_create(void) {
 
 	// Create cubemap texture (6-layer texture with cubemap flag)
 	skr_tex_create(
-		skr_tex_fmt_rgba32,
+		skr_tex_fmt_rgba32_srgb,
 		skr_tex_flags_readable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
 		su_sampler_linear_clamp,
 		(skr_vec3i_t){cube_size, cube_size, 6},  // 6 faces
