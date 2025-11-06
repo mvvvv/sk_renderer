@@ -39,7 +39,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 	if (meta && meta->global_buffer_id >= 0) {
 		sksc_shader_buffer_t* global_buffer = &meta->buffers[meta->global_buffer_id];
 		out_material->param_buffer_size = global_buffer->size;
-		out_material->param_buffer = malloc(out_material->param_buffer_size);
+		out_material->param_buffer = _skr_malloc(out_material->param_buffer_size);
 
 		if (!out_material->param_buffer) {
 			skr_log(skr_log_critical, "Failed to allocate material parameter buffer");
@@ -61,7 +61,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 
 	// Allocate memory for our material resource binds
 	out_material->bind_count = meta->resource_count + meta->buffer_count;
-	out_material->binds      = (skr_material_bind_t*)calloc(out_material->bind_count, sizeof(skr_material_bind_t));
+	out_material->binds      = (skr_material_bind_t*)_skr_calloc(out_material->bind_count, sizeof(skr_material_bind_t));
 	for (uint32_t i = 0; i < meta->buffer_count;   i++) out_material->binds[i                   ].bind = meta->buffers  [i].bind;
 	for (uint32_t i = 0; i < meta->resource_count; i++) out_material->binds[i+meta->buffer_count].bind = meta->resources[i].bind;
 
@@ -74,8 +74,8 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 
 	if (out_material->pipeline_material_idx < 0) {
 		skr_log(skr_log_critical, "Failed to register material with pipeline system");
-		free(out_material->binds);
-		free(out_material->param_buffer);
+		_skr_free(out_material->binds);
+		_skr_free(out_material->param_buffer);
 		if (out_material->info.shader->meta) {
 			sksc_shader_meta_release(out_material->info.shader->meta);
 		}
@@ -108,8 +108,8 @@ void skr_material_destroy(skr_material_t* material) {
 	}
 
 	// Free allocated memory
-	free(material->param_buffer);
-	free(material->binds);
+	_skr_free(material->param_buffer);
+	_skr_free(material->binds);
 
 	if (material->info.shader && material->info.shader->meta) {
 		sksc_shader_meta_release(material->info.shader->meta);

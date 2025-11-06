@@ -12,6 +12,15 @@
 #include <threads.h>
 
 ///////////////////////////////////////////////////////////////////////////////
+// Memory allocation wrappers
+///////////////////////////////////////////////////////////////////////////////
+
+void* _skr_malloc (size_t size);
+void* _skr_calloc (size_t count, size_t size);
+void* _skr_realloc(void* ptr, size_t size);
+void  _skr_free   (void* ptr);
+
+///////////////////////////////////////////////////////////////////////////////
 // Internal state
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -90,6 +99,12 @@ typedef struct {
 	bool                     validation_enabled;
 	bool                     has_push_descriptors;  // VK_KHR_push_descriptor support
 	bool                     initialized;
+
+	// Memory allocators
+	void*                  (*malloc_func) (size_t size);
+	void*                  (*calloc_func) (size_t count, size_t size);
+	void*                  (*realloc_func)(void* ptr, size_t size);
+	void                   (*free_func)   (void* ptr);
 	bool                     in_frame;  // True when between frame_begin and frame_end
 	thrd_t                   main_thread_id;  // Thread that calls skr_init
 	uint32_t                 frame;

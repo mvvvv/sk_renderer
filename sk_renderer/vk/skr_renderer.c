@@ -87,8 +87,8 @@ void _skr_tex_transition_enqueue(skr_tex_t* tex, uint8_t type) {
 	// Grow array if needed
 	if (_skr_vk.pending_transition_count >= _skr_vk.pending_transition_capacity) {
 		uint32_t new_capacity = _skr_vk.pending_transition_capacity == 0 ? 16 : _skr_vk.pending_transition_capacity * 2;
-		_skr_vk.pending_transitions      = realloc(_skr_vk.pending_transitions, new_capacity * sizeof(skr_tex_t*));
-		_skr_vk.pending_transition_types = realloc(_skr_vk.pending_transition_types, new_capacity * sizeof(uint8_t));
+		_skr_vk.pending_transitions      = _skr_realloc(_skr_vk.pending_transitions, new_capacity * sizeof(skr_tex_t*));
+		_skr_vk.pending_transition_types = _skr_realloc(_skr_vk.pending_transition_types, new_capacity * sizeof(uint8_t));
 		_skr_vk.pending_transition_capacity = new_capacity;
 	}
 
@@ -542,7 +542,7 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		// Resize material param data if needed
 		while (list->material_data_used + material->param_buffer_size > list->material_data_capacity) {
 			list->material_data_capacity = list->material_data_capacity * 2;
-			list->material_data          = realloc(list->material_data, list->material_data_capacity);
+			list->material_data          = _skr_realloc(list->material_data, list->material_data_capacity);
 		}
 
 		memcpy(&list->material_data[list->material_data_used], material->param_buffer, material->param_buffer_size);

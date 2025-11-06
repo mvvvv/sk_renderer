@@ -22,6 +22,26 @@
 _skr_vk_t _skr_vk;
 
 ///////////////////////////////////////////////////////////////////////////////
+// Memory allocation wrappers
+///////////////////////////////////////////////////////////////////////////////
+
+void* _skr_malloc(size_t size) {
+	return _skr_vk.malloc_func(size);
+}
+
+void* _skr_calloc(size_t count, size_t size) {
+	return _skr_vk.calloc_func(count, size);
+}
+
+void* _skr_realloc(void* ptr, size_t size) {
+	return _skr_vk.realloc_func(ptr, size);
+}
+
+void _skr_free(void* ptr) {
+	_skr_vk.free_func(ptr);
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // Validation layers
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -80,11 +100,25 @@ bool skr_init(skr_settings_t settings) {
 		return false;
 	}
 
+	// Validate memory allocators - either all provided or none provided
+	int32_t allocator_count = (settings.malloc_func  != NULL) + (settings.calloc_func  != NULL) +
+	                          (settings.realloc_func != NULL) + (settings.free_func    != NULL);
+	if (allocator_count != 0 && allocator_count != 4) {
+		skr_log(skr_log_critical, "sk_renderer: Memory allocators must be all provided or all NULL");
+		return false;
+	}
+
 	memset(&_skr_vk, 0, sizeof(_skr_vk));
 	_skr_vk.validation_enabled        = settings.enable_validation;
 	_skr_vk.current_renderpass_idx    = -1;
 	_skr_vk.main_thread_id            = thrd_current();
 	_skr_vk.destroy_list              = _skr_destroy_list_create();
+
+	// Set up memory allocators (use stdlib if none provided)
+	_skr_vk.malloc_func  = settings.malloc_func  ? settings.malloc_func  : malloc;
+	_skr_vk.calloc_func  = settings.calloc_func  ? settings.calloc_func  : calloc;
+	_skr_vk.realloc_func = settings.realloc_func ? settings.realloc_func : realloc;
+	_skr_vk.free_func    = settings.free_func    ? settings.free_func    : free;
 
 	// Initialize volk
 	VkResult vr = volkInitialize();
@@ -116,7 +150,7 @@ bool skr_init(skr_settings_t settings) {
 	// Get available extensions
 	uint32_t available_ext_count = 0;
 	vkEnumerateInstanceExtensionProperties(NULL, &available_ext_count, NULL);
-	VkExtensionProperties* available_exts = malloc(available_ext_count * sizeof(VkExtensionProperties));
+	VkExtensionProperties* available_exts = _skr_malloc(available_ext_count * sizeof(VkExtensionProperties));
 	vkEnumerateInstanceExtensionProperties(NULL, &available_ext_count, available_exts);
 
 	// Filter extensions to only those available
@@ -136,7 +170,7 @@ bool skr_init(skr_settings_t settings) {
 			skr_logf(skr_log_warning, "Extension '%s' not available, skipping", desired_extensions[i]);
 		}
 	}
-	free(available_exts);
+	_skr_free(available_exts);
 
 	// Build list of desired layers
 	const char* desired_layers[8];
@@ -148,7 +182,7 @@ bool skr_init(skr_settings_t settings) {
 	// Get available layers
 	uint32_t available_layer_count = 0;
 	vkEnumerateInstanceLayerProperties(&available_layer_count, NULL);
-	VkLayerProperties* available_layers = malloc(available_layer_count * sizeof(VkLayerProperties));
+	VkLayerProperties* available_layers = _skr_malloc(available_layer_count * sizeof(VkLayerProperties));
 	vkEnumerateInstanceLayerProperties(&available_layer_count, available_layers);
 
 	// Filter layers to only those available
@@ -171,7 +205,7 @@ bool skr_init(skr_settings_t settings) {
 			}
 		}
 	}
-	free(available_layers);
+	_skr_free(available_layers);
 
 	VkInstanceCreateInfo instance_info = {
 		.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -313,7 +347,7 @@ bool skr_init(skr_settings_t settings) {
 	// Get available device extensions
 	uint32_t available_device_ext_count = 0;
 	vkEnumerateDeviceExtensionProperties(_skr_vk.physical_device, NULL, &available_device_ext_count, NULL);
-	VkExtensionProperties* available_device_exts = malloc(available_device_ext_count * sizeof(VkExtensionProperties));
+	VkExtensionProperties* available_device_exts = _skr_malloc(available_device_ext_count * sizeof(VkExtensionProperties));
 	vkEnumerateDeviceExtensionProperties(_skr_vk.physical_device, NULL, &available_device_ext_count, available_device_exts);
 
 	// Log available extensions for debugging
@@ -351,7 +385,7 @@ bool skr_init(skr_settings_t settings) {
 			skr_logf(skr_log_warning, "Device extension '%s' not available, skipping", desired_device_extensions[i]);
 		}
 	}
-	free(available_device_exts);
+	_skr_free(available_device_exts);
 
 	// Check required extensions
 	if (!has_swapchain) {
@@ -512,8 +546,8 @@ void skr_shutdown() {
 	_skr_destroy_list_free   (&_skr_vk.destroy_list);
 
 	// Free dynamic arrays
-	if (_skr_vk.pending_transitions)      free(_skr_vk.pending_transitions);
-	if (_skr_vk.pending_transition_types) free(_skr_vk.pending_transition_types);
+	if (_skr_vk.pending_transitions)      _skr_free(_skr_vk.pending_transitions);
+	if (_skr_vk.pending_transition_types) _skr_free(_skr_vk.pending_transition_types);
 
 	// Destroy device and instance directly (special cases not in destroy list)
 	if (_skr_vk.device   != VK_NULL_HANDLE) { vkDestroyDevice  (_skr_vk.device,   NULL); }

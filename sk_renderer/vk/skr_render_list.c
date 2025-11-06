@@ -4,6 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "sk_renderer.h"
+#include "_sk_renderer.h"
 
 #include "skr_vulkan.h"
 #include "../skr_log.h"
@@ -20,20 +21,20 @@ skr_err_ skr_render_list_create(skr_render_list_t* out_list) {
 	memset(out_list, 0, sizeof(skr_render_list_t));
 
 	out_list->capacity                       = 16;
-	out_list->items                          = malloc(sizeof(skr_render_item_t) * out_list->capacity);
+	out_list->items                          = _skr_malloc(sizeof(skr_render_item_t) * out_list->capacity);
 	out_list->instance_data_capacity         = 1024;
-	out_list->instance_data                  = malloc(out_list->instance_data_capacity);
+	out_list->instance_data                  = _skr_malloc(out_list->instance_data_capacity);
 	out_list->instance_data_sorted_capacity  = 1024;
-	out_list->instance_data_sorted           = malloc(out_list->instance_data_sorted_capacity);
+	out_list->instance_data_sorted           = _skr_malloc(out_list->instance_data_sorted_capacity);
 	out_list->material_data_capacity         = 1024;
-	out_list->material_data                  = malloc(out_list->material_data_capacity);
+	out_list->material_data                  = _skr_malloc(out_list->material_data_capacity);
 
 	if (!out_list->items || !out_list->instance_data || !out_list->instance_data_sorted || !out_list->material_data) {
 		skr_log(skr_log_critical, "Failed to allocate render list");
-		free(out_list->items);
-		free(out_list->instance_data);
-		free(out_list->instance_data_sorted);
-		free(out_list->material_data);
+		_skr_free(out_list->items);
+		_skr_free(out_list->instance_data);
+		_skr_free(out_list->instance_data_sorted);
+		_skr_free(out_list->material_data);
 		memset(out_list, 0, sizeof(skr_render_list_t));
 		return skr_err_out_of_memory;
 	}
@@ -58,10 +59,10 @@ void skr_render_list_destroy(skr_render_list_t* list) {
 	if (list->system_buffer_valid) {
 		skr_buffer_destroy(&list->system_buffer);
 	}
-	free(list->instance_data);
-	free(list->instance_data_sorted);
-	free(list->material_data);
-	free(list->items);
+	_skr_free(list->instance_data);
+	_skr_free(list->instance_data_sorted);
+	_skr_free(list->material_data);
+	_skr_free(list->items);
 	*list = (skr_render_list_t){};
 }
 
@@ -79,7 +80,7 @@ void skr_render_list_add(skr_render_list_t* list, skr_mesh_t* mesh, skr_material
 	// Grow if needed
 	if (list->count >= list->capacity) {
 		uint32_t           new_capacity = list->capacity * 2;
-		skr_render_item_t* new_items    = realloc(list->items, sizeof(skr_render_item_t) * new_capacity);
+		skr_render_item_t* new_items    = _skr_realloc(list->items, sizeof(skr_render_item_t) * new_capacity);
 		if (!new_items) {
 			skr_log(skr_log_critical, "Failed to grow render list");
 			return;
@@ -102,7 +103,7 @@ void skr_render_list_add(skr_render_list_t* list, skr_mesh_t* mesh, skr_material
 		// Resize instance data if needed
 		while (list->instance_data_used + total_size > list->instance_data_capacity) {
 			uint32_t new_capacity = list->instance_data_capacity * 2;
-			uint8_t* new_data     = realloc(list->instance_data, new_capacity);
+			uint8_t* new_data     = _skr_realloc(list->instance_data, new_capacity);
 			if (!new_data) {
 				skr_log(skr_log_critical, "Failed to grow render list instance data");
 				return;
@@ -150,8 +151,8 @@ void _skr_render_list_sort(skr_render_list_t* list) {
 	if (list->instance_data_used > 0) {
 		// Keep sorted buffer same size as instance_data buffer
 		if (list->instance_data_sorted_capacity != list->instance_data_capacity) {
-			free(list->instance_data_sorted);
-			list->instance_data_sorted          = malloc(list->instance_data_capacity);
+			_skr_free(list->instance_data_sorted);
+			list->instance_data_sorted          = _skr_malloc(list->instance_data_capacity);
 			list->instance_data_sorted_capacity = list->instance_data_capacity;
 			if (!list->instance_data_sorted) {
 				skr_log(skr_log_critical, "Failed to allocate render list sorted instance data");

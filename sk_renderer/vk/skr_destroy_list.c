@@ -59,7 +59,7 @@ skr_destroy_list_t _skr_destroy_list_create(void) {
 
 void _skr_destroy_list_free(skr_destroy_list_t* list) {
 	if (!list) return;
-	free(list->items);
+	_skr_free(list->items);
 	list->items    = NULL;
 	list->count    = 0;
 	list->capacity = 0;
@@ -73,7 +73,7 @@ static void _skr_destroy_list_ensure_capacity(skr_destroy_list_t* list, uint32_t
 		new_capacity *= 2;
 	}
 
-	skr_destroy_item_t* new_items = realloc(list->items, new_capacity * sizeof(skr_destroy_item_t));
+	skr_destroy_item_t* new_items = _skr_realloc(list->items, new_capacity * sizeof(skr_destroy_item_t));
 	if (!new_items) {
 		skr_log(skr_log_critical, "Failed to resize destroy list");
 		return;

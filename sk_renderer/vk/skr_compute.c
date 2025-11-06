@@ -121,7 +121,7 @@ skr_err_ skr_compute_create(const skr_shader_t* shader, skr_compute_t* out_compu
 
 	// Allocate memory for our resource binds
 	out_compute->bind_count = shader->meta->resource_count + shader->meta->buffer_count;
-	out_compute->binds      = (skr_material_bind_t*)calloc(out_compute->bind_count, sizeof(skr_material_bind_t));
+	out_compute->binds      = (skr_material_bind_t*)_skr_calloc(out_compute->bind_count, sizeof(skr_material_bind_t));
 	for (uint32_t i = 0; i < shader->meta->buffer_count;   i++) out_compute->binds[i                           ].bind = shader->meta->buffers  [i].bind;
 	for (uint32_t i = 0; i < shader->meta->resource_count; i++) out_compute->binds[i+shader->meta->buffer_count].bind = shader->meta->resources[i].bind;
 
@@ -148,7 +148,7 @@ void skr_compute_destroy(skr_compute_t* compute) {
 	_skr_cmd_destroy_descriptor_set_layout(NULL, compute->descriptor_layout);
 
 
-	free(compute->binds);
+	_skr_free(compute->binds);
 
 	memset(compute, 0, sizeof(skr_compute_t));
 }

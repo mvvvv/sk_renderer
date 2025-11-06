@@ -79,7 +79,7 @@ static void _skr_pipeline_grow_pipelines_array(int32_t old_m, int32_t new_m, int
 
 	if (new_size == 0) return;
 
-	VkPipeline* new_pipelines = calloc(new_size, sizeof(VkPipeline));
+	VkPipeline* new_pipelines = _skr_calloc(new_size, sizeof(VkPipeline));
 
 	// Copy existing pipelines to new layout
 	if (_skr_pipeline_cache.pipelines && old_size > 0) {
@@ -92,7 +92,7 @@ static void _skr_pipeline_grow_pipelines_array(int32_t old_m, int32_t new_m, int
 				}
 			}
 		}
-		free(_skr_pipeline_cache.pipelines);
+		_skr_free(_skr_pipeline_cache.pipelines);
 	}
 	_skr_pipeline_cache.pipelines = new_pipelines;
 }
@@ -120,7 +120,7 @@ void _skr_pipeline_shutdown() {
 				}
 			}
 		}
-		free(_skr_pipeline_cache.pipelines);
+		_skr_free(_skr_pipeline_cache.pipelines);
 	}
 
 	// Destroy material resources
@@ -135,7 +135,7 @@ void _skr_pipeline_shutdown() {
 				}
 			}
 		}
-		free(_skr_pipeline_cache.materials);
+		_skr_free(_skr_pipeline_cache.materials);
 	}
 
 	// Destroy render passes
@@ -146,12 +146,12 @@ void _skr_pipeline_shutdown() {
 				vkDestroyRenderPass(_skr_vk.device, _skr_pipeline_cache.renderpasses[r].render_pass, NULL);
 			}
 		}
-		free(_skr_pipeline_cache.renderpasses);
+		_skr_free(_skr_pipeline_cache.renderpasses);
 	}
 
 	// Free vertex formats
 	if (_skr_pipeline_cache.vertformats) {
-		free(_skr_pipeline_cache.vertformats);
+		_skr_free(_skr_pipeline_cache.vertformats);
 	}
 
 	memset(&_skr_pipeline_cache, 0, sizeof(_skr_pipeline_cache));
@@ -167,7 +167,7 @@ static void _skr_pipeline_grow_materials(int32_t min_capacity) {
 	}
 
 	// Grow materials array
-	_skr_pipeline_cache.materials = realloc(_skr_pipeline_cache.materials, new_capacity * sizeof(_skr_pipeline_material_slot_t));
+	_skr_pipeline_cache.materials = _skr_realloc(_skr_pipeline_cache.materials, new_capacity * sizeof(_skr_pipeline_material_slot_t));
 	memset(&_skr_pipeline_cache.materials[old_capacity], 0, (new_capacity - old_capacity) * sizeof(_skr_pipeline_material_slot_t));
 
 	// Grow pipelines 3D array
@@ -236,7 +236,7 @@ static void _skr_pipeline_grow_renderpasses(int32_t min_capacity) {
 	}
 
 	// Grow renderpasses array
-	_skr_pipeline_cache.renderpasses = realloc(_skr_pipeline_cache.renderpasses, new_capacity * sizeof(_skr_pipeline_renderpass_slot_t));
+	_skr_pipeline_cache.renderpasses = _skr_realloc(_skr_pipeline_cache.renderpasses, new_capacity * sizeof(_skr_pipeline_renderpass_slot_t));
 	memset(&_skr_pipeline_cache.renderpasses[old_capacity], 0, (new_capacity - old_capacity) * sizeof(_skr_pipeline_renderpass_slot_t));
 
 	// Grow pipelines 3D array
@@ -329,7 +329,7 @@ static void _skr_pipeline_grow_vertformats(int32_t min_capacity) {
 	}
 
 	// Grow vertformats array
-	_skr_pipeline_cache.vertformats = realloc(_skr_pipeline_cache.vertformats, new_capacity * sizeof(_skr_pipeline_vertformat_slot_t));
+	_skr_pipeline_cache.vertformats = _skr_realloc(_skr_pipeline_cache.vertformats, new_capacity * sizeof(_skr_pipeline_vertformat_slot_t));
 	memset(&_skr_pipeline_cache.vertformats[old_capacity], 0, (new_capacity - old_capacity) * sizeof(_skr_pipeline_vertformat_slot_t));
 
 	// Grow pipelines 3D array

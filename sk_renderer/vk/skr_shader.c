@@ -109,9 +109,9 @@ skr_err_ skr_shader_create(const void* shader_data, uint32_t data_size, skr_shad
 	// Don't destroy meta here, it's now owned by the shader
 	// Just clean up the file structure
 	for (uint32_t i = 0; i < file.stage_count; i++) {
-		free(file.stages[i].code);
+		_skr_free(file.stages[i].code);
 	}
-	free(file.stages);
+	_skr_free(file.stages);
 
 	return skr_err_success;
 }

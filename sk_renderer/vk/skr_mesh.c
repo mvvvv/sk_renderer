@@ -32,12 +32,12 @@ skr_err_ skr_vert_type_create(const skr_vert_component_t* items, int32_t item_co
 
 	// Allocate storage
 	out_type->component_count = item_count;
-	out_type->components      = malloc(sizeof(skr_vert_component_t) * item_count);
-	out_type->attributes      = malloc(sizeof(VkVertexInputAttributeDescription) * item_count);
+	out_type->components      = _skr_malloc(sizeof(skr_vert_component_t) * item_count);
+	out_type->attributes      = _skr_malloc(sizeof(VkVertexInputAttributeDescription) * item_count);
 
 	if (!out_type->components || !out_type->attributes) {
-		free(out_type->components);
-		free(out_type->attributes);
+		_skr_free(out_type->components);
+		_skr_free(out_type->attributes);
 		memset(out_type, 0, sizeof(skr_vert_type_t));
 		return skr_err_out_of_memory;
 	}
@@ -85,8 +85,8 @@ void skr_vert_type_destroy(skr_vert_type_t* type) {
 		_skr_pipeline_unregister_vertformat(type->pipeline_idx);
 	}
 
-	free(type->attributes);
-	free(type->components);
+	_skr_free(type->attributes);
+	_skr_free(type->components);
 	memset(type, 0, sizeof(skr_vert_type_t));
 }
 

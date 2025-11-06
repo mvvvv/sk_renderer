@@ -356,6 +356,10 @@ typedef struct skr_settings_t {
 	bool         enable_validation;
 	const char** required_extensions;
 	uint32_t     required_extension_count;
+	void*      (*malloc_func) (size_t size);
+	void*      (*calloc_func) (size_t count, size_t size);
+	void*      (*realloc_func)(void* ptr, size_t size);
+	void       (*free_func)   (void* ptr);
 } skr_settings_t;
 
 typedef struct skr_shader_t skr_shader_t;

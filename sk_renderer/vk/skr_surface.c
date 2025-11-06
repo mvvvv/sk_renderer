@@ -136,11 +136,11 @@ format_found:
 			for (uint32_t i = 0; i < surface->image_count; i++) {
 				if (surface->semaphore_submit[i]) vkDestroySemaphore(_skr_vk.device, surface->semaphore_submit[i], NULL);
 			}
-			free(surface->semaphore_submit);
+			_skr_free(surface->semaphore_submit);
 		}
 
 		// Allocate new per-image submit semaphores for new image count
-		surface->semaphore_submit = (VkSemaphore*)calloc(image_count, sizeof(VkSemaphore));
+		surface->semaphore_submit = (VkSemaphore*)_skr_calloc(image_count, sizeof(VkSemaphore));
 
 		VkSemaphoreCreateInfo semaphore_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 		for (uint32_t i = 0; i < image_count; i++) {
@@ -148,8 +148,8 @@ format_found:
 		}
 
 		// Reallocate images array
-		if (surface->images) free(surface->images);
-		surface->images      = (skr_tex_t*)calloc(image_count, sizeof(skr_tex_t));
+		if (surface->images) _skr_free(surface->images);
+		surface->images      = (skr_tex_t*)_skr_calloc(image_count, sizeof(skr_tex_t));
 		surface->image_count = image_count;
 	}
 
@@ -250,7 +250,7 @@ void skr_surface_destroy(skr_surface_t* surface) {
 	if (surface->semaphore_submit) {
 		for (uint32_t i = 0; i < surface->image_count; i++)
 			_skr_cmd_destroy_semaphore(NULL, surface->semaphore_submit[i]);
-		free(surface->semaphore_submit);
+		_skr_free(surface->semaphore_submit);
 	}
 
 	// Destroy image views and cached framebuffers
@@ -260,7 +260,7 @@ void skr_surface_destroy(skr_surface_t* surface) {
 			_skr_cmd_destroy_framebuffer(NULL, surface->images[i].framebuffer_depth);
 			_skr_cmd_destroy_image_view (NULL, surface->images[i].view);
 		}
-		free(surface->images);
+		_skr_free(surface->images);
 	}
 
 	_skr_cmd_destroy_surface  (NULL, surface->surface  );

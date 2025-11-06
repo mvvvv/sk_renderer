@@ -4,6 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "skr_log.h"
+#include "vk/_sk_renderer.h"
 
 #include <stdarg.h>
 #include <stdlib.h>
@@ -58,12 +59,12 @@ void skr_logf (skr_log_ level, const char *text, ...) {
 	va_start(args, text);
 	va_copy (copy, args);
 	int32_t length = vsnprintf(NULL, 0, text, args) + 1;
-	char*  buffer = (char*)malloc(sizeof(char) * length);
+	char*  buffer = (char*)_skr_malloc(sizeof(char) * length);
 	vsnprintf(buffer, length, text, copy);
 
 	_skr_log(level, buffer);
 
-	free(buffer);
+	_skr_free(buffer);
 	va_end(args);
 	va_end(copy);
 }

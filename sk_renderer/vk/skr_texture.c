@@ -918,7 +918,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 	skr_buffer_t params_buffer = {0};
 
 	if (material.param_buffer_size > 0) {
-		all_params = calloc(num_mips, material.param_buffer_size);
+		all_params = _skr_calloc(num_mips, material.param_buffer_size);
 
 		for (int32_t mip = 1; mip < mip_levels; mip++) {
 			uint32_t mip_width  = tex->size.x >> mip;
@@ -945,7 +945,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 
 		// Create GPU buffer with all mip parameters
 		skr_buffer_create(all_params, num_mips, material.param_buffer_size, skr_buffer_type_constant, skr_use_static, &params_buffer);
-		free(all_params);
+		_skr_free(all_params);
 	}
 
 	// Generate each mip level by rendering from previous mip
