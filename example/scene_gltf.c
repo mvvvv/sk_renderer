@@ -534,7 +534,7 @@ static int32_t _load_gltf_thread(void* arg) {
 	cgltf_free(data);
 	free(file_data);
 
-	skr_logf(skr_log_info, "GLTF: Ready (%d meshes, %d textures)", ctx->mesh_count, scene->texture_count);
+	skr_log(skr_log_info, "GLTF: Ready (%d meshes, %d textures)", ctx->mesh_count, scene->texture_count);
 	ctx->state = gltf_load_state_ready;
 	skr_thread_shutdown();
 	return 0;

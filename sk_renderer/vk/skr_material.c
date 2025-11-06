@@ -8,7 +8,6 @@
 
 #include "skr_vulkan.h"
 #include "skr_pipeline.h"
-#include "../skr_log.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -132,7 +131,7 @@ void skr_material_set_tex(skr_material_t* material, const char* name, skr_tex_t*
 	}
 
 	if (idx == -1) {
-		skr_logf(skr_log_warning, "Texture name '%s' not found", name);
+		skr_log(skr_log_warning, "Texture name '%s' not found", name);
 		return;
 	}
 
@@ -167,14 +166,14 @@ void skr_material_set_buffer(skr_material_t* material, const char* name, skr_buf
 	if (idx >= 0) {
 		material->binds[meta->buffer_count + idx].buffer = buffer;
 	} else {
-		skr_logf(skr_log_warning, "Buffer name '%s' not found", name);
+		skr_log(skr_log_warning, "Buffer name '%s' not found", name);
 	}
 	return;
 }
 
 void skr_material_set_params(skr_material_t* material, void* data, uint32_t size) {
 	if (size != material->param_buffer_size) {
-		skr_logf(skr_log_warning, "material_set_params: incorrect size!");
+		skr_log(skr_log_warning, "material_set_params: incorrect size!");
 		return;
 	}
 	memcpy(material->param_buffer, data, size);

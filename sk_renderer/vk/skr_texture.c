@@ -9,7 +9,6 @@
 #include "skr_vulkan.h"
 #include "skr_conversions.h"
 #include "skr_pipeline.h"
-#include "../skr_log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -259,7 +258,7 @@ void _skr_tex_transition(VkCommandBuffer cmd, skr_tex_t* tex, VkImageLayout new_
 
 #ifdef SKR_DEBUG
 	if (tex->current_layout != VK_IMAGE_LAYOUT_UNDEFINED && tex->current_layout != old_layout) {
-		skr_logf(skr_log_warning, "Texture layout mismatch: tracked=%s, using=%s for transition to %s",
+		skr_log(skr_log_warning, "Texture layout mismatch: tracked=%s, using=%s for transition to %s",
 			_layout_to_string(tex->current_layout), _layout_to_string(old_layout), _layout_to_string(new_layout));
 	}
 #endif
@@ -571,7 +570,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 
 	// Allocate memory using helper
 	if (_skr_allocate_image_memory(out_tex->image, is_msaa_attachment, &out_tex->memory) == VK_NULL_HANDLE) {
-		skr_logf(skr_log_critical, "Failed to allocate texture memory - Format: %d, Size: %dx%dx%d, Mips: %d, Layers: %d, Samples: %d, Usage: 0x%x, Flags: 0x%x",
+		skr_log(skr_log_critical, "Failed to allocate texture memory - Format: %d, Size: %dx%dx%d, Mips: %d, Layers: %d, Samples: %d, Usage: 0x%x, Flags: 0x%x",
 			format, size.x, size.y, size.z, out_tex->mip_levels, out_tex->layer_count, out_tex->samples, usage, out_tex->flags);
 		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
 		memset(out_tex, 0, sizeof(skr_tex_t));

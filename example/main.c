@@ -20,7 +20,7 @@ int main(int argc, char* argv[]) {
 
 	// Initialize SDL
 	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-		skr_logf(skr_log_critical, "SDL initialization failed: %s", SDL_GetError());
+		skr_log(skr_log_critical, "SDL initialization failed: %s", SDL_GetError());
 		return 1;
 	}
 
@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
 #endif
 	if (!window) {
-		skr_logf(skr_log_critical, "Failed to create SDL window: %s", SDL_GetError());
+		skr_log(skr_log_critical, "Failed to create SDL window: %s", SDL_GetError());
 		SDL_Quit();
 		return 1;
 	}
@@ -70,7 +70,7 @@ int main(int argc, char* argv[]) {
 	// Create Vulkan surface
 	VkSurfaceKHR vk_surface;
 	if (!SDL_Vulkan_CreateSurface(window, skr_get_vk_instance(), &vk_surface)) {
-		skr_logf(skr_log_critical, "Failed to create Vulkan surface: %s", SDL_GetError());
+		skr_log(skr_log_critical, "Failed to create Vulkan surface: %s", SDL_GetError());
 		skr_shutdown();
 		SDL_DestroyWindow(window);
 		SDL_Quit();
@@ -168,7 +168,7 @@ int main(int argc, char* argv[]) {
 
 			VkSurfaceKHR new_vk_surface;
 			if (!SDL_Vulkan_CreateSurface(window, skr_get_vk_instance(), &new_vk_surface)) {
-				skr_logf(skr_log_critical, "Failed to recreate SDL Vulkan surface: %s", SDL_GetError());
+				skr_log(skr_log_critical, "Failed to recreate SDL Vulkan surface: %s", SDL_GetError());
 				running = false;
 				break;
 			}
@@ -215,11 +215,11 @@ int main(int argc, char* argv[]) {
 		frame_count++;
 		if (frame_count % 60 == 0) {
 			float gpu_ms = skr_renderer_get_gpu_time_ms();
-			skr_logf(skr_log_info, "GPU frame time: %.4f ms (%.1f FPS)", gpu_ms, 1000.0f / gpu_ms);
+			skr_log(skr_log_info, "GPU frame time: %.4f ms (%.1f FPS)", gpu_ms, 1000.0f / gpu_ms);
 		}
 	}
 
-	skr_logf(skr_log_info, "Completed %d frames, shutting down...", frame_count);
+	skr_log(skr_log_info, "Completed %d frames, shutting down...", frame_count);
 
 	// Wait for GPU
 	vkDeviceWaitIdle(skr_get_vk_device());

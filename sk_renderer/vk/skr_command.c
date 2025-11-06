@@ -4,7 +4,6 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "_sk_renderer.h"
-#include "../skr_log.h"
 
 #include <assert.h>
 #include <threads.h>
@@ -19,7 +18,7 @@ thread_local int32_t _skr_thread_idx = -1;
 ///////////////////////////////////////////////////////////////////////////////
 
 bool _skr_cmd_init() {
-	skr_logf(skr_log_info, "Using %s queue (family %d)", _skr_vk.has_dedicated_transfer ? "transfer" : "graphics", _skr_vk.transfer_queue_family);
+	skr_log(skr_log_info, "Using %s queue (family %d)", _skr_vk.has_dedicated_transfer ? "transfer" : "graphics", _skr_vk.transfer_queue_family);
 
 	memset(_skr_vk.thread_pools, 0, sizeof(_skr_vk.thread_pools));
 	return true;
@@ -68,7 +67,7 @@ _skr_vk_thread_t* _skr_cmd_get_thread() {
 void skr_thread_init() {
 	// Already initialized for this thread
 	if (_skr_thread_idx >= 0) {
-		skr_logf(skr_log_critical, "Thread already initialized with index %d", _skr_thread_idx);
+		skr_log(skr_log_critical, "Thread already initialized with index %d", _skr_thread_idx);
 		return;
 	}
 
@@ -98,7 +97,7 @@ void skr_thread_init() {
 	if (thread_idx < 0) {
 		mtx_unlock(&_skr_vk.thread_pool_mutex);
 		vkDestroyCommandPool(_skr_vk.device, thread.cmd_pool, NULL);
-		skr_logf(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
+		skr_log(skr_log_critical, "Exceeded maximum thread pools (%d)", skr_MAX_THREAD_POOLS);
 		return;
 	}
 
@@ -113,7 +112,7 @@ void skr_thread_init() {
 	snprintf(name, sizeof(name), "CommandPool_thr%d", thread_idx);
 	_skr_set_debug_name(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)thread.cmd_pool, name);
 
-	skr_logf(skr_log_info, "Thread slot #%d initialized", thread_idx);
+	skr_log(skr_log_info, "Thread slot #%d initialized", thread_idx);
 
 	return;
 }
@@ -122,7 +121,7 @@ void skr_thread_init() {
 
 void skr_thread_shutdown() {
 	if (_skr_thread_idx < 0) {
-		skr_logf(skr_log_warning, "Thread not initialized, nothing to shutdown");
+		skr_log(skr_log_warning, "Thread not initialized, nothing to shutdown");
 		return;
 	}
 
@@ -149,7 +148,7 @@ void skr_thread_shutdown() {
 	if (thread->cmd_pool != VK_NULL_HANDLE)
 		vkDestroyCommandPool(_skr_vk.device, thread->cmd_pool, NULL);
 
-	skr_logf(skr_log_info, "Thread #%d shutdown, marking as non-alive for reuse", _skr_thread_idx);
+	skr_log(skr_log_info, "Thread #%d shutdown, marking as non-alive for reuse", _skr_thread_idx);
 
 	// Mark as non-alive for reuse (don't zero out the whole struct)
 	thread->alive           = false;

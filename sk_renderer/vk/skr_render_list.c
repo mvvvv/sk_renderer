@@ -7,7 +7,6 @@
 #include "_sk_renderer.h"
 
 #include "skr_vulkan.h"
-#include "../skr_log.h"
 
 #include <stdlib.h>
 #include <string.h>

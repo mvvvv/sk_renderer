@@ -45,8 +45,8 @@ typedef struct {
 #define SKR_BIND_SHIFT_TEXTURE 100
 #define SKR_BIND_SHIFT_UAV     200
 
-#define SKR_VK_CHECK_RET(vkResult, fnName, returnVal) { VkResult __vr = (vkResult); if (__vr != VK_SUCCESS) { skr_logf(skr_log_critical, "%s: 0x%X", fnName, (uint32_t)__vr); return returnVal; } }
-#define SKR_VK_CHECK_NRET(vkResult, fnName) { VkResult __vr = (vkResult); if (__vr != VK_SUCCESS) { skr_logf(skr_log_critical, "%s: 0x%X", fnName, (uint32_t)__vr); } }
+#define SKR_VK_CHECK_RET(vkResult, fnName, returnVal) { VkResult __vr = (vkResult); if (__vr != VK_SUCCESS) { skr_log(skr_log_critical, "%s: 0x%X", fnName, (uint32_t)__vr); return returnVal; } }
+#define SKR_VK_CHECK_NRET(vkResult, fnName) { VkResult __vr = (vkResult); if (__vr != VK_SUCCESS) { skr_log(skr_log_critical, "%s: 0x%X", fnName, (uint32_t)__vr); } }
 
 // Deferred destruction system
 typedef struct skr_destroy_list_t {

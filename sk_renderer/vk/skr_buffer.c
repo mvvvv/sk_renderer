@@ -5,7 +5,6 @@
 
 #include "_sk_renderer.h"
 #include "skr_conversions.h"
-#include "../skr_log.h"
 
 #include <stdio.h>
 #include <string.h>

@@ -4,7 +4,6 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "_sk_renderer.h"
-#include "../skr_log.h"
 
 #include <stdlib.h>
 

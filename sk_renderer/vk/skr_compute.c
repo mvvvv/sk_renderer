@@ -6,7 +6,6 @@
 #include "../include/sk_renderer.h"
 #include "skr_vulkan.h"
 #include "_sk_renderer.h"
-#include "../skr_log.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -181,7 +180,7 @@ void skr_compute_set_buffer(skr_compute_t* compute, const char* name, skr_buffer
 	if (idx >= 0) {
 		compute->binds[meta->buffer_count + idx].buffer = buffer;
 	} else {
-		skr_logf(skr_log_warning, "Buffer name '%s' not found", name);
+		skr_log(skr_log_warning, "Buffer name '%s' not found", name);
 	}
 	return;
 }
@@ -199,7 +198,7 @@ void skr_compute_set_tex(skr_compute_t* compute, const char* name, skr_tex_t* te
 	}
 
 	if (idx == -1) {
-		skr_logf(skr_log_warning, "Texture name '%s' not found", name);
+		skr_log(skr_log_warning, "Texture name '%s' not found", name);
 		return;
 	}
 

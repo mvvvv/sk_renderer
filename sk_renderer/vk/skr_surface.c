@@ -5,7 +5,6 @@
 
 #include "_sk_renderer.h"
 #include "skr_conversions.h"
-#include "../skr_log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,7 +56,7 @@ static bool _skr_surface_create_swapchain(skr_surface_t* surface, VkSwapchainKHR
 		}
 	}
 format_found:
-	skr_logf(skr_log_info, "Selected surface format: %d (colorSpace: %d)", surface_format.format, surface_format.colorSpace);
+	skr_log(skr_log_info, "Selected surface format: %d (colorSpace: %d)", surface_format.format, surface_format.colorSpace);
 
 	// Get present modes
 	uint32_t         present_mode_count;
@@ -127,7 +126,7 @@ format_found:
 	vkGetSwapchainImagesKHR(_skr_vk.device, swapchain, &image_count, NULL);
 	vkGetSwapchainImagesKHR(_skr_vk.device, swapchain, &image_count, vk_images);
 
-	skr_logf(skr_log_info, "Swapchain created: requested %d, actual %d images", requested_count, image_count);
+	skr_log(skr_log_info, "Swapchain created: requested %d, actual %d images", requested_count, image_count);
 
 	// Reallocate images array and per-image semaphores if count changed
 	if (image_count != surface->image_count) {
@@ -335,7 +334,7 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
 
 	// Handle other errors
 	if (result != VK_SUCCESS) {
-		skr_logf(skr_log_critical, "Failed to acquire swapchain image: 0x%X", result);
+		skr_log(skr_log_critical, "Failed to acquire swapchain image: 0x%X", result);
 		return skr_acquire_error;
 	}
 

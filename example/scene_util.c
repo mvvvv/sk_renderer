@@ -370,13 +370,13 @@ bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
 	// Use SDL's RWops to read from Android assets
 	SDL_RWops* rw = SDL_RWFromFile(filename, "rb");
 	if (!rw) {
-		skr_logf(skr_log_critical, "Failed to open file '%s': %s", filename, SDL_GetError());
+		skr_log(skr_log_critical, "Failed to open file '%s': %s", filename, SDL_GetError());
 		return false;
 	}
 
 	Sint64 size = SDL_RWsize(rw);
 	if (size < 0) {
-		skr_logf(skr_log_critical, "Failed to get size of file '%s': %s", filename, SDL_GetError());
+		skr_log(skr_log_critical, "Failed to get size of file '%s': %s", filename, SDL_GetError());
 		SDL_RWclose(rw);
 		return false;
 	}
@@ -384,7 +384,7 @@ bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
 	*out_size = (size_t)size;
 	*out_data = malloc(*out_size);
 	if (*out_data == NULL) {
-		skr_logf(skr_log_critical, "Failed to allocate %zu bytes for file '%s'", *out_size, filename);
+		skr_log(skr_log_critical, "Failed to allocate %zu bytes for file '%s'", *out_size, filename);
 		SDL_RWclose(rw);
 		*out_size = 0;
 		return false;
@@ -394,7 +394,7 @@ bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
 	SDL_RWclose(rw);
 
 	if (bytes_read != *out_size) {
-		skr_logf(skr_log_critical, "Failed to read file '%s': expected %zu bytes, got %zu", filename, *out_size, bytes_read);
+		skr_log(skr_log_critical, "Failed to read file '%s': expected %zu bytes, got %zu", filename, *out_size, bytes_read);
 		free(*out_data);
 		*out_data = NULL;
 		*out_size = 0;

@@ -3,7 +3,6 @@
 // Copyright (c) 2025 Nick Klingensmith
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
-#include "skr_log.h"
 #include "vk/_sk_renderer.h"
 
 #include <stdarg.h>
@@ -44,14 +43,7 @@ void skr_callback_log(void (*callback)(skr_log_ level, const char *text)) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void skr_log(skr_log_ level, const char *text) {
-	if (_skr_log_disabled) return;
-	if (_skr_log) _skr_log(level, text);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-void skr_logf (skr_log_ level, const char *text, ...) {
+void skr_log(skr_log_ level, const char *text, ...) {
 	if (_skr_log_disabled) return;
 	if (!_skr_log) return;
 
@@ -67,10 +59,4 @@ void skr_logf (skr_log_ level, const char *text, ...) {
 	_skr_free(buffer);
 	va_end(args);
 	va_end(copy);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-void skr_log_enable(bool enabled) {
-	_skr_log_disabled = !enabled;
 }

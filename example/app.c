@@ -61,7 +61,7 @@ static void _create_render_targets(app_t* app, int32_t width, int32_t height, sk
 	app->current_width  = width;
 	app->current_height = height;
 
-	skr_logf(skr_log_info, "Render targets created: %dx%d, color=%d, depth=%d, scene=%d",
+	skr_log(skr_log_info, "Render targets created: %dx%d, color=%d, depth=%d, scene=%d",
 		width, height, skr_tex_is_valid(&app->color_msaa), skr_tex_is_valid(&app->depth_buffer), skr_tex_is_valid(&app->scene_color));
 }
 
@@ -86,7 +86,7 @@ static void _switch_scene(app_t* app, int32_t new_index) {
 	app->scene_index   = new_index;
 	app->scene_current = scene_create(app->scene_types[new_index]);
 
-	skr_logf(skr_log_info, "Switched to scene: %s", scene_get_name(app->scene_types[new_index]));
+	skr_log(skr_log_info, "Switched to scene: %s", scene_get_name(app->scene_types[new_index]));
 }
 
 app_t* app_create() {
@@ -124,7 +124,7 @@ app_t* app_create() {
 	_switch_scene(app, 7);
 
 	skr_log (skr_log_info, "Application created successfully!");
-	skr_logf(skr_log_info, "Available scenes: %d (use arrow keys to switch)", app->scene_count);
+	skr_log(skr_log_info, "Available scenes: %d (use arrow keys to switch)", app->scene_count);
 
 	return app;
 }

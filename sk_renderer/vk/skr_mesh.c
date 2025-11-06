@@ -9,7 +9,6 @@
 #include "skr_vulkan.h"
 #include "skr_conversions.h"
 #include "skr_pipeline.h"
-#include "../skr_log.h"
 
 #include <stdio.h>
 #include <stdlib.h>

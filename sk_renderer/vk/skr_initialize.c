@@ -6,7 +6,6 @@
 #include "_sk_renderer.h"
 #include "skr_pipeline.h"
 #include "skr_conversions.h"
-#include "../skr_log.h"
 
 #define VOLK_IMPLEMENTATION
 #include <volk.h>
@@ -167,7 +166,7 @@ bool skr_init(skr_settings_t settings) {
 		if (found) {
 			extensions[extension_count++] = desired_extensions[i];
 		} else {
-			skr_logf(skr_log_warning, "Extension '%s' not available, skipping", desired_extensions[i]);
+			skr_log(skr_log_warning, "Extension '%s' not available, skipping", desired_extensions[i]);
 		}
 	}
 	_skr_free(available_exts);
@@ -199,7 +198,7 @@ bool skr_init(skr_settings_t settings) {
 		if (found) {
 			layers[layer_count++] = desired_layers[i];
 		} else {
-			skr_logf(skr_log_warning, "Layer '%s' not available, skipping", desired_layers[i]);
+			skr_log(skr_log_warning, "Layer '%s' not available, skipping", desired_layers[i]);
 			if (strcmp(desired_layers[i], "VK_LAYER_KHRONOS_validation") == 0) {
 				_skr_vk.validation_enabled = false;
 			}
@@ -218,14 +217,14 @@ bool skr_init(skr_settings_t settings) {
 
 	VkResult result = vkCreateInstance(&instance_info, NULL, &_skr_vk.instance);
 	if (result != VK_SUCCESS) {
-		skr_logf(skr_log_critical, "Failed to create Vulkan instance: 0x%X", result);
-		skr_logf(skr_log_info,     "  Enabled extensions (%u):", extension_count);
+		skr_log(skr_log_critical, "Failed to create Vulkan instance: 0x%X", result);
+		skr_log(skr_log_info,     "  Enabled extensions (%u):", extension_count);
 		for (uint32_t i = 0; i < extension_count; i++)
-			skr_logf(skr_log_info, "    - %s", extensions[i]);
+			skr_log(skr_log_info, "    - %s", extensions[i]);
 		if (layer_count > 0) {
-			skr_logf(skr_log_info, "  Enabled layers (%u):", layer_count);
+			skr_log(skr_log_info, "  Enabled layers (%u):", layer_count);
 			for (uint32_t i = 0; i < layer_count; i++) {
-				skr_logf(skr_log_info, "    - %s", layers[i]);
+				skr_log(skr_log_info, "    - %s", layers[i]);
 			}
 		}
 		skr_log(skr_log_info, "  Tip: If using RenderDoc, ensure it's launched with Vulkan support enabled");
@@ -258,7 +257,7 @@ bool skr_init(skr_settings_t settings) {
 		vkGetPhysicalDeviceProperties(devices[i], &props);
 		if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
 			_skr_vk.physical_device = devices[i];
-			skr_logf(skr_log_info, "Selected discrete GPU: %s", props.deviceName);
+			skr_log(skr_log_info, "Selected discrete GPU: %s", props.deviceName);
 			break;
 		}
 	}
@@ -269,7 +268,7 @@ bool skr_init(skr_settings_t settings) {
 
 	// Print selected device if we didn't find discrete GPU
 	if (_skr_vk.physical_device == devices[0]) {
-		skr_logf(skr_log_info, "Using GPU: %s", device_props.deviceName);
+		skr_log(skr_log_info, "Using GPU: %s", device_props.deviceName);
 	}
 
 	// Store timestamp period for GPU timing
@@ -351,12 +350,12 @@ bool skr_init(skr_settings_t settings) {
 	vkEnumerateDeviceExtensionProperties(_skr_vk.physical_device, NULL, &available_device_ext_count, available_device_exts);
 
 	// Log available extensions for debugging
-	skr_logf(skr_log_info, "Available device extensions (%u):", available_device_ext_count);
+	skr_log(skr_log_info, "Available device extensions (%u):", available_device_ext_count);
 	for (uint32_t i = 0; i < available_device_ext_count && i < 10; i++) {
-		skr_logf(skr_log_info, "  %s", available_device_exts[i].extensionName);
+		skr_log(skr_log_info, "  %s", available_device_exts[i].extensionName);
 	}
 	if (available_device_ext_count > 10) {
-		skr_logf(skr_log_info, "  ... and %u more", available_device_ext_count - 10);
+		skr_log(skr_log_info, "  ... and %u more", available_device_ext_count - 10);
 	}
 
 	// Filter device extensions to only those available
@@ -382,21 +381,21 @@ bool skr_init(skr_settings_t settings) {
 				has_push_descriptor = true;
 			}
 		} else {
-			skr_logf(skr_log_warning, "Device extension '%s' not available, skipping", desired_device_extensions[i]);
+			skr_log(skr_log_warning, "Device extension '%s' not available, skipping", desired_device_extensions[i]);
 		}
 	}
 	_skr_free(available_device_exts);
 
 	// Check required extensions
 	if (!has_swapchain) {
-		skr_logf(skr_log_critical, "Required device extension '%s' not available", VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		skr_log(skr_log_critical, "Required device extension '%s' not available", VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 		return false;
 	}
 	
 	// Store push descriptor support and use fallback if unavailable
 	_skr_vk.has_push_descriptors = has_push_descriptor;
 	if (!has_push_descriptor) {
-		skr_logf(skr_log_info, "Device extension '%s' not available, using descriptor set fallback", VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+		skr_log(skr_log_info, "Device extension '%s' not available, using descriptor set fallback", VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
 	}
 
 	// Query available device features

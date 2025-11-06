@@ -5,7 +5,6 @@
 
 #include "_sk_renderer.h"
 #include "skr_shader.h"
-#include "../skr_log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,7 +94,7 @@ skr_err_ skr_shader_create(const void* shader_data, uint32_t data_size, skr_shad
 			case sksc_result_corrupt_data:  extra = "corrupt data";        err = skr_err_invalid_parameter; break;
 			default:                        extra = "unknown";             err = skr_err_failure; break;
 		}
-		skr_logf(skr_log_critical, "Failed to load shader file: %s", extra);
+		skr_log(skr_log_critical, "Failed to load shader file: %s", extra);
 		return err;
 	}
 

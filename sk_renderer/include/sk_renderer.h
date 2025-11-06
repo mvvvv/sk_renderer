@@ -400,8 +400,7 @@ bool              skr_future_check                 (const skr_future_t* future);
 void              skr_future_wait                  (const skr_future_t* future);
 
 void              skr_callback_log                 (void (*callback)(skr_log_ level, const char* text));
-void              skr_log                          (skr_log_ level, const char* text);
-void              skr_logf                         (skr_log_ level, const char* text, ...);
+void              skr_log                          (skr_log_ level, const char* text, ...);
 uint64_t          skr_hash                         (const char *string);
 
 skr_err_          skr_buffer_create                (const void *data, uint32_t size_count, uint32_t size_stride, skr_buffer_type_ type, skr_use_ use, skr_buffer_t *out_buffer);

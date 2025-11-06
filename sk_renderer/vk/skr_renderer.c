@@ -297,7 +297,7 @@ void skr_renderer_end_pass() {
 void skr_renderer_set_global_constants(int32_t bind, const skr_buffer_t* buffer) {
 	if (bind < 0 || bind >= SKR_MAX_GLOBAL_BINDINGS) {
 		if (bind >= SKR_MAX_GLOBAL_BINDINGS) {
-			skr_logf(skr_log_critical, "Global buffer binding %d exceeds maximum of %d slots", bind, SKR_MAX_GLOBAL_BINDINGS);
+			skr_log(skr_log_critical, "Global buffer binding %d exceeds maximum of %d slots", bind, SKR_MAX_GLOBAL_BINDINGS);
 		}
 		return;
 	}
@@ -307,7 +307,7 @@ void skr_renderer_set_global_constants(int32_t bind, const skr_buffer_t* buffer)
 void skr_renderer_set_global_texture(int32_t bind, const skr_tex_t* tex) {
 	if (bind < 0 || bind >= SKR_MAX_GLOBAL_BINDINGS) {
 		if (bind >= SKR_MAX_GLOBAL_BINDINGS) {
-			skr_logf(skr_log_critical, "Global texture binding %d exceeds maximum of %d slots", bind, SKR_MAX_GLOBAL_BINDINGS);
+			skr_log(skr_log_critical, "Global texture binding %d exceeds maximum of %d slots", bind, SKR_MAX_GLOBAL_BINDINGS);
 		}
 		return;
 	}
