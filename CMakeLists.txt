@@ -5,6 +5,9 @@ project(sk_renderer VERSION 0.1.0 LANGUAGES CXX C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# Build options
+option(SKR_BUILD_EXAMPLES "Build sk_renderer example application" ON)
+
 include(FetchContent)
 
 ###############################################################################
@@ -72,6 +75,8 @@ target_sources            (sk_renderer PRIVATE
 ###############################################################################
 # sk_renderer test app
 ###############################################################################
+
+if(SKR_BUILD_EXAMPLES)
 
 if(ANDROID)
 	set(ANDROID_NDK ${CMAKE_ANDROID_NDK})
@@ -193,3 +198,5 @@ endif()
 add_custom_command(TARGET sk_renderer_test POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/example/assets ${ASSET_PATH}
 	COMMENT "Copying App Assets")
+
+endif() # SKR_BUILD_EXAMPLES
