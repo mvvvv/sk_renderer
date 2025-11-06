@@ -52,7 +52,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 	VkBufferUsageFlags usage = _skr_to_vk_buffer_usage(type);
 
 	// Add transfer dst for initial data upload (unless dynamic)
-	if (data != NULL && use != skr_use_dynamic) {
+	if (data != NULL && !(use & skr_use_dynamic)) {
 		usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	}
 
@@ -69,7 +69,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 	VkMemoryRequirements mem_requirements;
 	vkGetBufferMemoryRequirements(_skr_vk.device, out_buffer->buffer, &mem_requirements);
 
-	VkMemoryPropertyFlags mem_properties = use == skr_use_dynamic
+	VkMemoryPropertyFlags mem_properties = (use & skr_use_dynamic)
 		? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 		: VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
@@ -89,7 +89,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 
 	// Upload initial data
 	if (data != NULL) {
-		if (use == skr_use_dynamic) {
+		if (use & skr_use_dynamic) {
 			// Direct map and copy for dynamic buffers
 			void* mapped;
 			vkMapMemory(_skr_vk.device, out_buffer->memory, 0, out_buffer->size, 0, &mapped);
@@ -150,7 +150,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 	}
 
 	// Keep dynamic buffers mapped
-	if (use == skr_use_dynamic) {
+	if (use & skr_use_dynamic) {
 		vkMapMemory(_skr_vk.device, out_buffer->memory, 0, out_buffer->size, 0, &out_buffer->mapped);
 	}
 
