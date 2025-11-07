@@ -15,6 +15,19 @@ extern "C" {
 
 #include "sksc_file.h"
 
+// Symbol visibility macros
+#if defined(_WIN32) || defined(_WIN64)
+	#ifdef SKR_BUILD_SHARED
+		#define SKR_API __declspec(dllexport)
+	#else
+		#define SKR_API __declspec(dllimport)
+	#endif
+#elif defined(__GNUC__) || defined(__clang__)
+	#define SKR_API __attribute__((visibility("default")))
+#else
+	#define SKR_API
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef struct skr_vec2_t {
@@ -383,107 +396,107 @@ typedef struct skr_material_info_t {
 #define SKR_VK
 #ifdef SKR_VK
 #include "../vk/skr_vulkan.h"
-VkInstance        skr_get_vk_instance              (void);
-VkDevice          skr_get_vk_device                (void);
+SKR_API VkInstance        skr_get_vk_instance              (void);
+SKR_API VkDevice          skr_get_vk_device                (void);
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool              skr_init                         (skr_settings_t settings);
-void              skr_shutdown                     (void);
-void              skr_thread_init                  (void);
-void              skr_thread_shutdown              (void);
+SKR_API bool              skr_init                         (skr_settings_t settings);
+SKR_API void              skr_shutdown                     (void);
+SKR_API void              skr_thread_init                  (void);
+SKR_API void              skr_thread_shutdown              (void);
 
-skr_future_t      skr_future_get                   (void);
-bool              skr_future_check                 (const skr_future_t* future);
-void              skr_future_wait                  (const skr_future_t* future);
+SKR_API skr_future_t      skr_future_get                   (void);
+SKR_API bool              skr_future_check                 (const skr_future_t* future);
+SKR_API void              skr_future_wait                  (const skr_future_t* future);
 
-void              skr_callback_log                 (void (*callback)(skr_log_ level, const char* text));
-void              skr_log                          (skr_log_ level, const char* text, ...);
-uint64_t          skr_hash                         (const char *string);
+SKR_API void              skr_callback_log                 (void (*callback)(skr_log_ level, const char* text));
+SKR_API void              skr_log                          (skr_log_ level, const char* text, ...);
+SKR_API uint64_t          skr_hash                         (const char *string);
 
-skr_err_          skr_buffer_create                (const void *data, uint32_t size_count, uint32_t size_stride, skr_buffer_type_ type, skr_use_ use, skr_buffer_t *out_buffer);
-void              skr_buffer_destroy               (      skr_buffer_t *buffer);
-bool              skr_buffer_is_valid              (const skr_buffer_t *buffer);
-void              skr_buffer_set                   (      skr_buffer_t *buffer, const void *data, uint32_t size_bytes);
-void              skr_buffer_get                   (const skr_buffer_t *buffer, void *ref_buffer, uint32_t buffer_size);
-uint32_t          skr_buffer_get_size              (const skr_buffer_t *buffer);
-void              skr_buffer_set_name              (      skr_buffer_t *buffer, const char* name);
+SKR_API skr_err_          skr_buffer_create                (const void *data, uint32_t size_count, uint32_t size_stride, skr_buffer_type_ type, skr_use_ use, skr_buffer_t *out_buffer);
+SKR_API void              skr_buffer_destroy               (      skr_buffer_t *buffer);
+SKR_API bool              skr_buffer_is_valid              (const skr_buffer_t *buffer);
+SKR_API void              skr_buffer_set                   (      skr_buffer_t *buffer, const void *data, uint32_t size_bytes);
+SKR_API void              skr_buffer_get                   (const skr_buffer_t *buffer, void *ref_buffer, uint32_t buffer_size);
+SKR_API uint32_t          skr_buffer_get_size              (const skr_buffer_t *buffer);
+SKR_API void              skr_buffer_set_name              (      skr_buffer_t *buffer, const char* name);
 
-skr_err_          skr_vert_type_create             (const skr_vert_component_t* items, int32_t item_count, skr_vert_type_t* out_type);
-bool              skr_vert_type_is_valid           (const skr_vert_component_t* type);
-void              skr_vert_type_destroy            (      skr_vert_type_t* type);
+SKR_API skr_err_          skr_vert_type_create             (const skr_vert_component_t* items, int32_t item_count, skr_vert_type_t* out_type);
+SKR_API bool              skr_vert_type_is_valid           (const skr_vert_component_t* type);
+SKR_API void              skr_vert_type_destroy            (      skr_vert_type_t* type);
 
-skr_err_          skr_mesh_create                  (const skr_vert_type_t* vert_type, skr_index_fmt_ ind_type, const void* vert_data, uint32_t vert_count, const void* opt_ind_data, uint32_t ind_count, skr_mesh_t* out_mesh);
-bool              skr_mesh_is_valid                (const skr_mesh_t* mesh);
-void              skr_mesh_destroy                 (      skr_mesh_t* mesh);
-uint32_t          skr_mesh_get_vert_count          (const skr_mesh_t* mesh);
-uint32_t          skr_mesh_get_ind_count           (const skr_mesh_t* mesh);
-void              skr_mesh_set_name                (      skr_mesh_t* mesh, const char* name);
+SKR_API skr_err_          skr_mesh_create                  (const skr_vert_type_t* vert_type, skr_index_fmt_ ind_type, const void* vert_data, uint32_t vert_count, const void* opt_ind_data, uint32_t ind_count, skr_mesh_t* out_mesh);
+SKR_API bool              skr_mesh_is_valid                (const skr_mesh_t* mesh);
+SKR_API void              skr_mesh_destroy                 (      skr_mesh_t* mesh);
+SKR_API uint32_t          skr_mesh_get_vert_count          (const skr_mesh_t* mesh);
+SKR_API uint32_t          skr_mesh_get_ind_count           (const skr_mesh_t* mesh);
+SKR_API void              skr_mesh_set_name                (      skr_mesh_t* mesh, const char* name);
 
-skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data, skr_tex_t* out_tex);
-bool              skr_tex_is_valid                 (const skr_tex_t* tex);
-void              skr_tex_destroy                  (      skr_tex_t* tex);
-skr_tex_t         skr_tex_duplicate                (const skr_tex_t* tex, skr_tex_fmt_ to_format, skr_tex_flags_ to_flags);
-void*             skr_tex_get_data                 (const skr_tex_t* tex, int32_t array_idx, int32_t mip_level);
-skr_vec3i_t       skr_tex_get_size                 (const skr_tex_t* tex);
-skr_tex_fmt_      skr_tex_get_format               (const skr_tex_t* tex);
-skr_tex_flags_    skr_tex_get_flags                (const skr_tex_t* tex);
-int32_t           skr_tex_get_multisample          (const skr_tex_t* tex);
-void              skr_tex_set_sampler              (      skr_tex_t* tex, skr_tex_sampler_t sampler);
-skr_tex_sampler_t skr_tex_get_sampler              (const skr_tex_t* tex);
-bool              skr_tex_fmt_is_supported         (skr_tex_fmt_ format);
-void              skr_tex_generate_mips            (      skr_tex_t* tex, const skr_shader_t* opt_compute_shader);
-void              skr_tex_set_name                 (      skr_tex_t* tex, const char* name);
+SKR_API skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data, skr_tex_t* out_tex);
+SKR_API bool              skr_tex_is_valid                 (const skr_tex_t* tex);
+SKR_API void              skr_tex_destroy                  (      skr_tex_t* tex);
+SKR_API skr_tex_t         skr_tex_duplicate                (const skr_tex_t* tex, skr_tex_fmt_ to_format, skr_tex_flags_ to_flags);
+SKR_API void*             skr_tex_get_data                 (const skr_tex_t* tex, int32_t array_idx, int32_t mip_level);
+SKR_API skr_vec3i_t       skr_tex_get_size                 (const skr_tex_t* tex);
+SKR_API skr_tex_fmt_      skr_tex_get_format               (const skr_tex_t* tex);
+SKR_API skr_tex_flags_    skr_tex_get_flags                (const skr_tex_t* tex);
+SKR_API int32_t           skr_tex_get_multisample          (const skr_tex_t* tex);
+SKR_API void              skr_tex_set_sampler              (      skr_tex_t* tex, skr_tex_sampler_t sampler);
+SKR_API skr_tex_sampler_t skr_tex_get_sampler              (const skr_tex_t* tex);
+SKR_API bool              skr_tex_fmt_is_supported         (skr_tex_fmt_ format);
+SKR_API void              skr_tex_generate_mips            (      skr_tex_t* tex, const skr_shader_t* opt_compute_shader);
+SKR_API void              skr_tex_set_name                 (      skr_tex_t* tex, const char* name);
 
-skr_err_          skr_surface_create               (void* vk_surface_khr, skr_surface_t* out_surface);
-void              skr_surface_destroy              (      skr_surface_t* surface);
-void              skr_surface_resize               (      skr_surface_t* surface);
-skr_acquire_      skr_surface_next_tex             (      skr_surface_t* surface, skr_tex_t** out_tex);
-void              skr_surface_present              (      skr_surface_t* surface);
-skr_vec2i_t       skr_surface_get_size             (const skr_surface_t* surface);
+SKR_API skr_err_          skr_surface_create               (void* vk_surface_khr, skr_surface_t* out_surface);
+SKR_API void              skr_surface_destroy              (      skr_surface_t* surface);
+SKR_API void              skr_surface_resize               (      skr_surface_t* surface);
+SKR_API skr_acquire_      skr_surface_next_tex             (      skr_surface_t* surface, skr_tex_t** out_tex);
+SKR_API void              skr_surface_present              (      skr_surface_t* surface);
+SKR_API skr_vec2i_t       skr_surface_get_size             (const skr_surface_t* surface);
 
-skr_err_          skr_shader_create                (const void *shader_data, uint32_t data_size, skr_shader_t* out_shader);
-bool              skr_shader_is_valid              (const skr_shader_t* shader);
-void              skr_shader_destroy               (      skr_shader_t* shader);
-skr_bind_t        skr_shader_get_bind              (const skr_shader_t* shader, const char* bind_name);
-void              skr_shader_set_name              (      skr_shader_t* shader, const char* name);
+SKR_API skr_err_          skr_shader_create                (const void *shader_data, uint32_t data_size, skr_shader_t* out_shader);
+SKR_API bool              skr_shader_is_valid              (const skr_shader_t* shader);
+SKR_API void              skr_shader_destroy               (      skr_shader_t* shader);
+SKR_API skr_bind_t        skr_shader_get_bind              (const skr_shader_t* shader, const char* bind_name);
+SKR_API void              skr_shader_set_name              (      skr_shader_t* shader, const char* name);
 
-skr_err_          skr_compute_create               (const skr_shader_t* shader, skr_compute_t* out_compute);
-bool              skr_compute_is_valid             (const skr_compute_t* shader);
-void              skr_compute_destroy              (      skr_compute_t* shader);
-skr_bind_t        skr_compute_get_bind             (const skr_compute_t* shader, const char* bind_name);
-void              skr_compute_execute              (      skr_compute_t* shader, uint32_t x, uint32_t y, uint32_t z);
-void              skr_compute_execute_indirect     (      skr_compute_t* shader, skr_buffer_t* indirect_args);
-void              skr_compute_set_tex              (      skr_compute_t* shader, const char* name, skr_tex_t*    texture);
-void              skr_compute_set_buffer           (      skr_compute_t* shader, const char* name, skr_buffer_t* buffer);
+SKR_API skr_err_          skr_compute_create               (const skr_shader_t* shader, skr_compute_t* out_compute);
+SKR_API bool              skr_compute_is_valid             (const skr_compute_t* shader);
+SKR_API void              skr_compute_destroy              (      skr_compute_t* shader);
+SKR_API skr_bind_t        skr_compute_get_bind             (const skr_compute_t* shader, const char* bind_name);
+SKR_API void              skr_compute_execute              (      skr_compute_t* shader, uint32_t x, uint32_t y, uint32_t z);
+SKR_API void              skr_compute_execute_indirect     (      skr_compute_t* shader, skr_buffer_t* indirect_args);
+SKR_API void              skr_compute_set_tex              (      skr_compute_t* shader, const char* name, skr_tex_t*    texture);
+SKR_API void              skr_compute_set_buffer           (      skr_compute_t* shader, const char* name, skr_buffer_t* buffer);
 
-skr_err_          skr_material_create              (skr_material_info_t info, skr_material_t* out_material);
-bool              skr_material_is_valid            (const skr_material_t* material);
-void              skr_material_set_tex             (      skr_material_t* material, const char* name, skr_tex_t*    texture);
-void              skr_material_set_buffer          (      skr_material_t* material, const char* name, skr_buffer_t* buffer);
-void              skr_material_set_params          (      skr_material_t* material, void* data, uint32_t size);
-void              skr_material_destroy             (      skr_material_t* material);
-void              skr_material_set_param           (      skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, const void* data);
-void              skr_material_get_param           (const skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, void* out_data);
+SKR_API skr_err_          skr_material_create              (skr_material_info_t info, skr_material_t* out_material);
+SKR_API bool              skr_material_is_valid            (const skr_material_t* material);
+SKR_API void              skr_material_set_tex             (      skr_material_t* material, const char* name, skr_tex_t*    texture);
+SKR_API void              skr_material_set_buffer          (      skr_material_t* material, const char* name, skr_buffer_t* buffer);
+SKR_API void              skr_material_set_params          (      skr_material_t* material, void* data, uint32_t size);
+SKR_API void              skr_material_destroy             (      skr_material_t* material);
+SKR_API void              skr_material_set_param           (      skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, const void* data);
+SKR_API void              skr_material_get_param           (const skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, void* out_data);
 
-skr_err_          skr_render_list_create           (skr_render_list_t* out_list);
-void              skr_render_list_destroy          (skr_render_list_t* list);
-void              skr_render_list_clear            (skr_render_list_t* list);
-void              skr_render_list_add              (skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count);
+SKR_API skr_err_          skr_render_list_create           (skr_render_list_t* out_list);
+SKR_API void              skr_render_list_destroy          (skr_render_list_t* list);
+SKR_API void              skr_render_list_clear            (skr_render_list_t* list);
+SKR_API void              skr_render_list_add              (skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count);
 
-void              skr_renderer_frame_begin         ();
-void              skr_renderer_frame_end           ();
-void              skr_renderer_begin_pass          (skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve, skr_clear_ clear, skr_vec4_t clear_color, float clear_depth, uint32_t clear_stencil);
-void              skr_renderer_end_pass            ();
-void              skr_renderer_set_global_constants(int32_t bind, const skr_buffer_t* buffer);
-void              skr_renderer_set_global_texture  (int32_t bind, const skr_tex_t* tex);
-void              skr_renderer_set_viewport        (skr_rect_t viewport);
-void              skr_renderer_set_scissor         (skr_recti_t scissor);
-void              skr_renderer_blit                (skr_material_t* material, skr_tex_t* to, skr_recti_t bounds_px);
+SKR_API void              skr_renderer_frame_begin         ();
+SKR_API void              skr_renderer_frame_end           ();
+SKR_API void              skr_renderer_begin_pass          (skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve, skr_clear_ clear, skr_vec4_t clear_color, float clear_depth, uint32_t clear_stencil);
+SKR_API void              skr_renderer_end_pass            ();
+SKR_API void              skr_renderer_set_global_constants(int32_t bind, const skr_buffer_t* buffer);
+SKR_API void              skr_renderer_set_global_texture  (int32_t bind, const skr_tex_t* tex);
+SKR_API void              skr_renderer_set_viewport        (skr_rect_t viewport);
+SKR_API void              skr_renderer_set_scissor         (skr_recti_t scissor);
+SKR_API void              skr_renderer_blit                (skr_material_t* material, skr_tex_t* to, skr_recti_t bounds_px);
 
-void              skr_renderer_draw                (skr_render_list_t* list, const void* system_data, uint32_t system_data_size, int32_t instance_multiplier);
-float             skr_renderer_get_gpu_time_ms     ();
+SKR_API void              skr_renderer_draw                (skr_render_list_t* list, const void* system_data, uint32_t system_data_size, int32_t instance_multiplier);
+SKR_API float             skr_renderer_get_gpu_time_ms     ();
 
 #ifdef __cplusplus
 }

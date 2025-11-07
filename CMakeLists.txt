@@ -49,6 +49,12 @@ else()
 endif()
 target_link_libraries     (sk_renderer PUBLIC volk)
 target_include_directories(sk_renderer PUBLIC sk_renderer/include)
+
+# Set symbol visibility to hidden by default, only export what's marked with SKR_API/SKSC_API
+if(NOT MSVC)
+	target_compile_options(sk_renderer PRIVATE -fvisibility=hidden)
+endif()
+
 target_sources            (sk_renderer PRIVATE
 	sk_renderer/include/sk_renderer.h
 	sk_renderer/skr_log.c
