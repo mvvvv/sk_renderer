@@ -486,11 +486,14 @@ static int32_t _load_gltf_thread(void* arg) {
 				skr_material_set_tex  (&scene->materials[i], "emission_tex",    &scene->black_texture);
 				skr_material_set_tex  (&scene->materials[i], "metal_tex",       &scene->white_metal_texture);
 				skr_material_set_tex  (&scene->materials[i], "occlusion_tex",   &scene->white_texture);
-				skr_material_set_color(&scene->materials[i], "color",           (skr_vec4_t){mesh_data->base_color_factor.x, mesh_data->base_color_factor.y, mesh_data->base_color_factor.z, mesh_data->base_color_factor.w});
-				skr_material_set_color(&scene->materials[i], "emission_factor", (skr_vec4_t){mesh_data->emissive_factor.x, mesh_data->emissive_factor.y, mesh_data->emissive_factor.z, 1.0f});
-				skr_material_set_vec4 (&scene->materials[i], "tex_trans",       (skr_vec4_t){0.0f, 0.0f, 1.0f, 1.0f});
-				skr_material_set_float(&scene->materials[i], "metallic",        mesh_data->metallic_factor);
-				skr_material_set_float(&scene->materials[i], "roughness",       mesh_data->roughness_factor);
+				skr_vec4_t color = {mesh_data->base_color_factor.x, mesh_data->base_color_factor.y, mesh_data->base_color_factor.z, mesh_data->base_color_factor.w};
+				skr_material_set_param(&scene->materials[i], "color", sksc_shader_var_float, 4, &color);
+				skr_vec4_t emission = {mesh_data->emissive_factor.x, mesh_data->emissive_factor.y, mesh_data->emissive_factor.z, 1.0f};
+				skr_material_set_param(&scene->materials[i], "emission_factor", sksc_shader_var_float, 4, &emission);
+				skr_vec4_t tex_trans = {0.0f, 0.0f, 1.0f, 1.0f};
+				skr_material_set_param(&scene->materials[i], "tex_trans", sksc_shader_var_float, 4, &tex_trans);
+				skr_material_set_param(&scene->materials[i], "metallic", sksc_shader_var_float, 1, &mesh_data->metallic_factor);
+				skr_material_set_param(&scene->materials[i], "roughness", sksc_shader_var_float, 1, &mesh_data->roughness_factor);
 			}
 
 			scene->transforms[i] = mesh_data->transform;
@@ -576,11 +579,16 @@ static scene_t* _scene_gltf_create(void) {
 	skr_material_set_tex  (&scene->placeholder_material, "emission_tex",    &scene->black_texture);
 	skr_material_set_tex  (&scene->placeholder_material, "metal_tex",       &scene->white_texture);
 	skr_material_set_tex  (&scene->placeholder_material, "occlusion_tex",   &scene->white_texture);
-	skr_material_set_color(&scene->placeholder_material, "color",           (skr_vec4_t){0.5f, 0.5f, 0.5f, 1.0f});
-	skr_material_set_color(&scene->placeholder_material, "emission_factor", (skr_vec4_t){0.0f, 0.0f, 0.0f, 1.0f});
-	skr_material_set_vec4 (&scene->placeholder_material, "tex_trans",       (skr_vec4_t){0.0f, 0.0f, 1.0f, 1.0f});
-	skr_material_set_float(&scene->placeholder_material, "metallic",        0);
-	skr_material_set_float(&scene->placeholder_material, "roughness",       0.8f);
+	skr_vec4_t color = {0.5f, 0.5f, 0.5f, 1.0f};
+	skr_material_set_param(&scene->placeholder_material, "color", sksc_shader_var_float, 4, &color);
+	skr_vec4_t emission = {0.0f, 0.0f, 0.0f, 1.0f};
+	skr_material_set_param(&scene->placeholder_material, "emission_factor", sksc_shader_var_float, 4, &emission);
+	skr_vec4_t tex_trans = {0.0f, 0.0f, 1.0f, 1.0f};
+	skr_material_set_param(&scene->placeholder_material, "tex_trans", sksc_shader_var_float, 4, &tex_trans);
+	float metallic = 0.0f;
+	skr_material_set_param(&scene->placeholder_material, "metallic", sksc_shader_var_float, 1, &metallic);
+	float roughness = 0.8f;
+	skr_material_set_param(&scene->placeholder_material, "roughness", sksc_shader_var_float, 1, &roughness);
 
 	// Start loading GLTF in background thread
 	scene->load_ctx = calloc(1, sizeof(gltf_load_context_t));

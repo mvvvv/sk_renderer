@@ -183,199 +183,67 @@ void skr_material_set_params(skr_material_t* material, void* data, uint32_t size
 // Material parameter setters/getters
 ///////////////////////////////////////////////////////////////////////////////
 
-void skr_material_set_float(skr_material_t* material, const char* name, float value) {
+static uint32_t _skr_shader_var_size(sksc_shader_var_ type) {
+	switch (type) {
+		case sksc_shader_var_int:    return sizeof(int32_t);
+		case sksc_shader_var_uint:   return sizeof(uint32_t);
+		case sksc_shader_var_uint8:  return sizeof(uint8_t);
+		case sksc_shader_var_float:  return sizeof(float);
+		case sksc_shader_var_double: return sizeof(double);
+		default:                     return 0;
+	}
+}
+
+void skr_material_set_param(skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, const void* data) {
 	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
 
 	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
+	if (var_index < 0) {
+		skr_log(skr_log_warning, "Material parameter '%s' not found", name);
+		return;
+	}
 
 	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_float) return;
+	if (!var || var->type != type) {
+		skr_log(skr_log_warning, "Material parameter '%s' type mismatch", name);
+		return;
+	}
 
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(float));
+	uint32_t element_size = _skr_shader_var_size(type);
+	uint32_t copy_size    = element_size * count;
+
+	if (var->offset + copy_size > material->param_buffer_size) {
+		skr_log(skr_log_warning, "Material parameter '%s' write would exceed buffer size", name);
+		return;
+	}
+
+	memcpy((uint8_t*)material->param_buffer + var->offset, data, copy_size);
 }
 
-void skr_material_set_vec2(skr_material_t* material, const char* name, skr_vec2_t value) {
+void skr_material_get_param(const skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, void* out_data) {
 	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
 
 	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
+	if (var_index < 0) {
+		skr_log(skr_log_warning, "Material parameter '%s' not found", name);
+		return;
+	}
 
 	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_float || var->type_count != 2) return;
+	if (!var || var->type != type) {
+		skr_log(skr_log_warning, "Material parameter '%s' type mismatch", name);
+		return;
+	}
 
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(skr_vec2_t));
-}
+	uint32_t element_size = _skr_shader_var_size(type);
+	uint32_t copy_size    = element_size * count;
 
-void skr_material_set_vec2i(skr_material_t* material, const char* name, skr_vec2i_t value) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
+	if (var->offset + copy_size > material->param_buffer_size) {
+		skr_log(skr_log_warning, "Material parameter '%s' read would exceed buffer size", name);
+		return;
+	}
 
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || (var->type != sksc_shader_var_int && var->type != sksc_shader_var_uint) || var->type_count != 2) return;
-
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(skr_vec2i_t));
-}
-
-void skr_material_set_vec3(skr_material_t* material, const char* name, skr_vec3_t value) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_float || var->type_count != 3) return;
-
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(skr_vec3_t));
-}
-
-void skr_material_set_vec3i(skr_material_t* material, const char* name, skr_vec3i_t value) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || (var->type != sksc_shader_var_int && var->type != sksc_shader_var_uint) || var->type_count != 3) return;
-
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(skr_vec3i_t));
-}
-
-void skr_material_set_vec4(skr_material_t* material, const char* name, skr_vec4_t value) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_float || var->type_count != 4) return;
-
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(skr_vec4_t));
-}
-
-void skr_material_set_vec4i(skr_material_t* material, const char* name, skr_vec4i_t value) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || (var->type != sksc_shader_var_int && var->type != sksc_shader_var_uint) || var->type_count != 4) return;
-
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(skr_vec4i_t));
-}
-
-void skr_material_set_color(skr_material_t* material, const char* name, skr_vec4_t color) {
-	// Color is the same as vec4
-	skr_material_set_vec4(material, name, color);
-}
-
-void skr_material_set_int(skr_material_t* material, const char* name, int32_t value) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_int) return;
-
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(int32_t));
-}
-
-void skr_material_set_uint(skr_material_t* material, const char* name, uint32_t value) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_uint) return;
-
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(uint32_t));
-}
-
-void skr_material_set_matrix(skr_material_t* material, const char* name, skr_matrix_t value) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var) return;
-
-	memcpy((uint8_t*)material->param_buffer + var->offset, &value, sizeof(skr_matrix_t));
-}
-
-float skr_material_get_float(const skr_material_t* material, const char* name) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return 0.0f;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return 0.0f;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_float) return 0.0f;
-
-	float result;
-	memcpy(&result, (uint8_t*)material->param_buffer + var->offset, sizeof(float));
-	return result;
-}
-
-skr_vec2_t skr_material_get_vec2(const skr_material_t* material, const char* name) {
-	skr_vec2_t result = {0};
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return result;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return result;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_float || var->type_count != 2) return result;
-
-	memcpy(&result, (uint8_t*)material->param_buffer + var->offset, sizeof(skr_vec2_t));
-	return result;
-}
-
-skr_vec3_t skr_material_get_vec3(const skr_material_t* material, const char* name) {
-	skr_vec3_t result = {0};
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return result;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return result;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_float || var->type_count != 3) return result;
-
-	memcpy(&result, (uint8_t*)material->param_buffer + var->offset, sizeof(skr_vec3_t));
-	return result;
-}
-
-skr_vec4_t skr_material_get_vec4(const skr_material_t* material, const char* name) {
-	skr_vec4_t result = {0};
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return result;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return result;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_float || var->type_count != 4) return result;
-
-	memcpy(&result, (uint8_t*)material->param_buffer + var->offset, sizeof(skr_vec4_t));
-	return result;
-}
-
-int32_t skr_material_get_int(const skr_material_t* material, const char* name) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return 0;
-
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
-	if (var_index < 0) return 0;
-
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
-	if (!var || var->type != sksc_shader_var_int) return 0;
-
-	int32_t result;
-	memcpy(&result, (uint8_t*)material->param_buffer + var->offset, sizeof(int32_t));
-	return result;
+	memcpy(out_data, (uint8_t*)material->param_buffer + var->offset, copy_size);
 }
 
 void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct) {

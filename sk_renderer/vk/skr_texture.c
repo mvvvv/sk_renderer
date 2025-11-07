@@ -931,10 +931,13 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 			if (prev_mip_height == 0) prev_mip_height = 1;
 
 			// Use material API to populate values (handles different shader layouts)
-			skr_material_set_vec2i(&material, "src_size", (skr_vec2i_t){prev_mip_width, prev_mip_height});
-			skr_material_set_vec2i(&material, "dst_size", (skr_vec2i_t){mip_width, mip_height});
-			skr_material_set_uint (&material, "src_mip_level", mip - 1);
-			skr_material_set_uint (&material, "mip_max",       mip_levels);
+			skr_vec2i_t src_size = {prev_mip_width, prev_mip_height};
+			skr_vec2i_t dst_size = {mip_width, mip_height};
+			uint32_t src_mip = mip - 1;
+			skr_material_set_param(&material, "src_size", sksc_shader_var_uint, 2, &src_size);
+			skr_material_set_param(&material, "dst_size", sksc_shader_var_uint, 2, &dst_size);
+			skr_material_set_param(&material, "src_mip_level", sksc_shader_var_uint, 1, &src_mip);
+			skr_material_set_param(&material, "mip_max", sksc_shader_var_uint, 1, &mip_levels);
 
 			// Copy material's parameter buffer for this mip (preserves other values)
 			memcpy(all_params + (mip - 1) * material.param_buffer_size,

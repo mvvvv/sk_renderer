@@ -464,23 +464,8 @@ void              skr_material_set_tex             (      skr_material_t* materi
 void              skr_material_set_buffer          (      skr_material_t* material, const char* name, skr_buffer_t* buffer);
 void              skr_material_set_params          (      skr_material_t* material, void* data, uint32_t size);
 void              skr_material_destroy             (      skr_material_t* material);
-// Material parameter setters (for $Global buffer variables)
-void              skr_material_set_float           (      skr_material_t* material, const char* name, float value);
-void              skr_material_set_vec2            (      skr_material_t* material, const char* name, skr_vec2_t value);
-void              skr_material_set_vec2i           (      skr_material_t* material, const char* name, skr_vec2i_t value);
-void              skr_material_set_vec3            (      skr_material_t* material, const char* name, skr_vec3_t value);
-void              skr_material_set_vec3i           (      skr_material_t* material, const char* name, skr_vec3i_t value);
-void              skr_material_set_vec4            (      skr_material_t* material, const char* name, skr_vec4_t value);
-void              skr_material_set_vec4i           (      skr_material_t* material, const char* name, skr_vec4i_t value);
-void              skr_material_set_color           (      skr_material_t* material, const char* name, skr_vec4_t color);
-void              skr_material_set_int             (      skr_material_t* material, const char* name, int32_t value);
-void              skr_material_set_uint            (      skr_material_t* material, const char* name, uint32_t value);
-void              skr_material_set_matrix          (      skr_material_t* material, const char* name, skr_matrix_t value);
-float             skr_material_get_float           (const skr_material_t* material, const char* name);
-skr_vec2_t        skr_material_get_vec2            (const skr_material_t* material, const char* name);
-skr_vec3_t        skr_material_get_vec3            (const skr_material_t* material, const char* name);
-skr_vec4_t        skr_material_get_vec4            (const skr_material_t* material, const char* name);
-int32_t           skr_material_get_int             (const skr_material_t* material, const char* name);
+void              skr_material_set_param           (      skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, const void* data);
+void              skr_material_get_param           (const skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, void* out_data);
 
 skr_err_          skr_render_list_create           (skr_render_list_t* out_list);
 void              skr_render_list_destroy          (skr_render_list_t* list);
