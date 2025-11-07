@@ -54,6 +54,11 @@ target_include_directories(sk_renderer PUBLIC sk_renderer/include)
 if(NOT MSVC)
 	target_compile_options(sk_renderer PRIVATE -fvisibility=hidden)
 endif()
+if (MINGW)
+	# mingw does not support C11 threads, we have a small fallback
+	target_link_libraries     (sk_renderer PRIVATE pthread)
+	target_include_directories(sk_renderer PRIVATE sk_renderer/threads)
+endif()
 
 target_sources            (sk_renderer PRIVATE
 	sk_renderer/include/sk_renderer.h
@@ -129,6 +134,14 @@ elseif (UNIX)
 elseif(WIN32)
 	target_link_libraries(sk_renderer_test PRIVATE SDL2::SDL2main)
 endif()
+
+# Static link MinGW runtime and pthread when cross-compiling to Windows
+if(MINGW)
+	target_link_options       (sk_renderer_test PRIVATE -static-libgcc -static-libstdc++ -static)
+	target_link_libraries     (sk_renderer_test PRIVATE pthread)
+	target_include_directories(sk_renderer_test PRIVATE sk_renderer/threads)
+endif()
+
 target_link_libraries     (sk_renderer_test PRIVATE SDL2::SDL2 sk_renderer)
 target_include_directories(sk_renderer_test PRIVATE ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR})
 target_sources            (sk_renderer_test PRIVATE

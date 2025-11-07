@@ -34,24 +34,6 @@ set(VULKAN_VERSION vulkan-sdk-1.3.296.0) # Most of our dependencies here use the
 
 add_executable(skshaderc)
 
-# For converting SPIR-V to flavors of GLSL
-#FetchContent_Declare( SPIRV-Cross
-#	GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Cross.git
-#	GIT_TAG        ${VULKAN_VERSION}
-#	GIT_SHALLOW    TRUE
-#	GIT_PROGRESS   TRUE
-#)
-#set(SPIRV_CROSS_CLI            OFF  CACHE BOOL "")
-#set(SPIRV_CROSS_ENABLE_TESTS   OFF  CACHE BOOL "")
-#set(SPIRV_CROSS_ENABLE_MSL     OFF  CACHE BOOL "")
-#set(SPIRV_CROSS_ENABLE_CPP     OFF  CACHE BOOL "")
-#set(SPIRV_CROSS_ENABLE_REFLECT OFF  CACHE BOOL "")
-#set(SPIRV_CROSS_ENABLE_C_API   OFF  CACHE BOOL "")
-#set(SPIRV_CROSS_ENABLE_UTIL    OFF  CACHE BOOL "")
-#FetchContent_MakeAvailable(SPIRV-Cross)
-#target_link_libraries     (skshaderc PRIVATE
-#    spirv-cross-hlsl)
-
 # For SPIRV-Tools
 FetchContent_Declare( SPIRV-Headers
 	GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
@@ -122,6 +104,11 @@ target_sources(skshaderc PRIVATE
 )
 target_include_directories(skshaderc PRIVATE ../sk_renderer/include)
 
+# Static link MinGW runtime when cross-compiling to Windows
+if(MINGW)
+    target_link_options(skshaderc PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()
+
 set_target_properties(skshaderc PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
@@ -135,6 +122,11 @@ if (NOT MSVC AND NOT APPLE)
 endif()
 
 set(SKSHADERC_EXE_PATH $<TARGET_FILE:skshaderc> PARENT_SCOPE)
+
+# Detect cross-compilation to Windows from Unix - use Wine to run skshaderc.exe
+if(CMAKE_HOST_UNIX AND CMAKE_SYSTEM_NAME MATCHES "Windows")
+    set(WINE "wine" CACHE INTERNAL "")
+endif()
 
 ###############################################################################
 # Install skshaderc binary to bin/tools/{platform}/ for distribution
@@ -186,7 +178,7 @@ function(SKSHADERC_COMPILE_ASSETS TARGET OUT_PATH COMMAND_STRING OUT_LIST)
 
         add_custom_command(
             OUTPUT ${COMPILED_SHADER}
-            COMMAND ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
+            COMMAND ${WINE} ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
             DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
             VERBATIM
         )
@@ -210,7 +202,7 @@ function(SKSHADERC_COMPILE_HEADERS ADD_TARGET OUTPUT_FOLDER COMMAND_STRING)
         get_filename_component(SHADER_NAME ${SHADER} NAME)
         add_custom_command(
             OUTPUT ${OUTPUT_FOLDER}/${SHADER_NAME}.h
-            COMMAND ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
+            COMMAND ${WINE} ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
             VERBATIM
         )
         list(APPEND SHADER_LIST ${OUTPUT_FOLDER}/${SHADER_NAME}.h)
