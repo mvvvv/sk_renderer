@@ -25,7 +25,6 @@ typedef struct {
 	skr_compute_t  compute_pong;
 	skr_buffer_t   compute_buffer_a;
 	skr_buffer_t   compute_buffer_b;
-	skr_buffer_t   compute_params_buffer;
 	skr_tex_t      compute_output;
 
 	int32_t sim_size;
@@ -114,36 +113,29 @@ static scene_t* _scene_reaction_diffusion_create(void) {
 		default_sampler,
 		(skr_vec3i_t){scene->sim_size, scene->sim_size, 1}, 1, 1, NULL, &scene->compute_output);
 
-	// Create compute params buffer
-	typedef struct {
-		float    feed;
-		float    kill;
-		float    diffuseA;
-		float    diffuseB;
-		float    timestep;
-		uint32_t size;
-	} compute_params_t;
-
-	compute_params_t compute_params = {
-		.feed     = 0.042f,
-		.kill     = 0.059f,
-		.diffuseA = 0.2097f,
-		.diffuseB = 0.105f,
-		.timestep = 0.8f,
-		.size     = scene->sim_size
-	};
-	skr_buffer_create(&compute_params, 1, sizeof(compute_params_t), skr_buffer_type_constant, skr_use_dynamic, &scene->compute_params_buffer);
-
 	// Set up compute bindings
 	skr_compute_set_buffer(&scene->compute_ping, "input",   &scene->compute_buffer_a);
 	skr_compute_set_buffer(&scene->compute_ping, "output",  &scene->compute_buffer_b);
-	skr_compute_set_buffer(&scene->compute_ping, "$Global", &scene->compute_params_buffer);
 	skr_compute_set_tex   (&scene->compute_ping, "out_tex", &scene->compute_output);
 
 	skr_compute_set_buffer(&scene->compute_pong, "input",   &scene->compute_buffer_b);
 	skr_compute_set_buffer(&scene->compute_pong, "output",  &scene->compute_buffer_a);
-	skr_compute_set_buffer(&scene->compute_pong, "$Global", &scene->compute_params_buffer);
 	skr_compute_set_tex   (&scene->compute_pong, "out_tex", &scene->compute_output);
+
+	// Set compute parameters using reflection API
+	skr_compute_set_param(&scene->compute_ping, "feed",     sksc_shader_var_float, 1, &(float){0.042f});
+	skr_compute_set_param(&scene->compute_ping, "kill",     sksc_shader_var_float, 1, &(float){0.059f});
+	skr_compute_set_param(&scene->compute_ping, "diffuseA", sksc_shader_var_float, 1, &(float){0.2097f});
+	skr_compute_set_param(&scene->compute_ping, "diffuseB", sksc_shader_var_float, 1, &(float){0.105f});
+	skr_compute_set_param(&scene->compute_ping, "timestep", sksc_shader_var_float, 1, &(float){0.8f});
+	skr_compute_set_param(&scene->compute_ping, "size",     sksc_shader_var_uint,  1, &(uint32_t){scene->sim_size});
+
+	skr_compute_set_param(&scene->compute_pong, "feed",     sksc_shader_var_float, 1, &(float){0.042f});
+	skr_compute_set_param(&scene->compute_pong, "kill",     sksc_shader_var_float, 1, &(float){0.059f});
+	skr_compute_set_param(&scene->compute_pong, "diffuseA", sksc_shader_var_float, 1, &(float){0.2097f});
+	skr_compute_set_param(&scene->compute_pong, "diffuseB", sksc_shader_var_float, 1, &(float){0.105f});
+	skr_compute_set_param(&scene->compute_pong, "timestep", sksc_shader_var_float, 1, &(float){0.8f});
+	skr_compute_set_param(&scene->compute_pong, "size",     sksc_shader_var_uint,  1, &(uint32_t){scene->sim_size});
 
 	// Bind texture to material
 	skr_material_set_tex(&scene->quad_material, "tex", &scene->compute_output);
@@ -163,7 +155,6 @@ static void _scene_reaction_diffusion_destroy(scene_t* base) {
 	skr_tex_destroy(&scene->compute_output);
 	skr_buffer_destroy(&scene->compute_buffer_a);
 	skr_buffer_destroy(&scene->compute_buffer_b);
-	skr_buffer_destroy(&scene->compute_params_buffer);
 
 	free(scene);
 }

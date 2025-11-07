@@ -107,13 +107,18 @@ typedef struct skr_material_t {
 } skr_material_t;
 
 typedef struct skr_compute_t {
-	const skr_shader_t*   shader;  // Reference to shader (not owned)
-	VkPipelineLayout      layout;
-	VkDescriptorSetLayout descriptor_layout;
-	VkPipeline            pipeline;
-	
-	skr_material_bind_t*  binds;
-	uint32_t              bind_count;
+	const skr_shader_t*    shader;  // Reference to shader (not owned)
+	VkPipelineLayout       layout;
+	VkDescriptorSetLayout  descriptor_layout;
+	VkPipeline             pipeline;
+
+	skr_material_bind_t*   binds;
+	uint32_t               bind_count;
+
+	void*                  param_buffer;
+	uint32_t               param_buffer_size;
+	skr_buffer_t           param_gpu_buffer;
+	bool                   param_dirty;
 } skr_compute_t;
 
 typedef struct skr_render_item_t {

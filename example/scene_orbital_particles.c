@@ -40,7 +40,6 @@ typedef struct {
 	skr_compute_t     compute_pong;
 	skr_buffer_t      particle_buffer_a;
 	skr_buffer_t      particle_buffer_b;
-	skr_buffer_t      compute_params_buffer;
 
 	float   time;
 	int32_t compute_iteration;
@@ -169,24 +168,27 @@ static scene_t* _scene_orbital_particles_create(void) {
 		uint32_t particle_count;
 	} compute_params_t;
 
-	compute_params_t compute_params = {
-		.time           = 0.0f,
-		.delta_time     = 0.0f,
-		.damping        = 0.98f,
-		.max_speed      = 5.0f,
-		.strength       = 2.0f,
-		.particle_count = PARTICLE_COUNT
-	};
-	skr_buffer_create(&compute_params, 1, sizeof(compute_params_t), skr_buffer_type_constant, skr_use_dynamic, &scene->compute_params_buffer);
-
 	// Set up compute bindings
 	skr_compute_set_buffer(&scene->compute_ping, "input",   &scene->particle_buffer_a);
 	skr_compute_set_buffer(&scene->compute_ping, "output",  &scene->particle_buffer_b);
-	skr_compute_set_buffer(&scene->compute_ping, "$Global", &scene->compute_params_buffer);
 
 	skr_compute_set_buffer(&scene->compute_pong, "input",   &scene->particle_buffer_b);
 	skr_compute_set_buffer(&scene->compute_pong, "output",  &scene->particle_buffer_a);
-	skr_compute_set_buffer(&scene->compute_pong, "$Global", &scene->compute_params_buffer);
+
+	// Set initial compute parameters using reflection API
+	skr_compute_set_param(&scene->compute_ping, "time",           sksc_shader_var_float, 1, &(float){0.0f});
+	skr_compute_set_param(&scene->compute_ping, "delta_time",     sksc_shader_var_float, 1, &(float){0.0f});
+	skr_compute_set_param(&scene->compute_ping, "damping",        sksc_shader_var_float, 1, &(float){0.98f});
+	skr_compute_set_param(&scene->compute_ping, "max_speed",      sksc_shader_var_float, 1, &(float){5.0f});
+	skr_compute_set_param(&scene->compute_ping, "strength",       sksc_shader_var_float, 1, &(float){2.0f});
+	skr_compute_set_param(&scene->compute_ping, "particle_count", sksc_shader_var_uint,  1, &(uint32_t){PARTICLE_COUNT});
+
+	skr_compute_set_param(&scene->compute_pong, "time",           sksc_shader_var_float, 1, &(float){0.0f});
+	skr_compute_set_param(&scene->compute_pong, "delta_time",     sksc_shader_var_float, 1, &(float){0.0f});
+	skr_compute_set_param(&scene->compute_pong, "damping",        sksc_shader_var_float, 1, &(float){0.98f});
+	skr_compute_set_param(&scene->compute_pong, "max_speed",      sksc_shader_var_float, 1, &(float){5.0f});
+	skr_compute_set_param(&scene->compute_pong, "strength",       sksc_shader_var_float, 1, &(float){2.0f});
+	skr_compute_set_param(&scene->compute_pong, "particle_count", sksc_shader_var_uint,  1, &(uint32_t){PARTICLE_COUNT});
 
 	scene->particle_params = (particle_params_t){
 		.color_slow = HMM_V3(0.818f, 0.0100f, 0.0177f),  // Red (sRGB 0.92, 0.1, 0.14 -> linear)
@@ -210,7 +212,6 @@ static void _scene_orbital_particles_destroy(scene_t* base) {
 	skr_tex_destroy(&scene->white_texture);
 	skr_buffer_destroy(&scene->particle_buffer_a);
 	skr_buffer_destroy(&scene->particle_buffer_b);
-	skr_buffer_destroy(&scene->compute_params_buffer);
 
 	free(scene);
 }
@@ -219,28 +220,13 @@ static void _scene_orbital_particles_update(scene_t* base, float delta_time) {
 	scene_orbital_particles_t* scene = (scene_orbital_particles_t*)base;
 	scene->time += delta_time;
 
-	// Update compute params
-	typedef struct {
-		float    time;
-		float    delta_time;
-		float    damping;
-		float    max_speed;
-		float    strength;
-		uint32_t particle_count;
-	} compute_params_t;
-
-	compute_params_t params = {
-		.time           = scene->time,
-		.delta_time     = delta_time,
-		.damping        = 0.98f,
-		.max_speed      = 5.0f,
-		.strength       = 4.0f,
-		.particle_count = PARTICLE_COUNT
-	};
-	skr_buffer_set(&scene->compute_params_buffer, &params, sizeof(compute_params_t));
+	// Update compute params for current compute shader
+	skr_compute_t* current = (scene->compute_iteration % 2 == 0) ? &scene->compute_ping : &scene->compute_pong;
+	skr_compute_set_param(current, "time",       sksc_shader_var_float, 1, &scene->time);
+	skr_compute_set_param(current, "delta_time", sksc_shader_var_float, 1, &delta_time);
+	skr_compute_set_param(current, "strength",   sksc_shader_var_float, 1, &(float){4.0f});
 
 	// Execute compute shader to update particles on GPU
-	skr_compute_t* current = (scene->compute_iteration % 2 == 0) ? &scene->compute_ping : &scene->compute_pong;
 	// Dispatch 500k particles / 256 threads per group = 1954 groups (rounded up)
 	skr_compute_execute(current, (PARTICLE_COUNT + 255) / 256, 1, 1);
 	scene->compute_iteration++;

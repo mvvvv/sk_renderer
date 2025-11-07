@@ -445,9 +445,9 @@ SKR_API skr_tex_flags_    skr_tex_get_flags                (const skr_tex_t* tex
 SKR_API int32_t           skr_tex_get_multisample          (const skr_tex_t* tex);
 SKR_API void              skr_tex_set_sampler              (      skr_tex_t* tex, skr_tex_sampler_t sampler);
 SKR_API skr_tex_sampler_t skr_tex_get_sampler              (const skr_tex_t* tex);
-SKR_API bool              skr_tex_fmt_is_supported         (skr_tex_fmt_ format);
 SKR_API void              skr_tex_generate_mips            (      skr_tex_t* tex, const skr_shader_t* opt_compute_shader);
 SKR_API void              skr_tex_set_name                 (      skr_tex_t* tex, const char* name);
+SKR_API bool              skr_tex_fmt_is_supported         (skr_tex_fmt_ format);
 
 SKR_API skr_err_          skr_surface_create               (void* vk_surface_khr, skr_surface_t* out_surface);
 SKR_API void              skr_surface_destroy              (      skr_surface_t* surface);
@@ -470,6 +470,9 @@ SKR_API void              skr_compute_execute              (      skr_compute_t*
 SKR_API void              skr_compute_execute_indirect     (      skr_compute_t* shader, skr_buffer_t* indirect_args);
 SKR_API void              skr_compute_set_tex              (      skr_compute_t* shader, const char* name, skr_tex_t*    texture);
 SKR_API void              skr_compute_set_buffer           (      skr_compute_t* shader, const char* name, skr_buffer_t* buffer);
+SKR_API void              skr_compute_set_params           (      skr_compute_t* compute, void* data, uint32_t size);
+SKR_API void              skr_compute_set_param            (      skr_compute_t* compute, const char* name, sksc_shader_var_ type, uint32_t count, const void* data);
+SKR_API void              skr_compute_get_param            (const skr_compute_t* compute, const char* name, sksc_shader_var_ type, uint32_t count, void* out_data);
 
 SKR_API skr_err_          skr_material_create              (skr_material_info_t info, skr_material_t* out_material);
 SKR_API bool              skr_material_is_valid            (const skr_material_t* material);
