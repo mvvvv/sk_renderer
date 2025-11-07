@@ -75,7 +75,7 @@ skr_err_ skr_shader_create(const void* shader_data, uint32_t data_size, skr_shad
 	if (!out_shader) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	memset(out_shader, 0, sizeof(skr_shader_t));
+	*out_shader = (skr_shader_t){};
 
 	if (!shader_data || data_size == 0) {
 		return skr_err_invalid_parameter;
@@ -134,7 +134,7 @@ void skr_shader_destroy(skr_shader_t* shader) {
 		shader->meta = NULL;
 	}
 
-	memset(shader, 0, sizeof(skr_shader_t));
+	*shader = (skr_shader_t){};
 }
 
 skr_bind_t skr_shader_get_bind(const skr_shader_t* shader, const char* bind_name) {

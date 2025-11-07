@@ -107,7 +107,7 @@ bool skr_init(skr_settings_t settings) {
 		return false;
 	}
 
-	memset(&_skr_vk, 0, sizeof(_skr_vk));
+	_skr_vk = (_skr_vk_t){};
 	_skr_vk.validation_enabled        = settings.enable_validation;
 	_skr_vk.current_renderpass_idx    = -1;
 	_skr_vk.main_thread_id            = thrd_current();
@@ -552,7 +552,7 @@ void skr_shutdown() {
 	if (_skr_vk.device   != VK_NULL_HANDLE) { vkDestroyDevice  (_skr_vk.device,   NULL); }
 	if (_skr_vk.instance != VK_NULL_HANDLE) { vkDestroyInstance(_skr_vk.instance, NULL); }
 
-	memset(&_skr_vk, 0, sizeof(_skr_vk));
+	_skr_vk = (_skr_vk_t){};
 }
 
 VkInstance skr_get_vk_instance() {

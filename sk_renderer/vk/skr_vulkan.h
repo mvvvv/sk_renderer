@@ -102,7 +102,6 @@ typedef struct skr_material_t {
 	// Material parameters
 	void*                  param_buffer;          // CPU-side parameter data
 	uint32_t               param_buffer_size;     // Size of parameter buffer in bytes
-	bool                   param_buffer_dirty;    // True if parameters changed since last add to render list
 
 	bool                   has_system_buffer;
 } skr_material_t;

@@ -366,7 +366,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	if (!out_tex) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	memset(out_tex, 0, sizeof(skr_tex_t));
+	*out_tex = (skr_tex_t){};
 
 	// Validate parameters
 	if (size.x <= 0 || size.y <= 0 || size.z <= 0) {
@@ -573,7 +573,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		skr_log(skr_log_critical, "Failed to allocate texture memory - Format: %d, Size: %dx%dx%d, Mips: %d, Layers: %d, Samples: %d, Usage: 0x%x, Flags: 0x%x",
 			format, size.x, size.y, size.z, out_tex->mip_levels, out_tex->layer_count, out_tex->samples, usage, out_tex->flags);
 		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
-		memset(out_tex, 0, sizeof(skr_tex_t));
+		*out_tex = (skr_tex_t){};
 		return skr_err_out_of_memory;
 	}
 
@@ -590,7 +590,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 			skr_log(skr_log_critical, "Failed to create staging buffer for texture upload");
 			vkFreeMemory(_skr_vk.device, out_tex->memory, NULL);
 			vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
-			memset(out_tex, 0, sizeof(skr_tex_t));
+			*out_tex = (skr_tex_t){};
 			return skr_err_out_of_memory;
 		}
 
@@ -668,7 +668,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		skr_log(skr_log_critical, "vkCreateImageView failed");
 		vkFreeMemory  (_skr_vk.device, out_tex->memory, NULL);
 		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
-		memset(out_tex, 0, sizeof(skr_tex_t));
+		*out_tex = (skr_tex_t){};
 		return skr_err_device_error;
 	}
 

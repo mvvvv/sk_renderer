@@ -204,7 +204,7 @@ skr_err_ skr_surface_create(void* vk_surface_khr, skr_surface_t* out_surface) {
 	if (!out_surface) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	memset(out_surface, 0, sizeof(skr_surface_t));
+	*out_surface = (skr_surface_t){};
 
 	VkSurfaceKHR vk_surface = (VkSurfaceKHR)vk_surface_khr;
 	if (!vk_surface) return skr_err_invalid_parameter;
@@ -223,7 +223,7 @@ skr_err_ skr_surface_create(void* vk_surface_khr, skr_surface_t* out_surface) {
 	// Create swapchain using helper
 	if (!_skr_surface_create_swapchain(out_surface, VK_NULL_HANDLE)) {
 		vkDestroySurfaceKHR(_skr_vk.instance, vk_surface, NULL);
-		memset(out_surface, 0, sizeof(skr_surface_t));
+		*out_surface = (skr_surface_t){};
 		return skr_err_device_error;
 	}
 

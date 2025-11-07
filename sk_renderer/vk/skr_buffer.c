@@ -37,7 +37,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 	if (!out_buffer) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	memset(out_buffer, 0, sizeof(skr_buffer_t));
+	*out_buffer = (skr_buffer_t){};
 
 	// Validate inputs
 	if (size_count == 0 || size_stride == 0) {
@@ -80,7 +80,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 	if (vr != VK_SUCCESS) {
 		SKR_VK_CHECK_NRET(vr, "vkAllocateMemory");
 		vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
-		memset(out_buffer, 0, sizeof(skr_buffer_t));
+		*out_buffer = (skr_buffer_t){};
 		return skr_err_out_of_memory;
 	}
 
@@ -107,7 +107,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 				SKR_VK_CHECK_NRET(vr, "vkCreateBuffer");
 				vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
 				vkFreeMemory(_skr_vk.device, out_buffer->memory, NULL);
-				memset(out_buffer, 0, sizeof(skr_buffer_t));
+				*out_buffer = (skr_buffer_t){};
 				return skr_err_device_error;
 			}
 
@@ -125,7 +125,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 				vkDestroyBuffer(_skr_vk.device, staging_buffer, NULL);
 				vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
 				vkFreeMemory(_skr_vk.device, out_buffer->memory, NULL);
-				memset(out_buffer, 0, sizeof(skr_buffer_t));
+				*out_buffer = (skr_buffer_t){};
 				return skr_err_out_of_memory;
 			}
 			vkBindBufferMemory(_skr_vk.device, staging_buffer, staging_memory, 0);
@@ -208,5 +208,5 @@ void skr_buffer_destroy(skr_buffer_t* buffer) {
 	_skr_cmd_destroy_buffer(NULL, buffer->buffer);
 	_skr_cmd_destroy_memory(NULL, buffer->memory);
 
-	memset(buffer, 0, sizeof(skr_buffer_t));
+	*buffer = (skr_buffer_t){};
 }

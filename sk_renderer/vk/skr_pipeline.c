@@ -99,7 +99,7 @@ static void _skr_pipeline_grow_pipelines_array(int32_t old_m, int32_t new_m, int
 ///////////////////////////////////////////////////////////////////////////////
 
 void _skr_pipeline_init() {
-	memset(&_skr_pipeline_cache, 0, sizeof(_skr_pipeline_cache));
+	_skr_pipeline_cache = (_skr_pipeline_cache_t){};
 }
 
 void _skr_pipeline_shutdown() {
@@ -153,7 +153,7 @@ void _skr_pipeline_shutdown() {
 		_skr_free(_skr_pipeline_cache.vertformats);
 	}
 
-	memset(&_skr_pipeline_cache, 0, sizeof(_skr_pipeline_cache));
+	_skr_pipeline_cache = (_skr_pipeline_cache_t){};
 }
 
 static void _skr_pipeline_grow_materials(int32_t min_capacity) {

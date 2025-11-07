@@ -20,7 +20,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 	if (!out_material) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	memset(out_material, 0, sizeof(skr_material_t));
+	*out_material = (skr_material_t){};
 
 	if (!info.shader || !skr_shader_is_valid(info.shader)) {
 		skr_log(skr_log_warning, "Cannot create material with invalid shader");
@@ -45,7 +45,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 			if (out_material->info.shader->meta) {
 				sksc_shader_meta_release(out_material->info.shader->meta);
 			}
-			memset(out_material, 0, sizeof(skr_material_t));
+			*out_material = (skr_material_t){};
 			return skr_err_out_of_memory;
 		}
 
@@ -55,7 +55,6 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 		} else {
 			memset(out_material->param_buffer, 0, out_material->param_buffer_size);
 		}
-		out_material->param_buffer_dirty = true;
 	}
 
 	// Allocate memory for our material resource binds
@@ -78,7 +77,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 		if (out_material->info.shader->meta) {
 			sksc_shader_meta_release(out_material->info.shader->meta);
 		}
-		memset(out_material, 0, sizeof(skr_material_t));
+		*out_material = (skr_material_t){};
 		return skr_err_device_error;
 	}
 
@@ -114,7 +113,7 @@ void skr_material_destroy(skr_material_t* material) {
 		sksc_shader_meta_release(material->info.shader->meta);
 	}
 
-	memset(material, 0, sizeof(skr_material_t));
+	*material = (skr_material_t){};
 	material->pipeline_material_idx = -1;
 }
 
@@ -177,7 +176,6 @@ void skr_material_set_params(skr_material_t* material, void* data, uint32_t size
 		return;
 	}
 	memcpy(material->param_buffer, data, size);
-	material->param_buffer_dirty = true;
 }
 
 
