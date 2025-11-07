@@ -27,19 +27,6 @@ endif()
 # sk_renderer library
 ###############################################################################
 
-FetchContent_Declare( volk
-	GIT_REPOSITORY https://github.com/zeux/volk.git
-	GIT_TAG        1.3.270
-	GIT_SHALLOW    TRUE
-	GIT_PROGRESS   TRUE
-)
-FetchContent_MakeAvailable(volk)
-
-if(ANDROID)
-	# Enable PIC for volk static library on Android
-	set_target_properties(volk PROPERTIES POSITION_INDEPENDENT_CODE ON)
-endif()
-
 if(ANDROID)
 	add_library(sk_renderer STATIC)
 	# Enable position-independent code for static library on Android
@@ -47,12 +34,22 @@ if(ANDROID)
 else()
 	add_library(sk_renderer)
 endif()
-target_link_libraries     (sk_renderer PUBLIC volk)
-target_include_directories(sk_renderer PUBLIC sk_renderer/include)
+
+FetchContent_Declare( volk
+	GIT_REPOSITORY https://github.com/zeux/volk.git
+	GIT_TAG        1.3.270
+	GIT_SHALLOW    TRUE
+	GIT_PROGRESS   TRUE
+)
+FetchContent_MakeAvailable(volk)
+target_link_libraries(sk_renderer PUBLIC volk)
+if(ANDROID)
+	set_target_properties(volk PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # Set symbol visibility to hidden by default, only export what's marked with SKR_API/SKSC_API
 if(NOT MSVC)
-	target_compile_options(sk_renderer PRIVATE -fvisibility=hidden)
+	target_compile_options    (sk_renderer PRIVATE -fvisibility=hidden)
 endif()
 if (MINGW)
 	# mingw does not support C11 threads, we have a small fallback
@@ -60,7 +57,8 @@ if (MINGW)
 	target_include_directories(sk_renderer PRIVATE sk_renderer/threads)
 endif()
 
-target_sources            (sk_renderer PRIVATE
+target_include_directories(sk_renderer PUBLIC sk_renderer/include)
+target_sources(sk_renderer PRIVATE
 	sk_renderer/include/sk_renderer.h
 	sk_renderer/skr_log.c
 	sk_renderer/sksc_file.c
@@ -166,23 +164,23 @@ else()
 	set(ASSET_PATH ${CMAKE_BINARY_DIR})
 endif()
 skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH}/shaders ""
-    example/assets/shaders/bloom_composite.hlsl
-    example/assets/shaders/bloom_downsample.hlsl
-    example/assets/shaders/bloom_upsample.hlsl
-    example/assets/shaders/compute_test.hlsl
-    example/assets/shaders/cubemap_mipgen.hlsl
-    example/assets/shaders/cubemap_reflection.hlsl
-    example/assets/shaders/cubemap_skybox.hlsl
-    example/assets/shaders/equirect_to_cubemap.hlsl
-    example/assets/shaders/mipgen_alpha_weighted_render.hlsl
-    example/assets/shaders/orbital_particles_compute.hlsl
-    example/assets/shaders/orbital_particles.hlsl
-    example/assets/shaders/pbr.hlsl
-    example/assets/shaders/shadow_caster.hlsl
-    example/assets/shaders/shadow_receiver.hlsl
-    example/assets/shaders/stereo_display.hlsl
-    example/assets/shaders/test.hlsl
-    example/assets/shaders/texture3d.hlsl
+	example/assets/shaders/bloom_composite.hlsl
+	example/assets/shaders/bloom_downsample.hlsl
+	example/assets/shaders/bloom_upsample.hlsl
+	example/assets/shaders/compute_test.hlsl
+	example/assets/shaders/cubemap_mipgen.hlsl
+	example/assets/shaders/cubemap_reflection.hlsl
+	example/assets/shaders/cubemap_skybox.hlsl
+	example/assets/shaders/equirect_to_cubemap.hlsl
+	example/assets/shaders/mipgen_alpha_weighted_render.hlsl
+	example/assets/shaders/orbital_particles_compute.hlsl
+	example/assets/shaders/orbital_particles.hlsl
+	example/assets/shaders/pbr.hlsl
+	example/assets/shaders/shadow_caster.hlsl
+	example/assets/shaders/shadow_receiver.hlsl
+	example/assets/shaders/stereo_display.hlsl
+	example/assets/shaders/test.hlsl
+	example/assets/shaders/texture3d.hlsl
 )
 
 ###############################################################################

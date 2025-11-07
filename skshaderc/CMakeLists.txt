@@ -92,40 +92,40 @@ FetchContent_MakeAvailable(glslang)
 target_link_libraries     (skshaderc PRIVATE glslang)
 
 target_sources(skshaderc PRIVATE
-    main.cpp
-    sksc.cpp
-    sksc_hlsl.cpp
-    sksc_meta.cpp
-    sksc_log.cpp
-    sksc.h
-    miniz.cpp
-    miniz.h
-    ../sk_renderer/sksc_file.c
+	main.cpp
+	sksc.cpp
+	sksc_hlsl.cpp
+	sksc_meta.cpp
+	sksc_log.cpp
+	sksc.h
+	miniz.cpp
+	miniz.h
+	../sk_renderer/sksc_file.c
 )
 target_include_directories(skshaderc PRIVATE ../sk_renderer/include)
 
 # Static link MinGW runtime when cross-compiling to Windows
 if(MINGW)
-    target_link_options(skshaderc PRIVATE -static-libgcc -static-libstdc++ -static)
+	target_link_options(skshaderc PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
 set_target_properties(skshaderc PROPERTIES
-    INTERPROCEDURAL_OPTIMIZATION TRUE
+	INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 
 if (NOT MSVC AND NOT APPLE)
-    add_custom_command(TARGET skshaderc POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:skshaderc> $<TARGET_FILE_DIR:skshaderc>/$<TARGET_FILE_BASE_NAME:skshaderc>.dbg
-        COMMAND ${CMAKE_STRIP} --strip-debug $<TARGET_FILE:skshaderc>
-        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE_DIR:skshaderc>/$<TARGET_FILE_BASE_NAME:skshaderc>.dbg $<TARGET_FILE:skshaderc>
-    )
+	add_custom_command(TARGET skshaderc POST_BUILD
+		COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:skshaderc> $<TARGET_FILE_DIR:skshaderc>/$<TARGET_FILE_BASE_NAME:skshaderc>.dbg
+		COMMAND ${CMAKE_STRIP} --strip-debug $<TARGET_FILE:skshaderc>
+		COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE_DIR:skshaderc>/$<TARGET_FILE_BASE_NAME:skshaderc>.dbg $<TARGET_FILE:skshaderc>
+	)
 endif()
 
 set(SKSHADERC_EXE_PATH $<TARGET_FILE:skshaderc> PARENT_SCOPE)
 
 # Detect cross-compilation to Windows from Unix - use Wine to run skshaderc.exe
 if(CMAKE_HOST_UNIX AND CMAKE_SYSTEM_NAME MATCHES "Windows")
-    set(WINE "wine" CACHE INTERNAL "")
+	set(WINE "wine" CACHE INTERNAL "")
 endif()
 
 ###############################################################################
@@ -165,49 +165,49 @@ endif()
 
 # functions for compiling shaders easily
 function(SKSHADERC_COMPILE_ASSETS TARGET OUT_PATH COMMAND_STRING OUT_LIST)
-    message(STATUS "sk_gpu compiling shader assets with args '${SKSHADERC_EXE_PATH} ${COMMAND_STRING}'")
-    set(SKSHADERC_COMPILE_COMMANDS "-o ${OUT_PATH} -e ${COMMAND_STRING}")
-    separate_arguments(SKSHADERC_COMPILE_COMMANDS)
+	message(STATUS "sk_gpu compiling shader assets with args '${SKSHADERC_EXE_PATH} ${COMMAND_STRING}'")
+	set(SKSHADERC_COMPILE_COMMANDS "-o ${OUT_PATH} -e ${COMMAND_STRING}")
+	separate_arguments(SKSHADERC_COMPILE_COMMANDS)
 
-    set(SHADER_LIST)
-    set(COMPILED_SHADERS)
+	set(SHADER_LIST)
+	set(COMPILED_SHADERS)
 
-    foreach(SHADER IN LISTS ARGN)
-        get_filename_component(SHADER_NAME ${SHADER} NAME)
-        set(COMPILED_SHADER "${OUT_PATH}/${SHADER_NAME}.sks")
+	foreach(SHADER IN LISTS ARGN)
+		get_filename_component(SHADER_NAME ${SHADER} NAME)
+		set(COMPILED_SHADER "${OUT_PATH}/${SHADER_NAME}.sks")
 
-        add_custom_command(
-            OUTPUT ${COMPILED_SHADER}
-            COMMAND ${WINE} ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
-            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
-            VERBATIM
-        )
-        list(APPEND SHADER_LIST ${SHADER})
-        list(APPEND COMPILED_SHADERS ${COMPILED_SHADER})
-    endforeach(SHADER)
+		add_custom_command(
+			OUTPUT ${COMPILED_SHADER}
+			COMMAND ${WINE} ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
+			DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
+			VERBATIM
+		)
+		list(APPEND SHADER_LIST ${SHADER})
+		list(APPEND COMPILED_SHADERS ${COMPILED_SHADER})
+	endforeach(SHADER)
 
-    add_custom_target(${TARGET}_shaders DEPENDS ${COMPILED_SHADERS})
-    add_dependencies(${TARGET} ${TARGET}_shaders)
+	add_custom_target(${TARGET}_shaders DEPENDS ${COMPILED_SHADERS})
+	add_dependencies(${TARGET} ${TARGET}_shaders)
 
-    set(${OUT_LIST} ${SHADER_LIST} PARENT_SCOPE)
+	set(${OUT_LIST} ${SHADER_LIST} PARENT_SCOPE)
 endfunction()
 
 function(SKSHADERC_COMPILE_HEADERS ADD_TARGET OUTPUT_FOLDER COMMAND_STRING)
-    set(SKSHADERC_COMPILE_COMMANDS "-h -o ${OUTPUT_FOLDER} ${COMMAND_STRING}")
-    message(STATUS "sk_gpu compiling shader headers with args '${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS}'")
-    separate_arguments(SKSHADERC_COMPILE_COMMANDS)
+	set(SKSHADERC_COMPILE_COMMANDS "-h -o ${OUTPUT_FOLDER} ${COMMAND_STRING}")
+	message(STATUS "sk_gpu compiling shader headers with args '${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS}'")
+	separate_arguments(SKSHADERC_COMPILE_COMMANDS)
 
-    set(SHADER_LIST)
-    foreach(SHADER IN LISTS ARGN)
-        get_filename_component(SHADER_NAME ${SHADER} NAME)
-        add_custom_command(
-            OUTPUT ${OUTPUT_FOLDER}/${SHADER_NAME}.h
-            COMMAND ${WINE} ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
-            VERBATIM
-        )
-        list(APPEND SHADER_LIST ${OUTPUT_FOLDER}/${SHADER_NAME}.h)
-    endforeach(SHADER)
+	set(SHADER_LIST)
+	foreach(SHADER IN LISTS ARGN)
+		get_filename_component(SHADER_NAME ${SHADER} NAME)
+		add_custom_command(
+			OUTPUT ${OUTPUT_FOLDER}/${SHADER_NAME}.h
+			COMMAND ${WINE} ${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}
+			VERBATIM
+		)
+		list(APPEND SHADER_LIST ${OUTPUT_FOLDER}/${SHADER_NAME}.h)
+	endforeach(SHADER)
 
-    target_include_directories(${ADD_TARGET} PRIVATE ${OUTPUT_FOLDER})
-    target_sources            (${ADD_TARGET} PRIVATE ${SHADER_LIST})
+	target_include_directories(${ADD_TARGET} PRIVATE ${OUTPUT_FOLDER})
+	target_sources            (${ADD_TARGET} PRIVATE ${SHADER_LIST})
 endfunction()
