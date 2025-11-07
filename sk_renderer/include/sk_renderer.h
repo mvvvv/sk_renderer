@@ -20,7 +20,7 @@ extern "C" {
 	#ifdef SKR_BUILD_SHARED
 		#define SKR_API __declspec(dllexport)
 	#else
-		#define SKR_API __declspec(dllimport)
+		#define SKR_API
 	#endif
 #elif defined(__GNUC__) || defined(__clang__)
 	#define SKR_API __attribute__((visibility("default")))

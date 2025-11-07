@@ -17,7 +17,7 @@ extern "C" {
 	#ifdef SKR_BUILD_SHARED
 		#define SKSC_API __declspec(dllexport)
 	#else
-		#define SKSC_API __declspec(dllimport)
+		#define SKSC_API
 	#endif
 #elif defined(__GNUC__) || defined(__clang__)
 	#define SKSC_API __attribute__((visibility("default")))
