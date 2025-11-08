@@ -64,14 +64,17 @@ format_found:
 	vkGetPhysicalDeviceSurfacePresentModesKHR(_skr_vk.physical_device, surface->surface, &present_mode_count, NULL);
 	vkGetPhysicalDeviceSurfacePresentModesKHR(_skr_vk.physical_device, surface->surface, &present_mode_count, present_modes);
 
-	// Choose present mode (FIFO guaranteed, FIFO_LATEST_READY if available)
+	// Choose present mode - use FIFO (VSync) for stable frame timing
+	// FIFO is guaranteed to be available and provides proper vsync
 	VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
-	for (uint32_t i = 0; i < present_mode_count; i++) {
-		if (present_modes[i] == 1000361000) { // VK_PRESENT_MODE_FIFO_LATEST_READY_EXT
-			present_mode = present_modes[i];
-			break;
-		}
-	}
+	
+	// Note: FIFO_LATEST_READY_EXT can cause timing issues, disabled for now
+	// for (uint32_t i = 0; i < present_mode_count; i++) {
+	// 	if (present_modes[i] == 1000361000) { // VK_PRESENT_MODE_FIFO_LATEST_READY_EXT
+	// 		present_mode = present_modes[i];
+	// 		break;
+	// 	}
+	// }
 
 	// Determine extent
 	VkExtent2D extent = capabilities.currentExtent;
