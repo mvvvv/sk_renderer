@@ -35,6 +35,7 @@ typedef struct {
 	int32_t        vertex_count;
 	int32_t        index_count;
 	float          time;
+	float          accumulator;  // Time accumulator for fixed timestep
 } scene_cloth_t;
 
 // Cloth parameters
@@ -257,6 +258,7 @@ static scene_t* _scene_cloth_create(void) {
 
 	scene->base.size = sizeof(scene_cloth_t);
 	scene->time      = 0.0f;
+	scene->accumulator = 0.0f;
 
 	// Initialize cloth simulation
 	_cloth_init(scene);
@@ -310,16 +312,25 @@ static void _scene_cloth_destroy(scene_t* base) {
 
 static void _scene_cloth_update(scene_t* base, float delta_time) {
 	scene_cloth_t* scene = (scene_cloth_t*)base;
-	scene->time += delta_time;
 
-	// Reset simulation every 5 seconds
+	// Accumulate time
+	scene->time += delta_time;
+	scene->accumulator += delta_time;
+
+	// Reset simulation every 2.2 seconds
 	if (scene->time >= 2.2f) {
 		scene->time = 0.0f;
+		scene->accumulator = 0.0f;
 		_cloth_init(scene);
 	}
 
-	// Fixed time step for stability
-	_cloth_update_physics(scene, TIME_STEP);
+	// Fixed time step update - can run multiple times per frame if needed
+	// or skip if frame is too fast
+	while (scene->accumulator >= TIME_STEP) {
+		_cloth_update_physics(scene, TIME_STEP);
+		scene->accumulator -= TIME_STEP;
+	}
+	
 	_cloth_update_normals(scene);
 
 	// Update mesh with new vertex data (converts to dynamic on second call)
