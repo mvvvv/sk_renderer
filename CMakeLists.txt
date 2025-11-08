@@ -155,6 +155,7 @@ target_sources            (sk_renderer_test PRIVATE
 	example/scene_cubemap.c
 	example/scene_gltf.c
 	example/scene_shadows.c
+	example/scene_cloth.c
 	example/bloom.c
 )
 

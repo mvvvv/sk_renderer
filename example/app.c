@@ -129,7 +129,8 @@ app_t* app_create() {
 	app->scene_types[6] = &scene_cubemap_vtable;
 	app->scene_types[7] = &scene_gltf_vtable;
 	app->scene_types[8] = &scene_shadows_vtable;
-	app->scene_count = 9;
+	app->scene_types[9] = &scene_cloth_vtable;
+	app->scene_count = 10;
 
 	// Start with the first scene
 	app->scene_index = -1;

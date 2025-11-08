@@ -433,6 +433,9 @@ SKR_API void              skr_mesh_destroy                 (      skr_mesh_t* me
 SKR_API uint32_t          skr_mesh_get_vert_count          (const skr_mesh_t* mesh);
 SKR_API uint32_t          skr_mesh_get_ind_count           (const skr_mesh_t* mesh);
 SKR_API void              skr_mesh_set_name                (      skr_mesh_t* mesh, const char* name);
+SKR_API skr_err_          skr_mesh_set_verts               (      skr_mesh_t* mesh, const void* vert_data, uint32_t vert_count);
+SKR_API skr_err_          skr_mesh_set_inds                (      skr_mesh_t* mesh, const void* ind_data, uint32_t ind_count);
+SKR_API skr_err_          skr_mesh_set_data                (      skr_mesh_t* mesh, const void* vert_data, uint32_t vert_count, const void* ind_data, uint32_t ind_count);
 
 SKR_API skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data, skr_tex_t* out_tex);
 SKR_API bool              skr_tex_is_valid                 (const skr_tex_t* tex);

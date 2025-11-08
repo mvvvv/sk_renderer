@@ -103,42 +103,22 @@ skr_err_ skr_mesh_create(const skr_vert_type_t* vert_type, skr_index_fmt_ ind_ty
 		return skr_err_invalid_parameter;
 	}
 
-	// Store counts
-	out_mesh->vert_count = vert_count;
-	out_mesh->ind_count  = ind_count;
-	out_mesh->ind_format = ind_type;
+	// Set up mesh metadata
 	out_mesh->vert_type  = vert_type;
+	out_mesh->ind_format = ind_type;
 
-	// Create vertex buffer if data provided
-	if (vert_data && vert_count > 0) {
-		skr_err_ err = skr_buffer_create(vert_data, vert_count, vert_type->binding.stride, skr_buffer_type_vertex, skr_use_static, &out_mesh->vertex_buffer);
-
-		if (err != skr_err_success) {
-			skr_log(skr_log_critical, "Failed to create vertex buffer for mesh");
-			*out_mesh = (skr_mesh_t){};
-			return err;
-		}
-	}
-
-	// Create index buffer if provided
-	if (opt_ind_data && ind_count > 0) {
-		out_mesh->ind_format_vk = _skr_to_vk_index_fmt(ind_type);
-		uint32_t ind_stride = _skr_index_fmt_to_size(ind_type);
-		skr_err_ err = skr_buffer_create(opt_ind_data, ind_count, ind_stride, skr_buffer_type_index, skr_use_static, &out_mesh->index_buffer);
-
-		if (err != skr_err_success) {
-			skr_log(skr_log_critical, "Failed to create index buffer for mesh");
-			skr_buffer_destroy(&out_mesh->vertex_buffer);
-			*out_mesh = (skr_mesh_t){};
-			return err;
-		}
+	// Use the set functions to create the buffers
+	skr_err_ err = skr_mesh_set_data(out_mesh, vert_data, vert_count, opt_ind_data, ind_count);
+	if (err != skr_err_success) {
+		*out_mesh = (skr_mesh_t){};
+		return err;
 	}
 
 	return skr_err_success;
 }
 
 bool skr_mesh_is_valid(const skr_mesh_t* mesh) {
-	return mesh && (skr_buffer_is_valid(&mesh->vertex_buffer) || mesh->ind_count > 0);
+	return mesh && (skr_buffer_is_valid(&mesh->vertex_buffer) || mesh->vert_count > 0 || mesh->ind_count > 0);
 }
 
 void skr_mesh_destroy(skr_mesh_t* mesh) {
@@ -170,4 +150,134 @@ void skr_mesh_set_name(skr_mesh_t* mesh, const char* name) {
 		snprintf(buffer_name, sizeof(buffer_name), "indices_%s", name);
 		skr_buffer_set_name(&mesh->index_buffer, buffer_name);
 	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Mesh data update
+///////////////////////////////////////////////////////////////////////////////
+
+skr_err_ skr_mesh_set_verts(skr_mesh_t* mesh, const void* vert_data, uint32_t vert_count) {
+	if (!mesh) {
+		return skr_err_invalid_parameter;
+	}
+
+	// If NULL data or 0 count, destroy buffer and just set count
+	if (!vert_data || vert_count == 0) {
+		if (skr_buffer_is_valid(&mesh->vertex_buffer)) {
+			skr_buffer_destroy(&mesh->vertex_buffer);
+		}
+		mesh->vert_count = vert_count;
+		return skr_err_success;
+	}
+
+	// Need vert_type to create buffer
+	if (!mesh->vert_type) {
+		return skr_err_invalid_parameter;
+	}
+
+	uint32_t vert_stride = mesh->vert_type->binding.stride;
+	uint32_t vert_size   = vert_count * vert_stride;
+
+	// If buffer exists, check if we need to resize or convert to dynamic
+	if (skr_buffer_is_valid(&mesh->vertex_buffer)) {
+		bool needs_resize = vert_size > mesh->vertex_buffer.size;
+		bool is_static    = mesh->vertex_buffer.use & skr_use_static;
+
+		if (is_static || needs_resize) {
+			// Either static (convert to dynamic) or too small (resize)
+			skr_buffer_destroy(&mesh->vertex_buffer);
+
+			skr_err_ err = skr_buffer_create(vert_data, vert_count, vert_stride, skr_buffer_type_vertex, skr_use_dynamic, &mesh->vertex_buffer);
+			if (err != skr_err_success) {
+				skr_log(skr_log_critical, "Failed to create dynamic vertex buffer for mesh");
+				return err;
+			}
+		} else {
+			// Already dynamic and large enough, just update
+			skr_buffer_set(&mesh->vertex_buffer, vert_data, vert_size);
+		}
+	} else {
+		// First time setting verts, create static buffer
+		skr_err_ err = skr_buffer_create(vert_data, vert_count, vert_stride, skr_buffer_type_vertex, skr_use_static, &mesh->vertex_buffer);
+		if (err != skr_err_success) {
+			skr_log(skr_log_critical, "Failed to create vertex buffer for mesh");
+			return err;
+		}
+	}
+
+	mesh->vert_count = vert_count;
+	return skr_err_success;
+}
+
+skr_err_ skr_mesh_set_inds(skr_mesh_t* mesh, const void* ind_data, uint32_t ind_count) {
+	if (!mesh) {
+		return skr_err_invalid_parameter;
+	}
+
+	// If NULL data or 0 count, destroy buffer and just set count
+	if (!ind_data || ind_count == 0) {
+		if (skr_buffer_is_valid(&mesh->index_buffer)) {
+			skr_buffer_destroy(&mesh->index_buffer);
+		}
+		mesh->ind_count = ind_count;
+		return skr_err_success;
+	}
+
+	uint32_t ind_stride = _skr_index_fmt_to_size(mesh->ind_format);
+	uint32_t ind_size   = ind_count * ind_stride;
+
+	// If buffer exists, check if we need to resize or convert to dynamic
+	if (skr_buffer_is_valid(&mesh->index_buffer)) {
+		bool needs_resize = ind_size > mesh->index_buffer.size;
+		bool is_static    = mesh->index_buffer.use & skr_use_static;
+
+		if (is_static || needs_resize) {
+			// Either static (convert to dynamic) or too small (resize)
+			skr_buffer_destroy(&mesh->index_buffer);
+
+			skr_err_ err = skr_buffer_create(ind_data, ind_count, ind_stride, skr_buffer_type_index, skr_use_dynamic, &mesh->index_buffer);
+			if (err != skr_err_success) {
+				skr_log(skr_log_critical, "Failed to create dynamic index buffer for mesh");
+				return err;
+			}
+		} else {
+			// Already dynamic and large enough, just update
+			skr_buffer_set(&mesh->index_buffer, ind_data, ind_size);
+		}
+	} else {
+		// First time setting inds, create static buffer
+		mesh->ind_format_vk = _skr_to_vk_index_fmt(mesh->ind_format);
+		skr_err_ err        = skr_buffer_create(ind_data, ind_count, ind_stride, skr_buffer_type_index, skr_use_static, &mesh->index_buffer);
+		if (err != skr_err_success) {
+			skr_log(skr_log_critical, "Failed to create index buffer for mesh");
+			return err;
+		}
+	}
+
+	mesh->ind_count = ind_count;
+	return skr_err_success;
+}
+
+skr_err_ skr_mesh_set_data(skr_mesh_t* mesh, const void* vert_data, uint32_t vert_count, const void* ind_data, uint32_t ind_count) {
+	if (!mesh) {
+		return skr_err_invalid_parameter;
+	}
+
+	// Set vertices first
+	if (vert_data && vert_count > 0) {
+		skr_err_ err = skr_mesh_set_verts(mesh, vert_data, vert_count);
+		if (err != skr_err_success) {
+			return err;
+		}
+	}
+
+	// Set indices second
+	if (ind_data && ind_count > 0) {
+		skr_err_ err = skr_mesh_set_inds(mesh, ind_data, ind_count);
+		if (err != skr_err_success) {
+			return err;
+		}
+	}
+
+	return skr_err_success;
 }
