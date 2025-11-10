@@ -47,7 +47,7 @@ bool sksc_compile(const char *filename, const char *hlsl_text, sksc_settings_t *
 
 		// SPIRV is needed regardless, since we use it for reflection!
 		sksc_shader_file_stage_t spirv_stage  = {};
-		compile_result_          spirv_result = sksc_hlsl_to_spirv(hlsl_text, settings, compile_stages[i], NULL, 0, &spirv_stage);
+		compile_result_          spirv_result = sksc_hlsl_to_spirv(filename, hlsl_text, settings, compile_stages[i], NULL, 0, &spirv_stage);
 		if (spirv_result == compile_result_fail) {
 			sksc_log(log_level_err, "SPIRV compile failed");
 			return false;

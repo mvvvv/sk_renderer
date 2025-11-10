@@ -76,6 +76,8 @@ bool                recurse_mkdir (const char *dirname);
 
 ///////////////////////////////////////////
 
+int32_t compiled_count = 0;
+
 int main(int argc, const char **argv) {
 	// -f -t s ${workspaceFolder}/example/assets/shaders/*.hlsl
 	//const char* args[] = {"/home/koujaku/Repositories/sk_renderer/build/skshaderc_exe", "-f", "-t", "s", "/home/koujaku/Repositories/sk_renderer/example/assets/shaders/pbr.hlsl", "/home/koujaku/Repositories/sk_renderer/example/assets/shaders/compute_test.hlsl"};
@@ -90,6 +92,7 @@ int main(int argc, const char **argv) {
 
 	sksc_init();
 
+	
 #if defined(_WIN32)
 	for (size_t i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-o") == 0 ||
@@ -101,10 +104,12 @@ int main(int argc, const char **argv) {
 		const char *path = argv[i];
 		if (file_exists(path)) {
 			compile_file(path, &settings);
+			compiled_count++;
 		} else if (path_is_file(path) && path_is_wild(path)) {
 			iterate_dir(path, &settings, [](void *callback_data, const char *src_filename, bool file) {
 				if (!file) return;
 				compile_file(src_filename, (compiler_settings_t*)callback_data);
+				compiled_count++;
 			});
 		}
 	}
@@ -118,9 +123,13 @@ int main(int argc, const char **argv) {
 
 		if (file_exists(argv[i])) {
 			compile_file(argv[i], &settings);
+			compiled_count++;
 		}
 	}
 #endif
+	if (settings.shaderc.silent_info == false || compiled_count == 0) {
+		printf("Compiled %d %s\n", compiled_count, compiled_count == 1 ? "shader" : "shaders");
+	}
 
 	sksc_shutdown();
 
@@ -154,7 +163,8 @@ compiler_settings_t check_settings(int32_t argc, const char **argv, bool *exit) 
 
 	bool set_targets = false;
 	for (int32_t i=1; i<argc-1; i++) {
-		if      (strcmp(argv[i], "-h" ) == 0) result.output_header         = true;
+		if      (strcmp(argv[i], ""   ) == 0) {}
+		else if (strcmp(argv[i], "-h" ) == 0) result.output_header         = true;
 		else if (strcmp(argv[i], "-sk") == 0) result.output_skcs           = true;
 		else if (strcmp(argv[i], "-sks")== 0) result.force_sks             = true;
 		else if (strcmp(argv[i], "-z" ) == 0) result.output_zipped         = true;

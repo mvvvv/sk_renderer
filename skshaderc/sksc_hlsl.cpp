@@ -110,7 +110,7 @@ void log_shader_msgs(glslang::TShader *shader) {
 
 ///////////////////////////////////////////
 
-compile_result_ sksc_hlsl_to_spirv(const char *hlsl, const sksc_settings_t *settings, skr_stage_ type, const char** defines, int32_t define_count, sksc_shader_file_stage_t *out_stage) {
+compile_result_ sksc_hlsl_to_spirv(const char *filename, const char *hlsl, const sksc_settings_t *settings, skr_stage_ type, const char** defines, int32_t define_count, sksc_shader_file_stage_t *out_stage) {
 	TBuiltInResource default_resource = {};
 	EShMessages      messages         = EShMsgDefault;
 	EShMessages      messages_link    = (EShMessages)(EShMsgSpvRules | EShMsgVulkanRules | EShMsgDebugInfo);
@@ -131,6 +131,11 @@ compile_result_ sksc_hlsl_to_spirv(const char *hlsl, const sksc_settings_t *sett
 	shader.setEnvClient       (glslang::EShClientVulkan,      glslang::EShTargetVulkan_1_1);
 	shader.setEnvTarget       (glslang::EShTargetSpv,         glslang::EShTargetSpv_1_3);
 	shader.setEnvTargetHlslFunctionality1();
+	if (settings->debug) {
+		shader.setDebugInfo (true);
+		shader.setSourceFile(filename);
+		shader.addSourceText(hlsl, strlen(hlsl));
+	}
 
 	shader.setAutoMapBindings(true); // Necessary for shifts?
 	shader.setShiftBinding    (glslang::EResUbo,     0);   // b registers (CBVs)
@@ -204,7 +209,11 @@ compile_result_ sksc_hlsl_to_spirv(const char *hlsl, const sksc_settings_t *sett
 
 	std::vector<unsigned int> spirv;
 	spv::SpvBuildLogger logger;
-	glslang::GlslangToSpv(*intermediate, spirv, &logger);
+	glslang::SpvOptions spvOptions;
+	spvOptions.generateDebugInfo                = settings->debug;
+	spvOptions.emitNonSemanticShaderDebugInfo   = settings->debug;
+	spvOptions.emitNonSemanticShaderDebugSource = settings->debug;
+	glslang::GlslangToSpv(*intermediate, spirv, &logger, &spvOptions);
 
 	// Log any SPIR-V generation messages
 	std::string gen_messages = logger.getAllMessages();
@@ -298,22 +307,29 @@ compile_result_ sksc_hlsl_to_spirv(const char *hlsl, const sksc_settings_t *sett
 	}
 
 	// Optimize the SPIRV we just generated
-	spvtools::Optimizer optimizer(SPV_ENV_UNIVERSAL_1_3);
-	optimizer.SetMessageConsumer([](spv_message_level_t, const char*, const spv_position_t&, const char* m) {
-		printf("SPIRV optimization error: %s\n", m);
-	});
+	if (settings->debug == false) {
+		spvtools::Optimizer optimizer(SPV_ENV_UNIVERSAL_1_3);
+		optimizer.SetMessageConsumer([](spv_message_level_t, const char*, const spv_position_t&, const char* m) {
+			printf("SPIRV optimization error: %s\n", m);
+		});
 
-	optimizer.RegisterPerformancePasses();
-	std::vector<uint32_t> spirv_optimized;
-	if (!optimizer.Run(spirv.data(), spirv.size(), &spirv_optimized)) {
-		return compile_result_fail;
+		optimizer.RegisterPerformancePasses();
+		std::vector<uint32_t> spirv_optimized;
+		if (!optimizer.Run(spirv.data(), spirv.size(), &spirv_optimized)) {
+			return compile_result_fail;
+		}
+
+		out_stage->code_size = (uint32_t)(spirv_optimized.size() * sizeof(unsigned int));
+		out_stage->code      = malloc(out_stage->code_size);
+		memcpy(out_stage->code, spirv_optimized.data(), out_stage->code_size);
+	} else {
+		
+		out_stage->code_size = (uint32_t)(spirv.size() * sizeof(unsigned int));
+		out_stage->code      = malloc(out_stage->code_size);
+		memcpy(out_stage->code, spirv.data(), out_stage->code_size);
 	}
-
-	out_stage->language  = skr_shader_lang_spirv;
-	out_stage->stage     = type;
-	out_stage->code_size = (uint32_t)(spirv_optimized.size() * sizeof(unsigned int));
-	out_stage->code      = malloc(out_stage->code_size);
-	memcpy(out_stage->code, spirv_optimized.data(), out_stage->code_size);
+	out_stage->language = skr_shader_lang_spirv;
+	out_stage->stage    = type;
 
 	return compile_result_success;
 }
