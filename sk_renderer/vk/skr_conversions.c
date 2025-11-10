@@ -384,13 +384,12 @@ VkIndexType _skr_to_vk_index_fmt(skr_index_fmt_ format) {
 ///////////////////////////////////////////////////////////////////////////////
 
 VkBufferUsageFlags _skr_to_vk_buffer_usage(skr_buffer_type_ type) {
-	switch (type) {
-		case skr_buffer_type_vertex:   return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-		case skr_buffer_type_index:    return VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-		case skr_buffer_type_constant: return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-		case skr_buffer_type_storage:  return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-		default:                       return 0;
-	}
+	VkBufferUsageFlags flags = 0;
+	if (type & skr_buffer_type_vertex)   flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	if (type & skr_buffer_type_index)    flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+	if (type & skr_buffer_type_constant) flags |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+	if (type & skr_buffer_type_storage)  flags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	return flags;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

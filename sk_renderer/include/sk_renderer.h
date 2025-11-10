@@ -111,10 +111,10 @@ typedef enum skr_err_ {
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef enum skr_buffer_type_ {
-	skr_buffer_type_vertex,
-	skr_buffer_type_index,
-	skr_buffer_type_constant,
-	skr_buffer_type_storage,   // For storage buffers (SSBOs) - compute, instance data, etc.
+	skr_buffer_type_vertex   = 1 << 0,  // Vertex buffer (VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)
+	skr_buffer_type_index    = 1 << 1,  // Index buffer (VK_BUFFER_USAGE_INDEX_BUFFER_BIT)
+	skr_buffer_type_constant = 1 << 2,  // Constant/uniform buffer (VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+	skr_buffer_type_storage  = 1 << 3,  // Storage buffer (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) - compute, instance data, etc.
 } skr_buffer_type_;
 
 typedef enum skr_use_ {
@@ -436,6 +436,8 @@ SKR_API void              skr_mesh_set_name                (      skr_mesh_t* me
 SKR_API skr_err_          skr_mesh_set_verts               (      skr_mesh_t* mesh, const void* vert_data, uint32_t vert_count);
 SKR_API skr_err_          skr_mesh_set_inds                (      skr_mesh_t* mesh, const void* ind_data, uint32_t ind_count);
 SKR_API skr_err_          skr_mesh_set_data                (      skr_mesh_t* mesh, const void* vert_data, uint32_t vert_count, const void* ind_data, uint32_t ind_count);
+SKR_API skr_err_          skr_mesh_set_vertex_buffer       (      skr_mesh_t* mesh, uint32_t binding, const skr_buffer_t* buffer, uint32_t vert_count);
+SKR_API skr_buffer_t*     skr_mesh_get_vertex_buffer       (const skr_mesh_t* mesh, uint32_t binding);
 
 SKR_API skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data, skr_tex_t* out_tex);
 SKR_API bool              skr_tex_is_valid                 (const skr_tex_t* tex);

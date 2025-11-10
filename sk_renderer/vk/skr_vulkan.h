@@ -20,14 +20,17 @@ typedef struct skr_buffer_t {
 
 typedef struct skr_vert_type_t {
 	VkVertexInputAttributeDescription* attributes;
-	VkVertexInputBindingDescription    binding;
+	VkVertexInputBindingDescription*   bindings;         // Array of bindings (one per vertex buffer)
+	uint32_t                           binding_count;    // Number of bindings
 	skr_vert_component_t*              components;
 	uint32_t                           component_count;
 	int32_t                            pipeline_idx; // Cached pipeline vertex format index
 } skr_vert_type_t;
 
 typedef struct skr_mesh_t {
-	skr_buffer_t           vertex_buffer;
+	skr_buffer_t*          vertex_buffers;        // Array of vertex buffers (one per binding)
+	uint32_t               vertex_buffer_count;   // Number of vertex buffers
+	uint32_t               vertex_buffer_owned;   // Bitmask: which buffers are owned (vs externally referenced)
 	skr_buffer_t           index_buffer;
 	const skr_vert_type_t* vert_type;
 	skr_index_fmt_         ind_format;

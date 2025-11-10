@@ -43,27 +43,56 @@ skr_err_ skr_vert_type_create(const skr_vert_component_t* items, int32_t item_co
 
 	memcpy(out_type->components, items, sizeof(skr_vert_component_t) * item_count);
 
-	// Calculate stride and populate attributes
-	uint32_t offset = 0;
+	// Find max binding to determine how many bindings we need
+	uint8_t max_binding = 0;
 	for (int32_t i = 0; i < item_count; i++) {
+		if (items[i].binding > max_binding) {
+			max_binding = items[i].binding;
+		}
+	}
+	out_type->binding_count = max_binding + 1;
+
+	// Allocate bindings array
+	out_type->bindings = _skr_malloc(sizeof(VkVertexInputBindingDescription) * out_type->binding_count);
+	if (!out_type->bindings) {
+		_skr_free(out_type->components);
+		_skr_free(out_type->attributes);
+		*out_type = (skr_vert_type_t){};
+		return skr_err_out_of_memory;
+	}
+
+	// Calculate stride for each binding
+	uint32_t binding_strides[16] = {0};  // Max 16 bindings (Vulkan limit)
+	uint32_t binding_offsets[16] = {0};  // Track current offset per binding
+
+	for (int32_t i = 0; i < item_count; i++) {
+		uint32_t component_size = _skr_vert_fmt_to_size(items[i].format) * items[i].count;
+		binding_strides[items[i].binding] += component_size;
+	}
+
+	// Create binding descriptions
+	for (uint32_t b = 0; b < out_type->binding_count; b++) {
+		out_type->bindings[b] = (VkVertexInputBindingDescription){
+			.binding   = b,
+			.stride    = binding_strides[b],
+			.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+		};
+	}
+
+	// Populate attributes with per-binding offsets
+	for (int32_t i = 0; i < item_count; i++) {
+		uint8_t  binding        = items[i].binding;
 		uint32_t component_size = _skr_vert_fmt_to_size(items[i].format) * items[i].count;
 
 		out_type->attributes[i] = (VkVertexInputAttributeDescription){
 			.location = i,
-			.binding  = 0,
+			.binding  = binding,
 			.format   = _skr_to_vk_vert_fmt(items[i].format, items[i].count),
-			.offset   = offset,
+			.offset   = binding_offsets[binding],
 		};
 
-		offset += component_size;
+		binding_offsets[binding] += component_size;
 	}
-
-	// Set up binding description
-	out_type->binding = (VkVertexInputBindingDescription){
-		.binding   = 0,
-		.stride    = offset,
-		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-	};
 
 	// Register with pipeline system (vertex format owns this registration)
 	out_type->pipeline_idx = _skr_pipeline_register_vertformat(*out_type);
@@ -85,6 +114,7 @@ void skr_vert_type_destroy(skr_vert_type_t* type) {
 	}
 
 	_skr_free(type->attributes);
+	_skr_free(type->bindings);
 	_skr_free(type->components);
 	*type = (skr_vert_type_t){};
 }
@@ -118,14 +148,30 @@ skr_err_ skr_mesh_create(const skr_vert_type_t* vert_type, skr_index_fmt_ ind_ty
 }
 
 bool skr_mesh_is_valid(const skr_mesh_t* mesh) {
-	return mesh && (skr_buffer_is_valid(&mesh->vertex_buffer) || mesh->vert_count > 0 || mesh->ind_count > 0);
+	if (!mesh) return false;
+	if (mesh->vert_count > 0 || mesh->ind_count > 0) return true;
+	if (mesh->vertex_buffers && mesh->vertex_buffer_count > 0) {
+		for (uint32_t i = 0; i < mesh->vertex_buffer_count; i++) {
+			if (skr_buffer_is_valid(&mesh->vertex_buffers[i])) {
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 void skr_mesh_destroy(skr_mesh_t* mesh) {
 	if (!mesh) return;
 
-	skr_buffer_destroy(&mesh->vertex_buffer);
-	skr_buffer_destroy(&mesh->index_buffer );
+	// Destroy only owned vertex buffers (externally-referenced buffers are not destroyed)
+	for (uint32_t i = 0; i < mesh->vertex_buffer_count; i++) {
+		if (mesh->vertex_buffer_owned & (1u << i)) {
+			skr_buffer_destroy(&mesh->vertex_buffers[i]);
+		}
+	}
+	_skr_free(mesh->vertex_buffers);
+		
+	skr_buffer_destroy(&mesh->index_buffer);
 	*mesh = (skr_mesh_t){};
 }
 
@@ -142,9 +188,13 @@ void skr_mesh_set_name(skr_mesh_t* mesh, const char* name) {
 
 	// Name the vertex and index buffers with appropriate suffixes
 	char buffer_name[256];
-	if (skr_buffer_is_valid(&mesh->vertex_buffer)) {
-		snprintf(buffer_name, sizeof(buffer_name), "verts_%s", name);
-		skr_buffer_set_name(&mesh->vertex_buffer, buffer_name);
+	if (mesh->vertex_buffers) {
+		for (uint32_t i = 0; i < mesh->vertex_buffer_count; i++) {
+			if (skr_buffer_is_valid(&mesh->vertex_buffers[i])) {
+				snprintf(buffer_name, sizeof(buffer_name), "verts%u_%s", i, name);
+				skr_buffer_set_name(&mesh->vertex_buffers[i], buffer_name);
+			}
+		}
 	}
 	if (skr_buffer_is_valid(&mesh->index_buffer)) {
 		snprintf(buffer_name, sizeof(buffer_name), "indices_%s", name);
@@ -161,10 +211,15 @@ skr_err_ skr_mesh_set_verts(skr_mesh_t* mesh, const void* vert_data, uint32_t ve
 		return skr_err_invalid_parameter;
 	}
 
-	// If NULL data or 0 count, destroy buffer and just set count
+	// If NULL data or 0 count, destroy buffers and just set count
 	if (!vert_data || vert_count == 0) {
-		if (skr_buffer_is_valid(&mesh->vertex_buffer)) {
-			skr_buffer_destroy(&mesh->vertex_buffer);
+		if (mesh->vertex_buffers) {
+			for (uint32_t i = 0; i < mesh->vertex_buffer_count; i++) {
+				skr_buffer_destroy(&mesh->vertex_buffers[i]);
+			}
+			_skr_free(mesh->vertex_buffers);
+			mesh->vertex_buffers = NULL;
+			mesh->vertex_buffer_count = 0;
 		}
 		mesh->vert_count = vert_count;
 		return skr_err_success;
@@ -175,34 +230,47 @@ skr_err_ skr_mesh_set_verts(skr_mesh_t* mesh, const void* vert_data, uint32_t ve
 		return skr_err_invalid_parameter;
 	}
 
-	uint32_t vert_stride = mesh->vert_type->binding.stride;
+	// For legacy single-buffer mode, we assume binding 0 contains all data
+	// Calculate total stride from first binding (assumes interleaved data at binding 0)
+	uint32_t vert_stride = mesh->vert_type->bindings[0].stride;
 	uint32_t vert_size   = vert_count * vert_stride;
 
+	// Ensure we have buffer array allocated
+	if (!mesh->vertex_buffers) {
+		mesh->vertex_buffer_count = 1;
+		mesh->vertex_buffers = _skr_calloc(1, sizeof(skr_buffer_t));
+		if (!mesh->vertex_buffers) {
+			return skr_err_out_of_memory;
+		}
+	}
+
 	// If buffer exists, check if we need to resize or convert to dynamic
-	if (skr_buffer_is_valid(&mesh->vertex_buffer)) {
-		bool needs_resize = vert_size > mesh->vertex_buffer.size;
-		bool is_static    = mesh->vertex_buffer.use & skr_use_static;
+	if (skr_buffer_is_valid(&mesh->vertex_buffers[0])) {
+		bool needs_resize = vert_size > mesh->vertex_buffers[0].size;
+		bool is_static    = mesh->vertex_buffers[0].use & skr_use_static;
 
 		if (is_static || needs_resize) {
 			// Either static (convert to dynamic) or too small (resize)
-			skr_buffer_destroy(&mesh->vertex_buffer);
+			skr_buffer_destroy(&mesh->vertex_buffers[0]);
 
-			skr_err_ err = skr_buffer_create(vert_data, vert_count, vert_stride, skr_buffer_type_vertex, skr_use_dynamic, &mesh->vertex_buffer);
+			skr_err_ err = skr_buffer_create(vert_data, vert_count, vert_stride, skr_buffer_type_vertex, skr_use_dynamic, &mesh->vertex_buffers[0]);
 			if (err != skr_err_success) {
 				skr_log(skr_log_critical, "Failed to create dynamic vertex buffer for mesh");
 				return err;
 			}
+			mesh->vertex_buffer_owned |= (1u << 0);  // Mark as owned
 		} else {
 			// Already dynamic and large enough, just update
-			skr_buffer_set(&mesh->vertex_buffer, vert_data, vert_size);
+			skr_buffer_set(&mesh->vertex_buffers[0], vert_data, vert_size);
 		}
 	} else {
 		// First time setting verts, create static buffer
-		skr_err_ err = skr_buffer_create(vert_data, vert_count, vert_stride, skr_buffer_type_vertex, skr_use_static, &mesh->vertex_buffer);
+		skr_err_ err = skr_buffer_create(vert_data, vert_count, vert_stride, skr_buffer_type_vertex, skr_use_static, &mesh->vertex_buffers[0]);
 		if (err != skr_err_success) {
 			skr_log(skr_log_critical, "Failed to create vertex buffer for mesh");
 			return err;
 		}
+		mesh->vertex_buffer_owned |= (1u << 0);  // Mark as owned
 	}
 
 	mesh->vert_count = vert_count;
@@ -280,4 +348,81 @@ skr_err_ skr_mesh_set_data(skr_mesh_t* mesh, const void* vert_data, uint32_t ver
 	}
 
 	return skr_err_success;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Multi-buffer vertex API
+///////////////////////////////////////////////////////////////////////////////
+
+skr_err_ skr_mesh_set_vertex_buffer(skr_mesh_t* mesh, uint32_t binding, const skr_buffer_t* buffer, uint32_t vert_count) {
+	if (!mesh || !buffer) {
+		return skr_err_invalid_parameter;
+	}
+
+	if (!mesh->vert_type) {
+		return skr_err_invalid_parameter;
+	}
+
+	// Validate binding index
+	if (binding >= mesh->vert_type->binding_count) {
+		skr_log(skr_log_warning, "Binding %u exceeds vertex type binding count %u", binding, mesh->vert_type->binding_count);
+		return skr_err_invalid_parameter;
+	}
+
+	// Allocate or resize vertex buffer array if needed
+	if (!mesh->vertex_buffers) {
+		mesh->vertex_buffer_count = mesh->vert_type->binding_count;
+		mesh->vertex_buffers = _skr_calloc(mesh->vertex_buffer_count, sizeof(skr_buffer_t));
+		if (!mesh->vertex_buffers) {
+			return skr_err_out_of_memory;
+		}
+	} else if (binding >= mesh->vertex_buffer_count) {
+		// Need to resize array
+		uint32_t new_count = mesh->vert_type->binding_count;
+		skr_buffer_t* new_buffers = _skr_calloc(new_count, sizeof(skr_buffer_t));
+		if (!new_buffers) {
+			return skr_err_out_of_memory;
+		}
+		// Copy existing buffers
+		memcpy(new_buffers, mesh->vertex_buffers, mesh->vertex_buffer_count * sizeof(skr_buffer_t));
+		_skr_free(mesh->vertex_buffers);
+		mesh->vertex_buffers = new_buffers;
+		mesh->vertex_buffer_count = new_count;
+	}
+
+	// Validate buffer type (must include vertex usage)
+	if (!(buffer->type & skr_buffer_type_vertex)) {
+		skr_log(skr_log_warning, "Buffer assigned to binding %u does not have vertex buffer type flag", binding);
+		return skr_err_invalid_parameter;
+	}
+
+	// Validate buffer stride matches vertex type
+	uint32_t expected_stride = mesh->vert_type->bindings[binding].stride;
+	if (buffer->size > 0 && vert_count > 0) {
+		uint32_t actual_stride = buffer->size / vert_count;
+		if (actual_stride != expected_stride) {
+			skr_log(skr_log_warning, "Buffer stride mismatch for binding %u: expected %u, got %u",
+			        binding, expected_stride, actual_stride);
+			return skr_err_invalid_parameter;
+		}
+	}
+
+	// If we previously owned the buffer at this binding, destroy it first
+	if ((mesh->vertex_buffer_owned & (1u << binding)) && skr_buffer_is_valid(&mesh->vertex_buffers[binding])) {
+		skr_buffer_destroy(&mesh->vertex_buffers[binding]);
+	}
+
+	// Assign buffer reference (externally owned - we do NOT destroy it)
+	mesh->vertex_buffers[binding] = *buffer;
+	mesh->vertex_buffer_owned &= ~(1u << binding);  // Clear ownership bit (external buffer)
+	mesh->vert_count = vert_count;
+
+	return skr_err_success;
+}
+
+skr_buffer_t* skr_mesh_get_vertex_buffer(const skr_mesh_t* mesh, uint32_t binding) {
+	if (!mesh || !mesh->vertex_buffers || binding >= mesh->vertex_buffer_count) {
+		return NULL;
+	}
+	return &mesh->vertex_buffers[binding];
 }

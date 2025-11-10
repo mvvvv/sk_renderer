@@ -107,6 +107,7 @@ typedef struct {
 	uint8_t         count;
 	skr_semantic_   semantic;
 	uint8_t         semantic_slot;
+	uint8_t         binding;
 } skr_vert_component_t;
 
 typedef struct {

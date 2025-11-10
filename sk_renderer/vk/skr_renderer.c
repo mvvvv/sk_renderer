@@ -659,10 +659,23 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		                      _skr_pipeline_get_descriptor_layout(mat->pipeline_material_idx),
 		                      writes, write_ct);
 
-		// Bind vertex buffer
-		if (skr_buffer_is_valid(&item->mesh->vertex_buffer)) {
-			VkDeviceSize offset = 0;
-			vkCmdBindVertexBuffers(cmd, 0, 1, &item->mesh->vertex_buffer.buffer, &offset);
+		// Bind vertex buffers
+		if (item->mesh->vertex_buffer_count > 0) {
+			VkBuffer     buffers[16];  // Max 16 bindings (Vulkan limit)
+			VkDeviceSize offsets[16];
+			uint32_t     bind_count = 0;
+
+			for (uint32_t i = 0; i < item->mesh->vertex_buffer_count; i++) {
+				if (skr_buffer_is_valid(&item->mesh->vertex_buffers[i])) {
+					buffers[bind_count] = item->mesh->vertex_buffers[i].buffer;
+					offsets[bind_count] = 0;
+					bind_count++;
+				}
+			}
+
+			if (bind_count > 0) {
+				vkCmdBindVertexBuffers(cmd, 0, bind_count, buffers, offsets);
+			}
 		}
 
 		// Draw with instancing (batched)

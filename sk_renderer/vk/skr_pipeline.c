@@ -341,13 +341,28 @@ static void _skr_pipeline_grow_vertformats(int32_t min_capacity) {
 	_skr_pipeline_cache.vertformat_capacity = new_capacity;
 }
 
+static bool _skr_vert_type_equals(const skr_vert_type_t* a, const skr_vert_type_t* b) {
+	if (a->binding_count != b->binding_count) return false;
+	if (a->component_count != b->component_count) return false;
+
+	// Compare bindings (deep comparison)
+	if (memcmp(a->bindings, b->bindings, sizeof(VkVertexInputBindingDescription) * a->binding_count) != 0)
+		return false;
+
+	// Compare attributes (deep comparison)
+	if (memcmp(a->attributes, b->attributes, sizeof(VkVertexInputAttributeDescription) * a->component_count) != 0)
+		return false;
+
+	return true;
+}
+
 int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
 	// Find existing or free slot
 	int32_t free_slot = -1;
 	for (int32_t i = 0; i < _skr_pipeline_cache.vertformat_capacity; i++) {
 		if (_skr_pipeline_cache.vertformats[i].active) {
-			// Check if this vertex format already exists (pointer comparison)
-			if (memcmp(&_skr_pipeline_cache.vertformats[i].vert_type, &vert_type, sizeof(skr_vert_type_t)) == 0) {
+			// Check if this vertex format already exists (deep comparison)
+			if (_skr_vert_type_equals(&_skr_pipeline_cache.vertformats[i].vert_type, &vert_type)) {
 				return i;
 			}
 		} else if (free_slot == -1) {
@@ -362,7 +377,7 @@ int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
 		_skr_pipeline_grow_vertformats(free_slot + 1);
 	}
 
-	// Register new vertex format (just store pointer, mesh owns it)
+	// Register new vertex format (just store copy)
 	_skr_pipeline_cache.vertformats[free_slot].vert_type = vert_type;
 	_skr_pipeline_cache.vertformats[free_slot].active    = true;
 
@@ -622,8 +637,8 @@ static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_
 	// Vertex input - baked from vertex type
 	VkPipelineVertexInputStateCreateInfo vertex_input = {
 		.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		.vertexBindingDescriptionCount   = vert_type ? 1 : 0,
-		.pVertexBindingDescriptions      = vert_type ? &vert_type->binding : NULL,
+		.vertexBindingDescriptionCount   = vert_type ? vert_type->binding_count : 0,
+		.pVertexBindingDescriptions      = vert_type ? vert_type->bindings : NULL,
 		.vertexAttributeDescriptionCount = vert_type ? vert_type->component_count : 0,
 		.pVertexAttributeDescriptions    = vert_type ? vert_type->attributes : NULL,
 	};
