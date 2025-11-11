@@ -88,8 +88,14 @@ typedef struct {
 	VkDevice                 device;
 	VkQueue                  graphics_queue;
 	VkQueue                  present_queue;
+	VkQueue                  transfer_queue;
 	uint32_t                 graphics_queue_family;
 	uint32_t                 present_queue_family;
+	uint32_t                 transfer_queue_family;
+	mtx_t                    queue_mutexes[3];         // Mutexes for unique queues (graphics, present, transfer)
+	mtx_t*                   graphics_queue_mutex;     // Pointer to correct mutex (may alias)
+	mtx_t*                   present_queue_mutex;      // Pointer to correct mutex (may alias)
+	mtx_t*                   transfer_queue_mutex;     // Pointer to correct mutex (may alias)
 	VkCommandPool            command_pool;
 	VkCommandBuffer          command_buffers[SKR_MAX_FRAMES_IN_FLIGHT];
 	VkFence                  frame_fences[SKR_MAX_FRAMES_IN_FLIGHT];
@@ -132,8 +138,6 @@ typedef struct {
 	uint32_t                 pending_transition_capacity;
 
 	// Command system
-	VkQueue                  transfer_queue;
-	uint32_t                 transfer_queue_family;
 	bool                     has_dedicated_transfer;
 	_skr_vk_thread_t         thread_pools[skr_MAX_THREAD_POOLS];
 	mtx_t                    thread_pool_mutex;

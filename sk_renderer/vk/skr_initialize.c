@@ -435,6 +435,25 @@ bool skr_init(skr_settings_t settings) {
 		_skr_vk.transfer_queue = _skr_vk.graphics_queue;
 	}
 
+	// Initialize queue mutexes for thread-safe queue submission
+	// We use 3 slots but may only need 1 or 2 if queues are aliased
+	mtx_init(&_skr_vk.queue_mutexes[0], mtx_plain);  // Graphics queue
+	mtx_init(&_skr_vk.queue_mutexes[1], mtx_plain);  // Present queue (may alias graphics)
+	mtx_init(&_skr_vk.queue_mutexes[2], mtx_plain);  // Transfer queue (may alias graphics)
+
+	// Set up mutex pointers based on queue aliasing
+	_skr_vk.graphics_queue_mutex = &_skr_vk.queue_mutexes[0];
+
+	// Present always aliases graphics
+	_skr_vk.present_queue_mutex = &_skr_vk.queue_mutexes[0];
+
+	// Transfer uses dedicated mutex if it has a dedicated queue, otherwise aliases graphics
+	if (_skr_vk.has_dedicated_transfer) {
+		_skr_vk.transfer_queue_mutex = &_skr_vk.queue_mutexes[2];
+	} else {
+		_skr_vk.transfer_queue_mutex = &_skr_vk.queue_mutexes[0];
+	}
+
 	// Create command pool
 	VkCommandPoolCreateInfo pool_info = {
 		.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -547,6 +566,11 @@ void skr_shutdown() {
 	// Free dynamic arrays
 	if (_skr_vk.pending_transitions)      _skr_free(_skr_vk.pending_transitions);
 	if (_skr_vk.pending_transition_types) _skr_free(_skr_vk.pending_transition_types);
+
+	// Destroy queue mutexes
+	for (int32_t i = 0; i < 3; i++) {
+		mtx_destroy(&_skr_vk.queue_mutexes[i]);
+	}
 
 	// Destroy device and instance directly (special cases not in destroy list)
 	if (_skr_vk.device   != VK_NULL_HANDLE) { vkDestroyDevice  (_skr_vk.device,   NULL); }

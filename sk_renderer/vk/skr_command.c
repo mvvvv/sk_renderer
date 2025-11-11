@@ -350,11 +350,14 @@ void _skr_cmd_release(VkCommandBuffer buffer) {
 		// Outside a batch: submit the command buffer from the ring
 		// The ring will handle waiting when it needs to reuse a slot
 		vkEndCommandBuffer(pool->active_cmd->cmd);
+
+		mtx_lock(_skr_vk.graphics_queue_mutex);
 		vkQueueSubmit(_skr_vk.graphics_queue, 1, &(VkSubmitInfo){
 			.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 			.commandBufferCount = 1,
 			.pCommandBuffers    = &pool->active_cmd->cmd,
 		}, pool->active_cmd->fence);
+		mtx_unlock(_skr_vk.graphics_queue_mutex);
 
 		// Track this as the most recently submitted command
 		pool->last_submitted = pool->active_cmd;
@@ -392,6 +395,8 @@ void _skr_cmd_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSemaphor
 	// Submit with optional semaphores and caller-provided fence
 	// The caller is responsible for fence synchronization for batched operations
 	VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+	mtx_lock(_skr_vk.graphics_queue_mutex);
 	vkQueueSubmit(_skr_vk.graphics_queue, 1, &(VkSubmitInfo) {
 		.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount   = 1,
@@ -402,6 +407,7 @@ void _skr_cmd_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSemaphor
 		.signalSemaphoreCount = opt_signal_semaphore ? 1 : 0,
 		.pSignalSemaphores    = opt_signal_semaphore,
 	}, pool->active_cmd->fence);
+	mtx_unlock(_skr_vk.graphics_queue_mutex);
 
 	if (out_opt_fence) {
 		*out_opt_fence = pool->active_cmd->fence;

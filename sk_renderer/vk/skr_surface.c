@@ -316,6 +316,8 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
 		// We need to consume the semaphore with a dummy submit to unsignal it
 		if (result == VK_SUBOPTIMAL_KHR) {
 			VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+			mtx_lock(_skr_vk.graphics_queue_mutex);
 			vkQueueSubmit(_skr_vk.graphics_queue, 1, &(VkSubmitInfo){
 				.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 				.waitSemaphoreCount   = 1,
@@ -326,6 +328,7 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
 
 			// Wait for the dummy submit to complete so semaphore is unsignaled
 			vkQueueWaitIdle(_skr_vk.graphics_queue);
+			mtx_unlock(_skr_vk.graphics_queue_mutex);
 		}
 
 		// Don't advance frame index - we can reuse the same (now unsignaled) semaphore
@@ -363,6 +366,7 @@ void skr_surface_present(skr_surface_t* surface) {
 	);
 
 	// Present: wait on per-image render semaphore
+	mtx_lock(_skr_vk.present_queue_mutex);
 	vkQueuePresentKHR(_skr_vk.present_queue, &(VkPresentInfoKHR){
 		.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.waitSemaphoreCount = 1,
@@ -371,6 +375,7 @@ void skr_surface_present(skr_surface_t* surface) {
 		.pSwapchains        = &surface->swapchain,
 		.pImageIndices      = &surface->current_image,
 	});
+	mtx_unlock(_skr_vk.present_queue_mutex);
 
 	surface->frame_idx = (surface->frame_idx + 1) % SKR_MAX_FRAMES_IN_FLIGHT;
 }
