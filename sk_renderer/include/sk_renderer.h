@@ -322,7 +322,10 @@ typedef struct skr_blend_state_t {
 } skr_blend_state_t;
 
 // Common blend state presets
-static const skr_blend_state_t skr_blend_off = {0};
+static const skr_blend_state_t skr_blend_off = {
+	.color_op         = skr_blend_op_add,
+	.alpha_op         = skr_blend_op_add,
+};
 
 static const skr_blend_state_t skr_blend_alpha = {
 	.src_color_factor = skr_blend_src_alpha,
@@ -492,6 +495,7 @@ SKR_API skr_err_          skr_render_list_create           (skr_render_list_t* o
 SKR_API void              skr_render_list_destroy          (skr_render_list_t* list);
 SKR_API void              skr_render_list_clear            (skr_render_list_t* list);
 SKR_API void              skr_render_list_add              (skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count);
+SKR_API void              skr_render_list_add_indexed      (skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, int32_t first_index, int32_t index_count, int32_t vertex_offset, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count);
 
 SKR_API void              skr_renderer_frame_begin         ();
 SKR_API void              skr_renderer_frame_end           ();
@@ -504,6 +508,7 @@ SKR_API void              skr_renderer_set_scissor         (skr_recti_t scissor)
 SKR_API void              skr_renderer_blit                (skr_material_t* material, skr_tex_t* to, skr_recti_t bounds_px);
 
 SKR_API void              skr_renderer_draw                (skr_render_list_t* list, const void* system_data, uint32_t system_data_size, int32_t instance_multiplier);
+SKR_API void              skr_renderer_draw_mesh_immediate (skr_mesh_t* mesh, skr_material_t* material, int32_t first_index, int32_t index_count, int32_t vertex_offset, int32_t instance_count);
 SKR_API float             skr_renderer_get_gpu_time_ms     ();
 
 #ifdef __cplusplus

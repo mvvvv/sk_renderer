@@ -10,6 +10,9 @@
 #define HANDMADE_MATH_IMPLEMENTATION
 #include "HandmadeMath.h"
 
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#include <cimgui.h>
+
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -35,6 +38,12 @@ typedef struct {
 	int32_t        vertex_count;
 	int32_t        index_count;
 	float          time;
+
+	// Tweakable simulation parameters
+	float          gravity;
+	float          damping;
+	float          stiffness;
+	int32_t        iterations;
 } scene_cloth_t;
 
 // Cloth parameters
@@ -79,7 +88,7 @@ static void _cloth_init(scene_cloth_t* scene) {
 
 			// Initialize old_positions with offset to give initial velocity matching gravity
 			// Velocity = GRAVITY * TIME_STEP, so offset = -velocity * TIME_STEP
-			HMM_Vec3 initial_velocity = HMM_V3(0, GRAVITY*0.8f, 0);
+			HMM_Vec3 initial_velocity = HMM_V3(0, scene->gravity*0.8f, 0);
 			scene->old_positions[idx] = HMM_SubV3(pos, initial_velocity);
 
 			// Pin top row
@@ -123,7 +132,7 @@ static inline void _apply_distance_constraint(scene_cloth_t* scene, int32_t idx1
 
 	if (distance > 0.0001f) {
 		float    diff       = (distance - rest_distance) / distance;
-		HMM_Vec3 correction = HMM_MulV3F(delta, diff * STIFFNESS * 0.5f);
+		HMM_Vec3 correction = HMM_MulV3F(delta, diff * scene->stiffness * 0.5f);
 
 		// Apply correction to both particles (unless pinned)
 		if (!scene->pinned[idx1]) {
@@ -139,7 +148,7 @@ static void _cloth_apply_constraints(scene_cloth_t* scene) {
 	float rest_diagonal = REST_DISTANCE * 1.414f; // sqrt(2) for diagonal
 
 	// Apply distance constraints between neighboring vertices
-	for (int32_t iter = 0; iter < ITERATIONS; iter++) {
+	for (int32_t iter = 0; iter < scene->iterations; iter++) {
 		for (int32_t y = 0; y < CLOTH_HEIGHT; y++) {
 			for (int32_t x = 0; x < CLOTH_WIDTH; x++) {
 				int32_t idx = y * CLOTH_WIDTH + x;
@@ -177,10 +186,10 @@ static void _cloth_update_physics(scene_cloth_t* scene, float dt) {
 		HMM_Vec3 old_pos = scene->old_positions[i];
 
 		// Velocity (implicit from position difference)
-		HMM_Vec3 velocity = HMM_MulV3F(HMM_SubV3(pos, old_pos), DAMPING);
+		HMM_Vec3 velocity = HMM_MulV3F(HMM_SubV3(pos, old_pos), scene->damping);
 
 		// Add gravity
-		velocity.Y += GRAVITY * dt;
+		velocity.Y += scene->gravity * dt;
 
 		// Simple wind force (sine wave)
 		float wind = sinf(scene->time * 2.0f + i * 0.1f) * 0.8f;
@@ -257,6 +266,12 @@ static scene_t* _scene_cloth_create(void) {
 
 	scene->base.size = sizeof(scene_cloth_t);
 	scene->time      = 0.0f;
+
+	// Initialize simulation parameters with defaults
+	scene->gravity   = GRAVITY;
+	scene->damping   = DAMPING;
+	scene->stiffness = STIFFNESS;
+	scene->iterations = ITERATIONS;
 
 	// Initialize cloth simulation
 	_cloth_init(scene);
@@ -338,6 +353,21 @@ static void _scene_cloth_render(scene_t* base, int32_t width, int32_t height, HM
 	skr_render_list_add(ref_render_list, &scene->cloth_mesh, &scene->material, &transform, sizeof(HMM_Mat4), 1);
 }
 
+static void _scene_cloth_render_ui(scene_t* base) {
+	scene_cloth_t* scene = (scene_cloth_t*)base;
+
+	igText("Simulation Parameters:");
+	igSliderFloat("Gravity", &scene->gravity, -1.0f, 0.0f, "%.2f", 0);
+	igSliderFloat("Damping", &scene->damping, 0.9f, 1.0f, "%.3f", 0);
+	igSliderFloat("Stiffness", &scene->stiffness, 0.1f, 1.0f, "%.2f", 0);
+	igSliderInt("Iterations", &scene->iterations, 1, 12, "%d", 0);
+
+	if (igButton("Reset Simulation", (ImVec2){-1, 0})) {
+		scene->time = 0.0f;
+		_cloth_init(scene);
+	}
+}
+
 const scene_vtable_t scene_cloth_vtable = {
 	.name        = "Cloth Sim (CPU)",
 	.create      = _scene_cloth_create,
@@ -345,4 +375,5 @@ const scene_vtable_t scene_cloth_vtable = {
 	.update      = _scene_cloth_update,
 	.render      = _scene_cloth_render,
 	.get_camera  = NULL,
+	.render_ui   = _scene_cloth_render_ui,
 };

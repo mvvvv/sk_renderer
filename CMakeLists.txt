@@ -119,6 +119,22 @@ FetchContent_Declare( cgltf
 )
 FetchContent_MakeAvailable(cgltf)
 
+FetchContent_Declare( imgui
+	GIT_REPOSITORY https://github.com/ocornut/imgui.git
+	GIT_TAG        v1.91.6
+	GIT_SHALLOW    TRUE
+	GIT_PROGRESS   TRUE
+)
+FetchContent_MakeAvailable(imgui)
+
+FetchContent_Declare( cimgui
+	GIT_REPOSITORY https://github.com/cimgui/cimgui.git
+	GIT_TAG        1.91.6
+	GIT_SHALLOW    TRUE
+	GIT_PROGRESS   TRUE
+)
+FetchContent_MakeAvailable(cimgui)
+
 if(ANDROID)
 	add_library(sk_renderer_test SHARED)
 else()
@@ -141,7 +157,7 @@ if(MINGW)
 endif()
 
 target_link_libraries     (sk_renderer_test PRIVATE SDL2::SDL2 sk_renderer)
-target_include_directories(sk_renderer_test PRIVATE ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR})
+target_include_directories(sk_renderer_test PRIVATE ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR} ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${cimgui_SOURCE_DIR})
 target_sources            (sk_renderer_test PRIVATE
 	example/main.c
 	example/app.c
@@ -157,6 +173,15 @@ target_sources            (sk_renderer_test PRIVATE
 	example/scene_shadows.c
 	example/scene_cloth.c
 	example/bloom.c
+	example/imgui_backend/imgui_impl_sk_renderer.cpp
+	example/imgui_backend/imgui_sdl2_wrapper.cpp
+	${imgui_SOURCE_DIR}/imgui.cpp
+	${imgui_SOURCE_DIR}/imgui_draw.cpp
+	${imgui_SOURCE_DIR}/imgui_tables.cpp
+	${imgui_SOURCE_DIR}/imgui_widgets.cpp
+	${imgui_SOURCE_DIR}/imgui_demo.cpp
+	${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+	${cimgui_SOURCE_DIR}/cimgui.cpp
 )
 
 if(ANDROID)
@@ -164,6 +189,13 @@ if(ANDROID)
 else()
 	set(ASSET_PATH ${CMAKE_BINARY_DIR})
 endif()
+# Compile ImGui shader to header file (no debug info, embedded in binary)
+# Output goes to example/imgui_backend/ to keep all ImGui backend files together
+skshaderc_compile_headers(sk_renderer_test ${CMAKE_CURRENT_SOURCE_DIR}/example/imgui_backend "-e -t s"
+	example/imgui_backend/imgui.hlsl
+)
+
+# Compile other shaders to .sks files
 skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH}/shaders ""
 	example/assets/shaders/bloom_composite.hlsl
 	example/assets/shaders/bloom_downsample.hlsl

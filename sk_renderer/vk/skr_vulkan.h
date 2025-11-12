@@ -130,6 +130,9 @@ typedef struct skr_render_item_t {
 	uint32_t        instance_offset;      // Offset into instance_data (bytes)
 	uint32_t        instance_data_size;   // Size per instance (bytes)
 	uint32_t        instance_count;       // Number of instances
+	int32_t         first_index;          // Index buffer offset (0 = use mesh defaults)
+	int32_t         index_count;          // Number of indices (0 = use mesh ind_count)
+	int32_t         vertex_offset;        // Base vertex offset
 } skr_render_item_t;
 
 typedef struct skr_render_list_t {

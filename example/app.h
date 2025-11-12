@@ -48,3 +48,6 @@ void app_key_press(app_t* app, app_key_ key);
 // Per-frame functions
 void app_update(app_t* app, float delta_time);
 void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t height);
+
+// ImGui UI building (builds the UI, does NOT render)
+void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32_t height);

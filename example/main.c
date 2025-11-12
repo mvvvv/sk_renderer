@@ -4,11 +4,21 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "app.h"
+#include "imgui_backend/imgui_impl_sk_renderer.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
+
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#include <cimgui.h>
+
+// C wrappers for ImGui SDL2 backend functions
+bool ImGui_ImplSDL2_InitForVulkan_C(SDL_Window* window);
+void ImGui_ImplSDL2_Shutdown_C(void);
+void ImGui_ImplSDL2_NewFrame_C(void);
+bool ImGui_ImplSDL2_ProcessEvent_C(const SDL_Event* event);
 
 
 int main(int argc, char* argv[]) {
@@ -101,6 +111,32 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
+	// Initialize ImGui
+	igCreateContext(NULL);
+	ImGuiIO* io = igGetIO();
+	io->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable Keyboard Controls
+
+	// Build font atlas at larger size for crisp rendering
+	ImFontConfig* font_cfg = ImFontConfig_ImFontConfig();
+	font_cfg->SizePixels = 16.0f;  // Larger default font (13px default -> 20px)
+	ImFontAtlas_AddFontDefault(io->Fonts, font_cfg);
+
+	// Initialize ImGui SDL2 backend
+	ImGui_ImplSDL2_InitForVulkan_C(window);
+
+	// Initialize ImGui sk_renderer backend
+	if (!ImGui_ImplSkRenderer_Init()) {
+		skr_log(skr_log_critical, "Failed to initialize ImGui sk_renderer backend!");
+		app_destroy(app);
+		skr_surface_destroy(&surface);
+		skr_shutdown();
+		SDL_DestroyWindow(window);
+		SDL_Quit();
+		return 1;
+	}
+
+	skr_log(skr_log_info, "ImGui initialized successfully!");
+
 	// Main loop
 	int      frame_count = 0;
 	bool     running     = true;
@@ -111,6 +147,9 @@ int main(int argc, char* argv[]) {
 		// Handle events
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
+			// Pass event to ImGui first
+			ImGui_ImplSDL2_ProcessEvent_C(&event);
+
 			if (event.type == SDL_QUIT) {
 				running = false;
 			} else if (event.type == SDL_WINDOWEVENT) {
@@ -125,14 +164,6 @@ int main(int argc, char* argv[]) {
 			} else if (event.type == SDL_APP_DIDENTERFOREGROUND) {
 				skr_log(skr_log_info, "App entering foreground - resuming rendering");
 				suspended = false;
-			} else if (event.type == SDL_KEYDOWN) {
-				if (event.key.keysym.sym == SDLK_LEFT) {
-					app_key_press(app, app_key_left);
-				} else if (event.key.keysym.sym == SDLK_RIGHT) {
-					app_key_press(app, app_key_right);
-				}
-			} else if (event.type == SDL_MOUSEBUTTONDOWN) {
-				app_key_press(app, app_key_right);
 			}
 		}
 
@@ -147,8 +178,19 @@ int main(int argc, char* argv[]) {
 		float    delta_time   = (float)(current_time - last_time) / (float)SDL_GetPerformanceFrequency();
 		last_time = current_time;
 
+		// Start ImGui frame
+		ImGui_ImplSkRenderer_NewFrame();
+		ImGui_ImplSDL2_NewFrame_C();
+		igNewFrame();
+
 		// Update application
 		app_update(app, delta_time);
+
+		// Build ImGui UI (before rendering)
+		app_render_imgui(app, NULL, surface.size.x, surface.size.y);
+
+		// Finalize ImGui rendering to get draw data
+		igRender();
 
 		// Get next swapchain image
 		skr_tex_t*   target        = NULL;
@@ -201,7 +243,7 @@ int main(int argc, char* argv[]) {
 			// Begin frame
 			skr_renderer_frame_begin();
 
-			// Render
+			// Render (ImGui is rendered inside app_render, in the same pass)
 			app_render(app, target, surface.size.x, surface.size.y);
 
 			// Present
@@ -211,18 +253,18 @@ int main(int argc, char* argv[]) {
 			skr_renderer_frame_end();
 		}
 
-		// Print GPU timing every 60 frames
 		frame_count++;
-		if (frame_count % 60 == 0) {
-			float gpu_ms = skr_renderer_get_gpu_time_ms();
-			skr_log(skr_log_info, "GPU frame time: %.4f ms (%.1f FPS)", gpu_ms, 1000.0f / gpu_ms);
-		}
 	}
 
 	skr_log(skr_log_info, "Completed %d frames, shutting down...", frame_count);
 
 	// Wait for GPU
 	vkDeviceWaitIdle(skr_get_vk_device());
+
+	// Cleanup ImGui
+	ImGui_ImplSkRenderer_Shutdown();
+	ImGui_ImplSDL2_Shutdown_C();
+	igDestroyContext(NULL);
 
 	// Cleanup
 	app_destroy(app);

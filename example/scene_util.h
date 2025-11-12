@@ -10,6 +10,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 // Common Vertex Format
 ///////////////////////////////////////////////////////////////////////////////
@@ -198,3 +202,7 @@ float su_hash_f(int32_t position, uint32_t seed);
 // scale: Scale vector
 // Returns: 4x4 transform matrix ready to send to GPU (already transposed)
 HMM_Mat4 su_matrix_trs(HMM_Vec3 position, HMM_Vec3 rotation_euler_xyz, HMM_Vec3 scale);
+
+#ifdef __cplusplus
+}
+#endif

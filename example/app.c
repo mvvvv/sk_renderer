@@ -7,12 +7,16 @@
 #include "scene.h"
 #include "scene_util.h"
 #include "bloom.h"
+#include "imgui_backend/imgui_impl_sk_renderer.h"
 
 #define HANDMADE_MATH_IMPLEMENTATION
 #include "HandmadeMath.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#include <cimgui.h>
 
 const bool enable_offscreen = false;
 const bool enable_bloom     = false;
@@ -134,7 +138,7 @@ app_t* app_create() {
 
 	// Start with the first scene
 	app->scene_index = -1;
-	_switch_scene(app, 7);
+	_switch_scene(app, 9);
 
 	skr_log (skr_log_info, "Application created successfully!");
 	skr_log(skr_log_info, "Available scenes: %d (use arrow keys to switch)", app->scene_count);
@@ -265,6 +269,9 @@ void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t hei
 	// Let the scene populate the render list (and optionally do its own render passes)
 	scene_render(vtable, app->scene_current, width, height, viewproj, &app->render_list, &sys_buffer);
 
+	// Prepare ImGui mesh data OUTSIDE render pass (uploads via vkCmdCopyBuffer)
+	ImGui_ImplSkRenderer_PrepareDrawData();
+
 	// Begin main render pass
 	skr_vec4_t clear_color = {0, 0, 0, 0};
 	skr_tex_t* color_target   = (app->msaa > 1) ? &app->color_msaa : (enable_offscreen ? &app->scene_color : render_target);
@@ -279,10 +286,47 @@ void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t hei
 	skr_renderer_draw    (&app->render_list, &sys_buffer, sizeof(app_system_buffer_t), sys_buffer.view_count);
 	skr_render_list_clear(&app->render_list);
 
+	// Draw ImGui INSIDE the same render pass
+	ImGui_ImplSkRenderer_RenderDrawData(width, height);
+
+	// End render pass
 	skr_renderer_end_pass();
 
 	// Post-processing
 	if (enable_offscreen && enable_bloom) {
 		bloom_apply(&app->scene_color, render_target, 1.0f, 4.0f, 0.75f);
 	}
+}
+
+void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32_t height) {
+	if (!app) return;
+
+	// Position window on the right side of the screen (locked)
+	igSetNextWindowPos ((ImVec2){(float)width - 300, 0}, ImGuiCond_Always, (ImVec2){0, 0});
+	igSetNextWindowSize((ImVec2){300, (float)height}, ImGuiCond_Always);
+
+	// Build a simple info window with no move/resize
+	igBegin("sk_renderer", NULL, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
+
+	// Show scene info with navigation buttons
+	const scene_vtable_t* vtable = app->scene_types[app->scene_index];
+	igText("%s", scene_get_name(vtable));
+	if (igArrowButton("##left",  ImGuiDir_Left )) { _switch_scene(app, (app->scene_index - 1 + app->scene_count) % app->scene_count);}
+	igSameLine(0.0f, 5.0f);
+	if (igArrowButton("##right", ImGuiDir_Right)) { _switch_scene(app, (app->scene_index + 1) % app->scene_count); }
+
+	igSeparator();
+
+	// Scene-specific UI controls
+	scene_render_ui(vtable, app->scene_current);
+
+	igSeparator();
+
+	// Show render info
+	igText("Resolution: %d x %d", width, height);
+	igText("MSAA: %dx", app->msaa);
+	float gpu_ms = skr_renderer_get_gpu_time_ms();
+	igText("GPU Time: %.2f ms (%.1f FPS)", gpu_ms, 1000.0f / gpu_ms);
+
+	igEnd();
 }

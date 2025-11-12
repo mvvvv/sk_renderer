@@ -73,7 +73,7 @@ void skr_render_list_clear(skr_render_list_t* list) {
 	list->needs_sort = false;
 }
 
-void skr_render_list_add(skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count) {
+void skr_render_list_add_indexed(skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, int32_t first_index, int32_t index_count, int32_t vertex_offset, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count) {
 	if (!list || !mesh || !material) return;
 
 	// Grow if needed
@@ -95,6 +95,9 @@ void skr_render_list_add(skr_render_list_t* list, skr_mesh_t* mesh, skr_material
 	item->instance_offset    = list->instance_data_used;
 	item->instance_data_size = single_instance_data_size;
 	item->instance_count     = instance_count;
+	item->first_index        = first_index;
+	item->index_count        = index_count;
+	item->vertex_offset      = vertex_offset;
 
 	// Copy instance data if provided
 	uint32_t total_size = single_instance_data_size * instance_count;
@@ -118,6 +121,11 @@ void skr_render_list_add(skr_render_list_t* list, skr_mesh_t* mesh, skr_material
 	list->needs_sort = true;
 }
 
+void skr_render_list_add(skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count) {
+	// Call indexed version with default offsets (draw entire mesh)
+	skr_render_list_add_indexed(list, mesh, material, 0, 0, 0, opt_instance_data, single_instance_data_size, instance_count);
+}
+
 static int _skr_render_item_compare(const void* a, const void* b) {
 	const skr_render_item_t* item_a = (const skr_render_item_t*)a;
 	const skr_render_item_t* item_b = (const skr_render_item_t*)b;
@@ -135,6 +143,17 @@ static int _skr_render_item_compare(const void* a, const void* b) {
 	// Then by material
 	if (item_a->material < item_b->material) return -1;
 	if (item_a->material > item_b->material) return  1;
+
+	// Then by draw parameters (first_index, index_count, vertex_offset)
+	// Items with different draw parameters can't be batched together
+	if (item_a->first_index < item_b->first_index) return -1;
+	if (item_a->first_index > item_b->first_index) return  1;
+
+	if (item_a->index_count < item_b->index_count) return -1;
+	if (item_a->index_count > item_b->index_count) return  1;
+
+	if (item_a->vertex_offset < item_b->vertex_offset) return -1;
+	if (item_a->vertex_offset > item_b->vertex_offset) return  1;
 
 	return 0;
 }

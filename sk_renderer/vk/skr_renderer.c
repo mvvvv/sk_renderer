@@ -567,27 +567,32 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		VkPipeline pipeline = _skr_pipeline_get(item->material->pipeline_material_idx, _skr_vk.current_renderpass_idx, item->mesh->vert_type->pipeline_idx);
 		assert(pipeline != VK_NULL_HANDLE && "Is the Vertex format out of scope?");
 
-		// Find consecutive items with same mesh/material for batching
+		// Find consecutive items with same mesh/material/draw-params for batching
 		uint32_t batch_count     = 1;
 		uint32_t total_instances = item->instance_count;
 		uint32_t total_inst_data = item->instance_data_size * item->instance_count;
 		while (i + batch_count < list->count) {
 			const skr_render_item_t* next = &list->items[i + batch_count];
-			if (next->mesh != item->mesh || next->material != item->material)
+			// Can only batch if mesh, material, AND draw parameters all match
+			if (next->mesh          != item->mesh        ||
+			    next->material      != item->material    ||
+			    next->first_index   != item->first_index ||
+			    next->index_count   != item->index_count ||
+			    next->vertex_offset != item->vertex_offset)
 				break;
 			total_instances += next->instance_count;
 			total_inst_data += next->instance_data_size * next->instance_count;
 			batch_count++;
 		}
 
-		// Bind pipeline (only if changed)
+		// Bind pipeline if changed
 		if (pipeline != bound_pipeline) {
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 			bound_pipeline = pipeline;
 		}
 
 		// Build per-draw descriptor writes
-		VkWriteDescriptorSet   writes      [32]; // Material writes
+		VkWriteDescriptorSet   writes      [32];
 		VkDescriptorBufferInfo buffer_infos[16];
 		VkDescriptorImageInfo  image_infos [16];
 		uint32_t write_ct  = 0;
@@ -661,13 +666,13 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 
 		// Bind vertex buffers
 		if (item->mesh->vertex_buffer_count > 0) {
-			VkBuffer     buffers[16];  // Max 16 bindings (Vulkan limit)
+			VkBuffer     buffers[16];
 			VkDeviceSize offsets[16];
 			uint32_t     bind_count = 0;
 
-			for (uint32_t i = 0; i < item->mesh->vertex_buffer_count; i++) {
-				if (skr_buffer_is_valid(&item->mesh->vertex_buffers[i])) {
-					buffers[bind_count] = item->mesh->vertex_buffers[i].buffer;
+			for (uint32_t j = 0; j < item->mesh->vertex_buffer_count; j++) {
+				if (skr_buffer_is_valid(&item->mesh->vertex_buffers[j])) {
+					buffers[bind_count] = item->mesh->vertex_buffers[j].buffer;
 					offsets[bind_count] = 0;
 					bind_count++;
 				}
@@ -678,15 +683,16 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 			}
 		}
 
-		// Draw with instancing (batched)
-		// firstInstance = 0 because we offset the buffer binding itself in the descriptor
+		// Draw with instancing
 		uint32_t draw_instances = total_instances * instance_multiplier;
 		if (skr_buffer_is_valid(&item->mesh->index_buffer)) {
 			vkCmdBindIndexBuffer(cmd, item->mesh->index_buffer.buffer, 0, item->mesh->ind_format_vk);
-			vkCmdDrawIndexed    (cmd, item->mesh->ind_count,  draw_instances, 0, 0, 0);
+			uint32_t draw_index_count = item->index_count > 0 ? item->index_count : item->mesh->ind_count;
+			vkCmdDrawIndexed(cmd, draw_index_count, draw_instances, item->first_index, item->vertex_offset, 0);
 		} else {
-			vkCmdDraw           (cmd, item->mesh->vert_count, draw_instances, 0,    0);
+			vkCmdDraw(cmd, item->mesh->vert_count, draw_instances, 0, 0);
 		}
+
 		i += batch_count;
 
 		if (item->material != prev_material) {
@@ -694,6 +700,106 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 			material_data_offset += item->material->param_buffer_size;
 		}
 	}
+	_skr_cmd_release(cmd);
+}
+
+void skr_renderer_draw_mesh_immediate(skr_mesh_t* mesh, skr_material_t* material,
+                                       int32_t first_index, int32_t index_count, int32_t vertex_offset,
+                                       int32_t instance_count) {
+	if (!mesh || !material) return;
+	if (instance_count < 1) instance_count = 1;
+
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+	VkCommandBuffer cmd = ctx.cmd;
+
+	// Get pipeline
+	VkPipeline pipeline = _skr_pipeline_get(material->pipeline_material_idx, _skr_vk.current_renderpass_idx, mesh->vert_type->pipeline_idx);
+	assert(pipeline != VK_NULL_HANDLE && "Is the Vertex format out of scope?");
+
+	// Bind pipeline
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+	// Build descriptor writes
+	VkWriteDescriptorSet   writes      [32];
+	VkDescriptorBufferInfo buffer_infos[16];
+	VkDescriptorImageInfo  image_infos [16];
+	uint32_t write_ct  = 0;
+	uint32_t buffer_ct = 0;
+	uint32_t image_ct  = 0;
+
+	// Create temporary material parameter buffer if needed
+	skr_buffer_t temp_material_buffer = {0};
+	bool temp_buffer_valid = false;
+	if (material->param_buffer_size > 0) {
+		_skr_ensure_buffer(&temp_material_buffer, &temp_buffer_valid, material->param_buffer,
+		                   material->param_buffer_size, skr_buffer_type_constant, "immediate_material_params");
+		buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
+			.buffer = temp_material_buffer.buffer,
+			.offset = 0,
+			.range  = material->param_buffer_size,
+		};
+		writes[write_ct++] = (VkWriteDescriptorSet){
+			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,
+			.descriptorCount = 1,
+			.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.pBufferInfo     = &buffer_infos[buffer_ct++],
+		};
+	}
+
+	// No system buffer or instance buffer for immediate draws
+	const int32_t ignore_slots[] = {
+		SKR_BIND_SHIFT_TEXTURE + SKR_BIND_INSTANCE,
+		SKR_BIND_SHIFT_BUFFER  + SKR_BIND_MATERIAL,
+		SKR_BIND_SHIFT_BUFFER  + SKR_BIND_SYSTEM };
+
+	// Add material texture and buffer bindings
+	_skr_material_add_writes(material->binds, material->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
+		writes,       sizeof(writes      )/sizeof(writes      [0]),
+		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
+		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
+		&write_ct, &buffer_ct, &image_ct);
+
+	// Bind descriptors
+	_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_GRAPHICS,
+	                      _skr_pipeline_get_layout(material->pipeline_material_idx),
+	                      _skr_pipeline_get_descriptor_layout(material->pipeline_material_idx),
+	                      writes, write_ct);
+
+	// Bind vertex buffers
+	if (mesh->vertex_buffer_count > 0) {
+		VkBuffer     buffers[16];
+		VkDeviceSize offsets[16];
+		uint32_t     bind_count = 0;
+
+		for (uint32_t i = 0; i < mesh->vertex_buffer_count; i++) {
+			if (skr_buffer_is_valid(&mesh->vertex_buffers[i])) {
+				buffers[bind_count] = mesh->vertex_buffers[i].buffer;
+				offsets[bind_count] = 0;
+				bind_count++;
+			}
+		}
+
+		if (bind_count > 0) {
+			vkCmdBindVertexBuffers(cmd, 0, bind_count, buffers, offsets);
+		}
+	}
+
+	// Draw
+	if (skr_buffer_is_valid(&mesh->index_buffer)) {
+		vkCmdBindIndexBuffer(cmd, mesh->index_buffer.buffer, 0, mesh->ind_format_vk);
+		uint32_t draw_index_count = index_count > 0 ? index_count : mesh->ind_count;
+		vkCmdDrawIndexed(cmd, draw_index_count, instance_count, first_index, vertex_offset, 0);
+	} else {
+		vkCmdDraw(cmd, mesh->vert_count, instance_count, 0, 0);
+	}
+
+	// Clean up temporary material buffer (deferred to command completion)
+	if (material->param_buffer_size > 0) {
+		_skr_cmd_destroy_buffer(ctx.destroy_list, temp_material_buffer.buffer);
+		_skr_cmd_destroy_memory(ctx.destroy_list, temp_material_buffer.memory);
+	}
+
 	_skr_cmd_release(cmd);
 }
 
