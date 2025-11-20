@@ -131,17 +131,52 @@ void skr_renderer_frame_begin() {
 	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, _skr_vk.timestamp_pool, query_start);
 }
 
-void skr_renderer_frame_end() {
-	// Note: Command buffer is ended and submitted by skr_surface_present
-	// If not using surfaces, user must call _skr_cmd_end_submit manually
+void skr_renderer_frame_end(skr_surface_t** opt_surfaces, uint32_t count) {
+	if (!_skr_vk.in_frame) {
+		skr_log(skr_log_warning, "skr_renderer_frame_end called outside frame");
+		return;
+	}
 
-	// Only read timestamps after we've completed a full ring buffer cycle
+	assert(count <= 2 && "Maximum 2 surfaces supported");
+
+	// Write end timestamp
+	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
+	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, _skr_vk.timestamp_pool, _skr_vk.flight_idx * 2 + 1);
+	_skr_cmd_release(cmd);
+
+	// Gather semaphores and transition surfaces
+	VkSemaphore wait_semaphores  [2];
+	VkSemaphore signal_semaphores[2];
+
+	for (uint32_t i = 0; i < count; i++) {
+		skr_surface_t* surface = opt_surfaces[i];
+
+		// Transition swapchain image to PRESENT_SRC_KHR
+		cmd = _skr_cmd_acquire().cmd;
+		skr_tex_t* swapchain_image = &surface->images[surface->current_image];
+		_skr_tex_transition(cmd, swapchain_image, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0);
+		_skr_cmd_release   (cmd);
+
+		wait_semaphores  [i] = surface->semaphore_acquire[surface->frame_idx];
+		signal_semaphores[i] = surface->semaphore_submit [surface->current_image];
+	}
+
+	// Submit and get future
+	skr_future_t future = _skr_cmd_end_submit(
+		count > 0 ? wait_semaphores   : NULL, count,
+		count > 0 ? signal_semaphores : NULL, count
+	);
+
+	// Record future in all surfaces for their current frame_idx
+	for (uint32_t i = 0; i < count; i++) {
+		opt_surfaces[i]->frame_future[opt_surfaces[i]->frame_idx] = future;
+	}
+
+	// Read timestamps from N-frames-ago (triple buffering delay)
 	if (_skr_vk.frame >= SKR_MAX_FRAMES_IN_FLIGHT) {
-		// Retrieve timestamps from oldest completed frame (N-frames_in_flight ago)
 		uint32_t prev_flight = (_skr_vk.flight_idx + 1) % SKR_MAX_FRAMES_IN_FLIGHT;
 		uint32_t query_start = prev_flight * SKR_QUERIES_PER_FRAME;
 
-		// Get timestamps (this reads from a completed frame due to ring buffering)
 		VkResult result = vkGetQueryPoolResults(
 			_skr_vk.device, _skr_vk.timestamp_pool, query_start, SKR_QUERIES_PER_FRAME,
 			sizeof(uint64_t) * SKR_QUERIES_PER_FRAME, _skr_vk.frame_timestamps[prev_flight],
@@ -151,8 +186,6 @@ void skr_renderer_frame_end() {
 	}
 
 	_skr_vk.in_frame = false;
-
-	// Increment frame counter and advance flight index
 	_skr_vk.frame++;
 	_skr_vk.flight_idx = _skr_vk.frame % SKR_MAX_FRAMES_IN_FLIGHT;
 }

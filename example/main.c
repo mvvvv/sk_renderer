@@ -144,6 +144,8 @@ int main(int argc, char* argv[]) {
 	uint64_t last_time   = SDL_GetPerformanceCounter();
 
 	while (running) {
+		frame_count++;
+
 		// Handle events
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
@@ -183,77 +185,59 @@ int main(int argc, char* argv[]) {
 		ImGui_ImplSDL2_NewFrame_C();
 		igNewFrame();
 
-		// Update application
-		app_update(app, delta_time);
+		skr_renderer_frame_begin();
 
-		// Build ImGui UI (before rendering)
+		app_update      (app, delta_time);
 		app_render_imgui(app, NULL, surface.size.x, surface.size.y);
 
 		// Finalize ImGui rendering to get draw data
 		igRender();
 
 		// Get next swapchain image
-		skr_tex_t*   target        = NULL;
+		skr_tex_t*   target         = NULL;
 		skr_acquire_ acquire_result = skr_surface_next_tex(&surface, &target);
 
-		// Handle acquisition errors
-		if (acquire_result == skr_acquire_surface_lost) {
-			// Surface was lost - only try to recreate if we're not shutting down
-			if (!running) {
-				skr_log(skr_log_info, "Surface lost during shutdown - exiting gracefully");
-				break;
-			}
-
-			// Surface was lost (Android app resume) - need to recreate from SDL
-			skr_log(skr_log_info, "Recreating surface after loss");
-			vkDeviceWaitIdle(skr_get_vk_device());
-
-			VkSurfaceKHR new_vk_surface;
-			if (!SDL_Vulkan_CreateSurface(window, skr_get_vk_instance(), &new_vk_surface)) {
-				skr_log(skr_log_critical, "Failed to recreate SDL Vulkan surface: %s", SDL_GetError());
-				running = false;
-				break;
-			}
-
-			skr_surface_destroy(&surface);
-			skr_surface_create(new_vk_surface, &surface);
-			if (surface.surface == VK_NULL_HANDLE) {
-				skr_log(skr_log_critical, "Failed to recreate sk_renderer surface");
-				running = false;
-				break;
-			}
-			continue;
-		} else if (acquire_result == skr_acquire_needs_resize) {
-			// Swapchain out of date - resize and retry next frame
-			vkDeviceWaitIdle(skr_get_vk_device());
-			skr_surface_resize(&surface);
-			continue;
-		} else if (acquire_result != skr_acquire_success) {
-			// Other error - if we're shutting down, exit gracefully
-			if (!running) {
-				skr_log(skr_log_info, "Acquire failed during shutdown - exiting gracefully");
-				break;
-			}
-			// Skip frame and retry
-			continue;
-		}
-
-		// Render if we successfully acquired an image
-		if (target) {
-			// Begin frame
-			skr_renderer_frame_begin();
-
+		if (acquire_result == skr_acquire_success && target) {
 			// Render (ImGui is rendered inside app_render, in the same pass)
 			app_render(app, target, surface.size.x, surface.size.y);
+
+			// End frame with surface synchronization
+			skr_surface_t* surfaces[] = {&surface};
+			skr_renderer_frame_end(surfaces, 1);
 
 			// Present
 			skr_surface_present(&surface);
 
-			// End frame
-			skr_renderer_frame_end();
-		}
+		} else { // Failed to acquire swapchain image!
+			skr_renderer_frame_end(NULL, 0);
+			if (!running) {
+				skr_log(skr_log_info, "Surface issue during shutdown - exiting gracefully");
+				break;
+			}
 
-		frame_count++;
+			if (acquire_result == skr_acquire_needs_resize) {
+				skr_surface_resize(&surface);
+			} else if (acquire_result == skr_acquire_surface_lost) {
+				// Surface was lost (Android app resume) - need to recreate from SDL
+				skr_log(skr_log_info, "Recreating surface after loss");
+				vkDeviceWaitIdle(skr_get_vk_device());
+
+				VkSurfaceKHR new_vk_surface;
+				if (!SDL_Vulkan_CreateSurface(window, skr_get_vk_instance(), &new_vk_surface)) {
+					skr_log(skr_log_critical, "Failed to recreate SDL Vulkan surface: %s", SDL_GetError());
+					running = false;
+					break;
+				}
+
+				skr_surface_destroy(&surface);
+				skr_surface_create(new_vk_surface, &surface);
+				if (surface.surface == VK_NULL_HANDLE) {
+					skr_log(skr_log_critical, "Failed to recreate sk_renderer surface");
+					running = false;
+					break;
+				}
+			}
+		}
 	}
 
 	skr_log(skr_log_info, "Completed %d frames, shutting down...", frame_count);

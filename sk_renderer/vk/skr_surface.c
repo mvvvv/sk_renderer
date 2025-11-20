@@ -288,9 +288,8 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
 
 	*out_tex = NULL;
 
-	if (surface->fence_frame[surface->frame_idx] != VK_NULL_HANDLE) {
-		vkWaitForFences(_skr_vk.device, 1, &surface->fence_frame[surface->frame_idx], VK_TRUE, UINT64_MAX);
-	}
+	// Wait on the future from N-frames-ago to ensure this frame slot is available
+	skr_future_wait(&surface->frame_future[surface->frame_idx]);
 
 	// Acquire next image using per-frame acquire semaphore
 	// Frame fence ensures this semaphore is not in use from previous frames
@@ -348,29 +347,12 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
 void skr_surface_present(skr_surface_t* surface) {
 	if (!surface) return;
 
-	// Transition swapchain image to PRESENT_SRC_KHR layout before presenting
-	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
-	skr_tex_t* swapchain_image = &surface->images[surface->current_image];
-	_skr_tex_transition(cmd, swapchain_image, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0);
-
-	// Write end timestamp before ending command buffer
-	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, _skr_vk.timestamp_pool, _skr_vk.flight_idx * 2 + 1);
-	_skr_cmd_release(cmd);
-
-	// End and submit the command buffer with semaphores for presentation
-	_skr_cmd_end_submit(
-		&surface->semaphore_acquire[surface->frame_idx],       // Wait on acquire semaphore
-		&surface->semaphore_submit [surface->current_image],    // Signal submit semaphore
-		&surface->fence_frame      [surface->frame_idx]
-	);
-
-	// Present: wait on per-image render semaphore
+	// Just present - all command buffer work happened before frame_end!
 	mtx_lock(_skr_vk.present_queue_mutex);
 	vkQueuePresentKHR(_skr_vk.present_queue, &(VkPresentInfoKHR){
 		.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores    = &surface->semaphore_submit[surface->current_image],  // Per-image!
+		.pWaitSemaphores    = &surface->semaphore_submit[surface->current_image],
 		.swapchainCount     = 1,
 		.pSwapchains        = &surface->swapchain,
 		.pImageIndices      = &surface->current_image,

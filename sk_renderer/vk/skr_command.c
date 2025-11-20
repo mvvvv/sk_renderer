@@ -382,9 +382,9 @@ VkCommandBuffer _skr_cmd_end() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void _skr_cmd_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSemaphore* opt_signal_semaphore, VkFence* out_opt_fence) {
+skr_future_t _skr_cmd_end_submit(const VkSemaphore* wait_semaphores, uint32_t wait_count, const VkSemaphore* signal_semaphores, uint32_t signal_count) {
 	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
-	assert(pool);
+	assert(pool && pool->active_cmd);
 
 	pool->ref_count--;
 	assert(pool->ref_count == 0 && "Unbalanced acquire/release - ref count should be 0");
@@ -392,29 +392,40 @@ void _skr_cmd_end_submit(const VkSemaphore* opt_wait_semaphore, const VkSemaphor
 	// End the command buffer
 	vkEndCommandBuffer(pool->active_cmd->cmd);
 
-	// Submit with optional semaphores and caller-provided fence
-	// The caller is responsible for fence synchronization for batched operations
-	VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	// Build wait stages (one per wait semaphore)
+	VkPipelineStageFlags* wait_stages = NULL;
+	if (wait_count > 0) {
+		wait_stages = alloca(wait_count * sizeof(VkPipelineStageFlags));
+		for (uint32_t i = 0; i < wait_count; i++) {
+			wait_stages[i] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		}
+	}
 
+	// Submit with command buffer's fence
 	mtx_lock(_skr_vk.graphics_queue_mutex);
-	vkQueueSubmit(_skr_vk.graphics_queue, 1, &(VkSubmitInfo) {
+	vkQueueSubmit(_skr_vk.graphics_queue, 1, &(VkSubmitInfo){
 		.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount   = 1,
 		.pCommandBuffers      = &pool->active_cmd->cmd,
-		.waitSemaphoreCount   = opt_wait_semaphore   ? 1 : 0,
-		.pWaitSemaphores      = opt_wait_semaphore,
-		.pWaitDstStageMask    = opt_wait_semaphore   ? &wait_stage : NULL,
-		.signalSemaphoreCount = opt_signal_semaphore ? 1 : 0,
-		.pSignalSemaphores    = opt_signal_semaphore,
-	}, pool->active_cmd->fence);
+		.waitSemaphoreCount   = wait_count,
+		.pWaitSemaphores      = wait_semaphores,
+		.pWaitDstStageMask    = wait_stages,
+		.signalSemaphoreCount = signal_count,
+		.pSignalSemaphores    = signal_semaphores,
+	}, pool->active_cmd->fence);  // Always use command buffer's fence
 	mtx_unlock(_skr_vk.graphics_queue_mutex);
 
-	if (out_opt_fence) {
-		*out_opt_fence = pool->active_cmd->fence;
-	}
+	// Create future for this submission
+	skr_future_t future = {
+		.slot       = pool->active_cmd,
+		.generation = pool->active_cmd->generation,
+	};
 
 	// Track this as the most recently submitted command
 	pool->last_submitted = pool->active_cmd;
+	pool->active_cmd     = NULL;
+
+	return future;
 }
 
 //TODO: all of this is just using the graphics_queue! It should be configurable

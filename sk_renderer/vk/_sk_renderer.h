@@ -193,7 +193,7 @@ _skr_vk_thread_t*     _skr_cmd_get_thread                (void);
 _skr_cmd_ctx_t        _skr_cmd_begin                     (void);
 bool                  _skr_cmd_try_get_active            (_skr_cmd_ctx_t* out_ctx);
 VkCommandBuffer       _skr_cmd_end                       (void);  // Ends and returns command buffer (caller must submit)
-void                  _skr_cmd_end_submit                (const VkSemaphore* opt_wait_semaphore, const VkSemaphore* opt_signal_semaphore, VkFence* out_opt_fence);  // Ends and submits with optional semaphores/fence
+skr_future_t          _skr_cmd_end_submit                (const VkSemaphore* wait_semaphores, uint32_t wait_count, const VkSemaphore* signal_semaphores, uint32_t signal_count);  // Ends and submits, returns future
 _skr_cmd_ctx_t        _skr_cmd_acquire                   (void);
 void                  _skr_cmd_release                   (VkCommandBuffer buffer);
 

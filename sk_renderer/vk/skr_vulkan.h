@@ -9,6 +9,12 @@
 
 #define SKR_MAX_FRAMES_IN_FLIGHT 3
 
+// Future type for tracking command buffer completion (must be before skr_surface_t)
+typedef struct skr_future_t {
+	void*    slot;          // Pointer to _skr_cmd_ring_slot_t
+	uint64_t generation;    // Generation counter to detect fence reuse (must match slot's generation)
+} skr_future_t;
+
 typedef struct skr_buffer_t {
 	VkBuffer            buffer;
 	VkDeviceMemory      memory;
@@ -70,7 +76,7 @@ typedef struct skr_surface_t {
 	uint32_t       image_count;
 	uint32_t       current_image;
 	uint32_t       frame_idx;
-	VkFence        fence_frame      [SKR_MAX_FRAMES_IN_FLIGHT];
+	skr_future_t   frame_future     [SKR_MAX_FRAMES_IN_FLIGHT];  // Track command submission for each frame-in-flight
 	VkSemaphore    semaphore_acquire[SKR_MAX_FRAMES_IN_FLIGHT];
 	VkSemaphore*   semaphore_submit;
 	skr_vec2i_t    size;
@@ -156,8 +162,3 @@ typedef struct skr_render_list_t {
 	bool               system_buffer_valid;
 	bool               needs_sort;  // Dirty flag for sorting
 } skr_render_list_t;
-
-typedef struct skr_future_t {
-	void*    slot;          // Pointer to _skr_cmd_ring_slot_t
-	uint64_t generation;    // Generation counter to detect fence reuse (must match slot's generation)
-} skr_future_t;

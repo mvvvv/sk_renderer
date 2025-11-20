@@ -498,7 +498,7 @@ SKR_API void              skr_render_list_add              (skr_render_list_t* l
 SKR_API void              skr_render_list_add_indexed      (skr_render_list_t* list, skr_mesh_t* mesh, skr_material_t* material, int32_t first_index, int32_t index_count, int32_t vertex_offset, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count);
 
 SKR_API void              skr_renderer_frame_begin         ();
-SKR_API void              skr_renderer_frame_end           ();
+SKR_API void              skr_renderer_frame_end           (skr_surface_t** opt_surfaces, uint32_t count);  // Submit frame with surface synchronization
 SKR_API void              skr_renderer_begin_pass          (skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve, skr_clear_ clear, skr_vec4_t clear_color, float clear_depth, uint32_t clear_stencil);
 SKR_API void              skr_renderer_end_pass            ();
 SKR_API void              skr_renderer_set_global_constants(int32_t bind, const skr_buffer_t* buffer);
