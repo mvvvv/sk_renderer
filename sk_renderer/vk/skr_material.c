@@ -369,6 +369,7 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 			};
 			(*ref_write_ct)++;
 			(*ref_image_ct)++;
-		} break; }
+		} break; 
+		default: break;}
 	}
 }
