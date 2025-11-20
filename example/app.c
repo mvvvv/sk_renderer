@@ -44,6 +44,9 @@ struct app_t {
 
 	// Shared render list (reused each frame)
 	skr_render_list_t render_list;
+
+	// Performance tracking
+	float frame_time_ms;
 };
 
 static void _create_render_targets(app_t* app, int32_t width, int32_t height, skr_tex_t* render_target) {
@@ -201,6 +204,9 @@ void app_resize(app_t* app, int32_t width, int32_t height, skr_tex_t* render_tar
 void app_update(app_t* app, float delta_time) {
 	if (!app || !app->scene_current) return;
 
+	// Store frame time for GUI display
+	app->frame_time_ms = delta_time * 1000.0f;
+
 	scene_update(app->scene_types[app->scene_index], app->scene_current, delta_time);
 }
 
@@ -325,7 +331,11 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 	// Show render info
 	igText("Resolution: %d x %d", width, height);
 	igText("MSAA: %dx", app->msaa);
-	float gpu_ms = skr_renderer_get_gpu_time_ms();
+
+	float gpu_ms   = skr_renderer_get_gpu_time_ms();
+	float frame_ms = app->frame_time_ms;
+
+	igText("Frame Time: %.2f ms (%.1f FPS)", frame_ms, 1000.0f / frame_ms);
 	igText("GPU Time: %.2f ms (%.1f FPS)", gpu_ms, 1000.0f / gpu_ms);
 
 	igEnd();
