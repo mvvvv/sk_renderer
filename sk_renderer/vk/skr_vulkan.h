@@ -8,6 +8,7 @@
 #include <volk.h>
 
 #define SKR_MAX_FRAMES_IN_FLIGHT 3
+#define SKR_MAX_SURFACES 2  // Maximum surfaces for VR stereo rendering
 
 // Future type for tracking command buffer completion (must be before skr_surface_t)
 typedef struct skr_future_t {

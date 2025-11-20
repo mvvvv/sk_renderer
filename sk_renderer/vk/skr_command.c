@@ -393,12 +393,12 @@ skr_future_t _skr_cmd_end_submit(const VkSemaphore* wait_semaphores, uint32_t wa
 	vkEndCommandBuffer(pool->active_cmd->cmd);
 
 	// Build wait stages (one per wait semaphore)
-	VkPipelineStageFlags* wait_stages = NULL;
-	if (wait_count > 0) {
-		wait_stages = alloca(wait_count * sizeof(VkPipelineStageFlags));
-		for (uint32_t i = 0; i < wait_count; i++) {
-			wait_stages[i] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		}
+	assert(wait_count <= SKR_MAX_SURFACES && "Wait count exceeds maximum surfaces");
+	assert(signal_count <= SKR_MAX_SURFACES && "Signal count exceeds maximum surfaces");
+
+	VkPipelineStageFlags wait_stages[SKR_MAX_SURFACES];
+	for (uint32_t i = 0; i < wait_count; i++) {
+		wait_stages[i] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	}
 
 	// Submit with command buffer's fence
@@ -409,7 +409,7 @@ skr_future_t _skr_cmd_end_submit(const VkSemaphore* wait_semaphores, uint32_t wa
 		.pCommandBuffers      = &pool->active_cmd->cmd,
 		.waitSemaphoreCount   = wait_count,
 		.pWaitSemaphores      = wait_semaphores,
-		.pWaitDstStageMask    = wait_stages,
+		.pWaitDstStageMask    = wait_count > 0 ? wait_stages : NULL,
 		.signalSemaphoreCount = signal_count,
 		.pSignalSemaphores    = signal_semaphores,
 	}, pool->active_cmd->fence);  // Always use command buffer's fence

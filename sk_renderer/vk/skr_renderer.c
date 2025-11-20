@@ -137,7 +137,7 @@ void skr_renderer_frame_end(skr_surface_t** opt_surfaces, uint32_t count) {
 		return;
 	}
 
-	assert(count <= 2 && "Maximum 2 surfaces supported");
+	assert(count <= SKR_MAX_SURFACES && "Maximum surfaces supported for VR stereo");
 
 	// Write end timestamp
 	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
@@ -145,8 +145,8 @@ void skr_renderer_frame_end(skr_surface_t** opt_surfaces, uint32_t count) {
 	_skr_cmd_release(cmd);
 
 	// Gather semaphores and transition surfaces
-	VkSemaphore wait_semaphores  [2];
-	VkSemaphore signal_semaphores[2];
+	VkSemaphore wait_semaphores  [SKR_MAX_SURFACES];
+	VkSemaphore signal_semaphores[SKR_MAX_SURFACES];
 
 	for (uint32_t i = 0; i < count; i++) {
 		skr_surface_t* surface = opt_surfaces[i];
