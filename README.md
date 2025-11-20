@@ -37,7 +37,7 @@ cmake --build build-androidx86 -j8 --target run_apk
 
 ```bash
 # For Windows .exe from linux with mingw-w64
-cmake -B build-mingw -DCMAKE_TOOLCHAIN_FILE=mingw-toolchain.cmake -DCMAKE_BUILD_TYPE=Release
+cmake -B build-mingw -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-toolchain.cmake -DCMAKE_BUILD_TYPE=Release
 cmake --build build-mingw -j8
 cd build-mingw/ && WINEPATH=./_deps/sdl2-build/ wine example/sk_renderer_test.exe ; cd -
 ```
