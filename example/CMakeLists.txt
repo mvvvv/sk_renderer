@@ -157,7 +157,7 @@ if(ANDROID)
 	set(ANDROID_MIN_SDK_VERSION    29)
 	set(ANDROID_TARGET_SDK_VERSION 36)
 	set(ANDROID_BUILD_TOOLS_VERSION "36.1.0")
-	include(${CMAKE_SOURCE_DIR}/android/AndroidBuild.cmake)
+	include(${CMAKE_SOURCE_DIR}/example/android/AndroidBuild.cmake)
 endif()
 
 ###############################################################################

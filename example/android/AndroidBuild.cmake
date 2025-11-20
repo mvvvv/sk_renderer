@@ -167,9 +167,9 @@ add_custom_command(
 # Build the resources
 add_custom_command(
 	OUTPUT  ${APK_TEMP}/obj/apk_resources.zip
-	DEPENDS ${CMAKE_SOURCE_DIR}/android/resources
+	DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/android/resources
 	COMMAND ${AAPT2} compile
-		--dir ${CMAKE_SOURCE_DIR}/android/resources
+		--dir ${CMAKE_CURRENT_SOURCE_DIR}/android/resources
 		-o ${APK_TEMP}/obj/apk_resources.zip
 	COMMENT "Compiling APK resources" )
 
