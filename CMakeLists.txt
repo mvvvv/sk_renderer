@@ -6,6 +6,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Build options
+option(SKR_BUILD_SKSHADERC "Build skshaderc shader compiler" ON)
 option(SKR_BUILD_EXAMPLES "Build sk_renderer example application" ON)
 
 include(FetchContent)
@@ -14,13 +15,15 @@ include(FetchContent)
 # skshaderc shader compiler
 ###############################################################################
 
-if(ANDROID)
-	# For Android builds, use pre-built skshaderc from bin/
-	# (Build the host binary first with a native build)
-	add_subdirectory(${CMAKE_SOURCE_DIR}/bin bin_tools)
-else()
-	# Native builds: build skshaderc from source
-	add_subdirectory(skshaderc)
+if(SKR_BUILD_SKSHADERC)
+	if(ANDROID)
+		# For Android builds, use pre-built skshaderc from bin/
+		# (Build the host binary first with a native build)
+		add_subdirectory(${CMAKE_SOURCE_DIR}/bin bin_tools)
+	else()
+		# Native builds: build skshaderc from source
+		add_subdirectory(skshaderc)
+	endif()
 endif()
 
 ###############################################################################
@@ -86,10 +89,15 @@ target_sources(sk_renderer PRIVATE
 ###############################################################################
 
 if(SKR_BUILD_EXAMPLES)
-	# Set Android NDK path for example project
-	if(ANDROID)
-		set(ANDROID_NDK ${CMAKE_ANDROID_NDK})
-	endif()
+	if(NOT SKR_BUILD_SKSHADERC)
+		message(WARNING "SKR_BUILD_EXAMPLES requires SKR_BUILD_SKSHADERC to be enabled. Disabling examples.")
+		set(SKR_BUILD_EXAMPLES OFF)
+	else()
+		# Set Android NDK path for example project
+		if(ANDROID)
+			set(ANDROID_NDK ${CMAKE_ANDROID_NDK})
+		endif()
 
-	add_subdirectory(example)
+		add_subdirectory(example)
+	endif()
 endif() # SKR_BUILD_EXAMPLES
