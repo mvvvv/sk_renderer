@@ -130,12 +130,13 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 	if (meta->vertex_input_count > 0) {
 		sksc_log(log_level_info, "|--Mesh Input--");
 		for (int32_t i=0; i<meta->vertex_input_count; i++) {
-			const char *format   = "NA";
-			const char *semantic = "NA";
+			const char *format;
+			const char *semantic;
 			switch (meta->vertex_inputs[i].format) {
 				case skr_vertex_fmt_f32:  format = "float"; break;
 				case skr_vertex_fmt_i32:  format = "int  "; break;
 				case skr_vertex_fmt_ui32: format = "uint "; break;
+				default: format = "NA"; break;
 			}
 			switch (meta->vertex_inputs[i].semantic) {
 				case skr_semantic_binormal:     semantic = "BiNormal";     break;
@@ -147,6 +148,7 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 				case skr_semantic_psize:        semantic = "PSize";        break;
 				case skr_semantic_tangent:      semantic = "Tangent";      break;
 				case skr_semantic_texcoord:     semantic = "TexCoord";     break;
+				default:                        semantic = "NA";           break;
 			}
 			sksc_log(log_level_info, "|  %s%d : %s%d", format, meta->vertex_inputs[i].count, semantic, meta->vertex_inputs[i].semantic_slot);
 		}
