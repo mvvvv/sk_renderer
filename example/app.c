@@ -229,7 +229,7 @@ void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t hei
 
 	// Calculate view-projection matrix
 	float aspect = (float)width / (float)height;
-	HMM_Mat4 projection = HMM_Perspective_RH_NO(HMM_AngleDeg(60.0f), aspect, 0.1f, 100.0f);
+	HMM_Mat4 projection = HMM_Perspective_RH_ZO(HMM_AngleDeg(60.0f), aspect, 0.1f, 100.0f);
 	projection.Elements[1][1] *= -1.0f;  // Flip Y for Vulkan
 
 	// Use scene camera if provided, otherwise use default

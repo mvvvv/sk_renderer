@@ -55,7 +55,6 @@ typedef struct {
 #define DAMPING           0.99f  // More damping to reduce oscillation
 #define STIFFNESS         0.6f    // Much stiffer springs
 #define ITERATIONS        6       // More iterations for better constraint solving
-#define TIME_STEP         0.008f  // Smaller time step for stability
 
 static void _cloth_init(scene_cloth_t* scene) {
 	scene->grid_width   = CLOTH_WIDTH;
@@ -88,7 +87,7 @@ static void _cloth_init(scene_cloth_t* scene) {
 
 			// Initialize old_positions with offset to give initial velocity matching gravity
 			// Velocity = GRAVITY * TIME_STEP, so offset = -velocity * TIME_STEP
-			HMM_Vec3 initial_velocity = HMM_V3(0, scene->gravity*0.8f, 0);
+			HMM_Vec3 initial_velocity = HMM_V3(0, 0, 0);
 			scene->old_positions[idx] = HMM_SubV3(pos, initial_velocity);
 
 			// Pin top row
@@ -334,7 +333,7 @@ static void _scene_cloth_update(scene_t* base, float delta_time) {
 	}
 
 	// Fixed time step for stability
-	_cloth_update_physics(scene, TIME_STEP);
+	_cloth_update_physics(scene, delta_time);
 	_cloth_update_normals(scene);
 
 	// Update mesh with new vertex data (converts to dynamic on second call)

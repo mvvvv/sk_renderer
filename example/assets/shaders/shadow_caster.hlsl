@@ -18,6 +18,7 @@ struct vsIn {
 
 struct psIn {
 	float4 pos : SV_POSITION;
+	uint   layer : SV_RenderTargetArrayIndex;
 };
 
 psIn vs(vsIn input, uint id : SV_InstanceID) {
@@ -28,6 +29,7 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	psIn output;
 	output.pos = mul(float4(input.pos, 1), inst[inst_idx].world);
 	output.pos = mul(output.pos, viewproj[view_idx]);
+	output.layer = view_idx;
 	return output;
 }
 

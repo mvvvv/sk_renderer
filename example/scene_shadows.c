@@ -53,7 +53,7 @@ typedef struct {
 // Configuration constants
 static const float    SHADOW_SCENE_SIZE     = 10.0f;
 static const float    SHADOW_MAP_SIZE       = 15.0f;
-static const int32_t  SHADOW_MAP_RESOLUTION = 1024;
+static const int32_t  SHADOW_MAP_RESOLUTION = 2048;
 static const float    SHADOW_MAP_NEAR_CLIP  = 0.01f;
 static const float    SHADOW_MAP_FAR_CLIP   = 30.0f;
 
@@ -120,7 +120,7 @@ static scene_t* _scene_shadows_create(void) {
 	skr_material_create((skr_material_info_t){
 		.shader     = &scene->shadow_caster_shader,
 		.write_mask = skr_write_depth,
-		.depth_test = skr_compare_less_or_eq,
+		.depth_test = skr_compare_less,
 	}, &scene->shadow_caster_material);
 
 	// Load shadow receiver shader
@@ -204,6 +204,7 @@ static void _scene_shadows_render(scene_t* base, int32_t width, int32_t height, 
 		-SHADOW_MAP_SIZE * 0.5f, SHADOW_MAP_SIZE * 0.5f,
 		SHADOW_MAP_NEAR_CLIP, SHADOW_MAP_FAR_CLIP
 	);
+	shadow_proj.Elements[1][1] *= -1.0f;
 
 	// Compute shadow transform matrix (world space -> shadow clip space)
 	HMM_Mat4 shadow_transform = HMM_MulM4(shadow_proj, shadow_view);
