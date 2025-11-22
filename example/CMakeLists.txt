@@ -39,15 +39,6 @@ FetchContent_Declare( cgltf
 )
 FetchContent_MakeAvailable(cgltf)
 
-# Dear ImGui C++ library
-FetchContent_Declare( imgui
-	GIT_REPOSITORY https://github.com/ocornut/imgui.git
-	GIT_TAG        v1.91.6
-	GIT_SHALLOW    TRUE
-	GIT_PROGRESS   TRUE
-)
-FetchContent_MakeAvailable(imgui)
-
 # cimgui C bindings for ImGui
 FetchContent_Declare( cimgui
 	GIT_REPOSITORY https://github.com/cimgui/cimgui.git
@@ -83,7 +74,7 @@ if(MINGW)
 endif()
 
 target_link_libraries     (sk_renderer_test PRIVATE SDL2::SDL2 sk_renderer)
-target_include_directories(sk_renderer_test PRIVATE ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR} ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${cimgui_SOURCE_DIR})
+target_include_directories(sk_renderer_test PRIVATE ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR} ${cimgui_SOURCE_DIR}/imgui ${cimgui_SOURCE_DIR}/backends ${cimgui_SOURCE_DIR})
 target_sources            (sk_renderer_test PRIVATE
 	main.c
 	app.c
@@ -101,12 +92,12 @@ target_sources            (sk_renderer_test PRIVATE
 	bloom.c
 	imgui_backend/imgui_impl_sk_renderer.cpp
 	imgui_backend/imgui_sdl2_wrapper.cpp
-	${imgui_SOURCE_DIR}/imgui.cpp
-	${imgui_SOURCE_DIR}/imgui_draw.cpp
-	${imgui_SOURCE_DIR}/imgui_tables.cpp
-	${imgui_SOURCE_DIR}/imgui_widgets.cpp
-	${imgui_SOURCE_DIR}/imgui_demo.cpp
-	${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui_draw.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui_tables.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui_widgets.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui_demo.cpp
+	${cimgui_SOURCE_DIR}/imgui/backends/imgui_impl_sdl2.cpp
 	${cimgui_SOURCE_DIR}/cimgui.cpp
 )
 
