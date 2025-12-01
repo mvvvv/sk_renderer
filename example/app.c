@@ -9,8 +9,7 @@
 #include "bloom.h"
 #include "imgui_backend/imgui_impl_sk_renderer.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
+#include "float_math.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -227,33 +226,28 @@ void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t hei
 		}
 	}
 
-	// Calculate view-projection matrix
-	float aspect = (float)width / (float)height;
-	HMM_Mat4 projection = HMM_Perspective_RH_ZO(HMM_AngleDeg(60.0f), aspect, 0.1f, 100.0f);
-	projection.Elements[1][1] *= -1.0f;  // Flip Y for Vulkan
+	// Calculate view-projection matrix (float_math handles Y flip and row-major layout internally)
+	float    aspect     = (float)width / (float)height;
+	float4x4 projection = float4x4_perspective(60.0f * (3.14159265359f / 180.0f), aspect, 0.1f, 100.0f);
 
 	// Use scene camera if provided, otherwise use default
 	scene_camera_t camera;
 	const scene_vtable_t* vtable = app->scene_types[app->scene_index];
 	bool has_custom_camera = vtable->get_camera && vtable->get_camera(app->scene_current, &camera);
 
-	HMM_Mat4 view = has_custom_camera
-		? HMM_LookAt_RH(camera.position, camera.target, camera.up)
-		: HMM_LookAt_RH(HMM_V3(0.0f, 3.0f, 8.0f), HMM_V3(0.0f, 0.0f, 0.0f), HMM_V3(0.0f, 1.0f, 0.0f));
+	float3 cam_position = has_custom_camera ? camera.position : (float3){0.0f, 3.0f, 8.0f};
+	float3 cam_target   = has_custom_camera ? camera.target   : (float3){0.0f, 0.0f, 0.0f};
+	float3 cam_up       = has_custom_camera ? camera.up       : (float3){0.0f, 1.0f, 0.0f};
 
-	HMM_Mat4 vp       = HMM_MulM4(projection, view);
-	HMM_Mat4 viewproj = HMM_Transpose(vp);
+	float4x4 view     = float4x4_lookat(cam_position, cam_target, cam_up);
+	float4x4 viewproj = float4x4_mul   (projection, view);
 
 	// Calculate inverse matrices
-	HMM_Mat4 view_inv       = HMM_Transpose(HMM_InvGeneralM4(view));
-	HMM_Mat4 projection_inv = HMM_Transpose(HMM_InvGeneralM4(projection));
-	view       = HMM_Transpose(view);
-	projection = HMM_Transpose(projection);
+	float4x4 view_inv       = float4x4_invert(view);
+	float4x4 projection_inv = float4x4_invert(projection);
 
-	// Calculate camera position and direction
-	HMM_Vec3 cam_position = has_custom_camera ? camera.position : HMM_V3(0.0f, 3.0f, 8.0f);
-	HMM_Vec3 cam_target   = has_custom_camera ? camera.target   : HMM_V3(0.0f, 0.0f, 0.0f);
-	HMM_Vec3 cam_forward  = HMM_NormV3(HMM_SubV3(cam_target, cam_position));
+	// Calculate camera direction
+	float3 cam_forward = float3_norm(float3_sub(cam_target, cam_position));
 
 	// Setup application system buffer
 	app_system_buffer_t sys_buffer = {0};
@@ -263,13 +257,13 @@ void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t hei
 	memcpy(sys_buffer.view_inv       [0], &view_inv,       sizeof(float) * 16);
 	memcpy(sys_buffer.projection     [0], &projection,     sizeof(float) * 16);
 	memcpy(sys_buffer.projection_inv [0], &projection_inv, sizeof(float) * 16);
-	sys_buffer.cam_pos[0][0] = cam_position.X;
-	sys_buffer.cam_pos[0][1] = cam_position.Y;
-	sys_buffer.cam_pos[0][2] = cam_position.Z;
+	sys_buffer.cam_pos[0][0] = cam_position.x;
+	sys_buffer.cam_pos[0][1] = cam_position.y;
+	sys_buffer.cam_pos[0][2] = cam_position.z;
 	sys_buffer.cam_pos[0][3] = 0.0f;
-	sys_buffer.cam_dir[0][0] = cam_forward.X;
-	sys_buffer.cam_dir[0][1] = cam_forward.Y;
-	sys_buffer.cam_dir[0][2] = cam_forward.Z;
+	sys_buffer.cam_dir[0][0] = cam_forward.x;
+	sys_buffer.cam_dir[0][1] = cam_forward.y;
+	sys_buffer.cam_dir[0][2] = cam_forward.z;
 	sys_buffer.cam_dir[0][3] = 0.0f;
 
 	// Let the scene populate the render list (and optionally do its own render passes)

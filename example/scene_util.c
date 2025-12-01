@@ -483,23 +483,3 @@ float su_hash_f(int32_t position, uint32_t seed) {
 	return (float)mangled / 4294967296.0f;  // Normalize to [0.0, 1.0]
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// Matrix Utilities
-///////////////////////////////////////////////////////////////////////////////
-
-HMM_Mat4 su_matrix_trs(HMM_Vec3 position, HMM_Vec3 rotation_euler_xyz, HMM_Vec3 scale) {
-	// Build transforms in TRS order
-	HMM_Mat4 t  = HMM_Translate(position);
-	HMM_Mat4 rx = HMM_Rotate_RH(rotation_euler_xyz.X, HMM_V3(1, 0, 0));
-	HMM_Mat4 ry = HMM_Rotate_RH(rotation_euler_xyz.Y, HMM_V3(0, 1, 0));
-	HMM_Mat4 rz = HMM_Rotate_RH(rotation_euler_xyz.Z, HMM_V3(0, 0, 1));
-	HMM_Mat4 s  = HMM_Scale(scale);
-
-	// Combine: T * (Rz * Ry * Rx) * S
-	// Euler XYZ means: apply X first, then Y, then Z (in object space)
-	// In HMM row-major math: T * Rz * Ry * Rx * S
-	HMM_Mat4 result = HMM_MulM4(HMM_MulM4(HMM_MulM4(HMM_MulM4(t, rz), ry), rx), s);
-
-	// Transpose for sk_renderer (HMM is row-major math, GPU expects column-major)
-	return HMM_Transpose(result);
-}

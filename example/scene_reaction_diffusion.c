@@ -7,9 +7,6 @@
 #include "scene_util.h"
 #include "app.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
-
 #include <stdlib.h>
 #include <string.h>
 
@@ -171,17 +168,17 @@ static void _scene_reaction_diffusion_update(scene_t* base, float delta_time) {
 	}
 }
 
-static void _scene_reaction_diffusion_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_reaction_diffusion_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_reaction_diffusion_t* scene = (scene_reaction_diffusion_t*)base;
 
 	// Build instance data for quad
-	HMM_Mat4 quad_instance = su_matrix_trs(
-		HMM_V3(0.0f, 0.0f, 0.0f),
-		HMM_V3(0.0f, -scene->rotation, 0.0f),
-		HMM_V3(6.0f, 6.0f, 6.0f) );
+	float4x4 quad_instance = float4x4_trs(
+		(float3){0.0f, 0.0f, 0.0f},
+		float4_quat_from_euler((float3){0.0f, -scene->rotation, 0.0f}),
+		(float3){6.0f, 6.0f, 6.0f} );
 
 	// Add to render list
-	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->quad_material, &quad_instance, sizeof(HMM_Mat4), 1);
+	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->quad_material, &quad_instance, sizeof(float4x4), 1);
 }
 
 const scene_vtable_t scene_reaction_diffusion_vtable = {

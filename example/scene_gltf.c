@@ -7,9 +7,6 @@
 #include "scene_util.h"
 #include "app.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
-
 #define CGLTF_IMPLEMENTATION
 #include "cgltf.h"
 
@@ -45,7 +42,7 @@ typedef struct {
 	int32_t           vertex_count;
 	int32_t           index_count;
 	int32_t           texture_indices[gltf_tex_type_count];  // Indices per texture type, -1 if none
-	HMM_Mat4          transform;                             // Node transform
+	float4x4          transform;                             // Node transform
 	float             metallic_factor;                       // Material metallic factor
 	float             roughness_factor;                      // Material roughness factor
 	skr_vec4_t        base_color_factor;                     // Material base color
@@ -92,7 +89,7 @@ typedef struct scene_gltf_t {
 	int32_t              mesh_count;
 	int32_t              texture_count;
 
-	HMM_Mat4             transforms[MAX_GLTF_MESHES];
+	float4x4             transforms[MAX_GLTF_MESHES];
 
 	gltf_load_context_t* load_ctx;
 
@@ -125,25 +122,25 @@ static void _read_attribute(cgltf_accessor* accessor, int32_t index, float* out_
 }
 
 // Helper to calculate node transform from GLTF node
-static HMM_Mat4 _calculate_node_transform(cgltf_node* node) {
-	HMM_Mat4 local_transform = HMM_M4D(1.0f);
-
+static float4x4 _calculate_node_transform(cgltf_node* node) {
 	if (node->has_matrix) {
-		memcpy(&local_transform, node->matrix, sizeof(float) * 16);
-		return HMM_Transpose(local_transform);  // cgltf uses column-major
+		// cgltf uses column-major, float_math uses row-major, so transpose
+		float4x4 m;
+		memcpy(&m, node->matrix, sizeof(float) * 16);
+		return float4x4_transpose(m);
 	}
 
 	// Build from TRS
-	HMM_Mat4 t_mat = HMM_Translate(node->has_translation ? HMM_V3(node->translation[0], node->translation[1], node->translation[2])                    : HMM_V3(0,0,0));
-	HMM_Mat4 r_mat = HMM_QToM4    (node->has_rotation    ? HMM_Q (node->rotation   [0], node->rotation   [1], node->rotation   [2], node->rotation[3]) : HMM_Q (0,0,0,1));
-	HMM_Mat4 s_mat = HMM_Scale    (node->has_scale       ? HMM_V3(node->scale      [0], node->scale      [1], node->scale      [2])                    : HMM_V3(1,1,1));
-	return HMM_MulM4(HMM_MulM4(t_mat, r_mat), s_mat);
+	float3 pos   = node->has_translation ? (float3){node->translation[0], node->translation[1], node->translation[2]} : (float3){0,0,0};
+	float4 rot   = node->has_rotation    ? (float4){node->rotation[0], node->rotation[1], node->rotation[2], node->rotation[3]} : (float4){0,0,0,1};
+	float3 scale = node->has_scale       ? (float3){node->scale[0], node->scale[1], node->scale[2]} : (float3){1,1,1};
+	return float4x4_trs(pos, rot, scale);
 }
 
 // Helper to traverse GLTF node hierarchy and extract meshes
-static void _extract_gltf_node(cgltf_data* data, cgltf_node* node, HMM_Mat4 parent_transform, gltf_load_context_t* ctx) {
-	HMM_Mat4 local_transform = _calculate_node_transform(node);
-	HMM_Mat4 world_transform = HMM_MulM4(parent_transform, local_transform);
+static void _extract_gltf_node(cgltf_data* data, cgltf_node* node, float4x4 parent_transform, gltf_load_context_t* ctx) {
+	float4x4 local_transform = _calculate_node_transform(node);
+	float4x4 world_transform = float4x4_mul(parent_transform, local_transform);
 
 	// Process mesh if present
 	if (node->mesh && ctx->mesh_count < MAX_GLTF_MESHES) {
@@ -453,7 +450,7 @@ static int32_t _load_gltf_thread(void* arg) {
 	scene_gltf_t* scene = ctx->scene;
 	if (data->scene && data->scene->nodes_count > 0) {
 		for (size_t i = 0; i < data->scene->nodes_count; i++) {
-			_extract_gltf_node(data, data->scene->nodes[i], HMM_M4D(1.0f), ctx);
+			_extract_gltf_node(data, data->scene->nodes[i], float4x4_identity(), ctx);
 		}
 
 		// Create GPU meshes with default materials
@@ -595,6 +592,8 @@ static scene_t* _scene_gltf_create(void) {
 	scene->load_ctx->state = gltf_load_state_loading;
 	scene->load_ctx->scene = scene;
 	snprintf(scene->load_ctx->filepath, sizeof(scene->load_ctx->filepath), "DamagedHelmet.glb");
+	//snprintf(scene->load_ctx->filepath, sizeof(scene->load_ctx->filepath), "/media/koujaku/C012E30112E2FB74/Data/GLTF/Sponza/NewSponza_Main_Blender_glTF.gltf");
+	//snprintf(scene->load_ctx->filepath, sizeof(scene->load_ctx->filepath), "/home/koujaku/Downloads/main_sponza/NewSponza_Main_glTF_003.gltf");
 
 	thrd_create(&scene->load_ctx->thread, _load_gltf_thread, scene->load_ctx);
 
@@ -736,7 +735,7 @@ static void _scene_gltf_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time * 0.5f;
 }
 
-static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_gltf_t*    scene = (scene_gltf_t*)base;
 	gltf_load_state_ state = scene->load_ctx ? scene->load_ctx->state : gltf_load_state_loading;
 
@@ -763,23 +762,19 @@ static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, HMM
 
 	if (state != gltf_load_state_ready) {
 		// Show placeholder while loading or on error
-		HMM_Mat4 world = su_matrix_trs(
-			HMM_V3(0.0f, 0.0f, 0.0f),
-			HMM_V3(0.0f, scene->rotation * 2.0f, 0.0f),
-			HMM_V3(1.0f, 1.0f, 1.0f) );
-		skr_render_list_add(ref_render_list, &scene->placeholder_mesh, &scene->placeholder_material, &world, sizeof(HMM_Mat4), 1);
+		float4x4 world = float4x4_trs(
+			(float3){0.0f, 0.0f, 0.0f},
+			float4_quat_from_euler((float3){0.0f, scene->rotation * 2.0f, 0.0f}),
+			(float3){1.0f, 1.0f, 1.0f} );
+		skr_render_list_add(ref_render_list, &scene->placeholder_mesh, &scene->placeholder_material, &world, sizeof(float4x4), 1);
 		return;
 	}
 
 	// Render loaded model
 	for (int32_t i = 0; i < scene->mesh_count; i++) {
-		HMM_Mat4 rotation = HMM_Rotate_RH(scene->rotation, HMM_V3(0.0f, 1.0f, 0.0f));
-		//HMM_Mat4 scale    = HMM_Scale(HMM_V3(80.0f, 80.0f, 80.0f));
-		//HMM_Mat4 tr       = HMM_Translate(HMM_V3(0, -3, 0));
-		HMM_Mat4 scale    = HMM_Scale(HMM_V3(1.0f, 1.0f, 1.0f));
-		HMM_Mat4 tr       = HMM_Translate(HMM_V3(0, 0, 0));
-		HMM_Mat4 world    = HMM_Transpose(HMM_MulM4(tr, HMM_MulM4(scale, HMM_MulM4(rotation, scene->transforms[i]))));
-		skr_render_list_add(ref_render_list, &scene->meshes[i], &scene->materials[i], &world, sizeof(HMM_Mat4), 1);
+		float4x4 rotation = float4x4_r(float4_quat_from_euler((float3){0.0f, scene->rotation, 0.0f}));
+		float4x4 world    = float4x4_mul(rotation, scene->transforms[i]);
+		skr_render_list_add(ref_render_list, &scene->meshes[i], &scene->materials[i], &world, sizeof(float4x4), 1);
 	}
 }
 
@@ -791,9 +786,9 @@ static bool _scene_gltf_get_camera(scene_t* base, scene_camera_t* out_camera) {
 	float height = 2.0f;
 	float angle = scene->rotation * 0.3f;
 
-	out_camera->position = HMM_V3(cosf(angle) * radius, height, sinf(angle) * radius);
-	out_camera->target   = HMM_V3(0.0f, 0.0f, 0.0f);
-	out_camera->up       = HMM_V3(0.0f, 1.0f, 0.0f);
+	out_camera->position = (float3){cosf(angle) * radius, height, sinf(angle) * radius};
+	out_camera->target   = (float3){0.0f, 0.0f, 0.0f};
+	out_camera->up       = (float3){0.0f, 1.0f, 0.0f};
 
 	return true;
 }

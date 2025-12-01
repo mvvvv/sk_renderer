@@ -7,8 +7,7 @@
 #include "scene_util.h"
 #include "app.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
+#include "float_math.h"
 
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui.h>
@@ -27,10 +26,10 @@ typedef struct {
 	skr_tex_t      texture;
 
 	// Cloth simulation state
-	HMM_Vec3*      positions;        // Current positions
-	HMM_Vec3*      old_positions;    // Previous positions for Verlet integration
+	float3*        positions;        // Current positions
+	float3*        old_positions;    // Previous positions for Verlet integration
 	bool*          pinned;           // Whether each vertex is pinned
-	su_vertex_pnuc_t* vertices;     // Vertex buffer data
+	su_vertex_pnuc_t* vertices;      // Vertex buffer data
 	uint32_t*      indices;          // Index buffer data
 
 	int32_t        grid_width;
@@ -63,8 +62,8 @@ static void _cloth_init(scene_cloth_t* scene) {
 	scene->index_count  = (CLOTH_WIDTH - 1) * (CLOTH_HEIGHT - 1) * 6;
 
 	// Allocate arrays
-	scene->positions     = calloc(scene->vertex_count, sizeof(HMM_Vec3));
-	scene->old_positions = calloc(scene->vertex_count, sizeof(HMM_Vec3));
+	scene->positions     = calloc(scene->vertex_count, sizeof(float3));
+	scene->old_positions = calloc(scene->vertex_count, sizeof(float3));
 	scene->pinned        = calloc(scene->vertex_count, sizeof(bool));
 	scene->vertices      = calloc(scene->vertex_count, sizeof(su_vertex_pnuc_t));
 	scene->indices       = calloc(scene->index_count, sizeof(uint32_t));
@@ -77,24 +76,24 @@ static void _cloth_init(scene_cloth_t* scene) {
 			float fx = (float)x / (CLOTH_WIDTH - 1);
 			float fy = (float)y / (CLOTH_HEIGHT - 1);
 
-			HMM_Vec3 pos = HMM_V3(
+			float3 pos = {
 				(fx - 0.5f) * CLOTH_SIZE,
 				4.5f,
 				(fy - 0.5f) * CLOTH_SIZE
-			);
+			};
 
 			scene->positions[idx] = pos;
 
 			// Initialize old_positions with offset to give initial velocity matching gravity
 			// Velocity = GRAVITY * TIME_STEP, so offset = -velocity * TIME_STEP
-			HMM_Vec3 initial_velocity = HMM_V3(0, 0, 0);
-			scene->old_positions[idx] = HMM_SubV3(pos, initial_velocity);
+			float3 initial_velocity = {0, 0, 0};
+			scene->old_positions[idx] = float3_sub(pos, initial_velocity);
 
 			// Pin top row
 			scene->pinned[idx] = false;// (y == 0);
 
 			// Set vertex data
-			scene->vertices[idx].position = (skr_vec3_t){pos.X, pos.Y, pos.Z};
+			scene->vertices[idx].position = (skr_vec3_t){pos.x, pos.y, pos.z};
 			scene->vertices[idx].normal   = (skr_vec3_t){0, 1, 0};
 			scene->vertices[idx].uv       = (skr_vec2_t){fx, fy};
 			scene->vertices[idx].color    = 0xFFFFFFFF;
@@ -124,21 +123,21 @@ static void _cloth_init(scene_cloth_t* scene) {
 }
 
 static inline void _apply_distance_constraint(scene_cloth_t* scene, int32_t idx1, int32_t idx2, float rest_distance) {
-	HMM_Vec3 p1    = scene->positions[idx1];
-	HMM_Vec3 p2    = scene->positions[idx2];
-	HMM_Vec3 delta = HMM_SubV3(p2, p1);
-	float distance = HMM_LenV3(delta);
+	float3 p1    = scene->positions[idx1];
+	float3 p2    = scene->positions[idx2];
+	float3 delta = float3_sub(p2, p1);
+	float distance = float3_mag(delta);
 
 	if (distance > 0.0001f) {
-		float    diff       = (distance - rest_distance) / distance;
-		HMM_Vec3 correction = HMM_MulV3F(delta, diff * scene->stiffness * 0.5f);
+		float  diff       = (distance - rest_distance) / distance;
+		float3 correction = float3_mul_s(delta, diff * scene->stiffness * 0.5f);
 
 		// Apply correction to both particles (unless pinned)
 		if (!scene->pinned[idx1]) {
-			scene->positions[idx1] = HMM_AddV3(p1, correction);
+			scene->positions[idx1] = float3_add(p1, correction);
 		}
 		if (!scene->pinned[idx2]) {
-			scene->positions[idx2] = HMM_SubV3(p2, correction);
+			scene->positions[idx2] = float3_sub(p2, correction);
 		}
 	}
 }
@@ -181,42 +180,42 @@ static void _cloth_update_physics(scene_cloth_t* scene, float dt) {
 	for (int32_t i = 0; i < scene->vertex_count; i++) {
 		if (scene->pinned[i]) continue;
 
-		HMM_Vec3 pos     = scene->positions[i];
-		HMM_Vec3 old_pos = scene->old_positions[i];
+		float3 pos     = scene->positions[i];
+		float3 old_pos = scene->old_positions[i];
 
 		// Velocity (implicit from position difference)
-		HMM_Vec3 velocity = HMM_MulV3F(HMM_SubV3(pos, old_pos), scene->damping);
+		float3 velocity = float3_mul_s(float3_sub(pos, old_pos), scene->damping);
 
 		// Add gravity
-		velocity.Y += scene->gravity * dt;
+		velocity.y += scene->gravity * dt;
 
 		// Simple wind force (sine wave)
 		float wind = sinf(scene->time * 2.0f + i * 0.1f) * 0.8f;
-		velocity.Z += wind * dt;
+		velocity.z += wind * dt;
 
 		// Update position
 		scene->old_positions[i] = pos;
-		scene->positions[i]     = HMM_AddV3(pos, velocity);
+		scene->positions[i]     = float3_add(pos, velocity);
 
 		// Sphere collision (sphere at origin) with proper velocity preservation
-		HMM_Vec3 sphere_center = HMM_V3(0, 0, 0);
-		float    sphere_radius = 1.0f;
-		HMM_Vec3 to_sphere     = HMM_SubV3(scene->positions[i], sphere_center);
-		float    dist          = HMM_LenV3(to_sphere);
+		float3 sphere_center = {0, 0, 0};
+		float  sphere_radius = 1.0f;
+		float3 to_sphere     = float3_sub(scene->positions[i], sphere_center);
+		float  dist          = float3_mag(to_sphere);
 
 		if (dist < sphere_radius && dist > 0.0001f) {
 			// Project particle to sphere surface
-			HMM_Vec3 normal = HMM_MulV3F(to_sphere, 1.0f / dist);
-			scene->positions[i] = HMM_AddV3(sphere_center, HMM_MulV3F(normal, sphere_radius));
+			float3 normal = float3_mul_s(to_sphere, 1.0f / dist);
+			scene->positions[i] = float3_add(sphere_center, float3_mul_s(normal, sphere_radius));
 
 			// Preserve tangential velocity by removing normal component from velocity
 			// This prevents energy injection and maintains realistic sliding behavior
-			HMM_Vec3 vel        = HMM_SubV3(scene->positions[i], scene->old_positions[i]);
-			HMM_Vec3 normal_vel = HMM_MulV3F(normal, HMM_Dot(vel, normal));
-			HMM_Vec3 tangent_vel = HMM_SubV3(vel, normal_vel);
+			float3 vel         = float3_sub(scene->positions[i], scene->old_positions[i]);
+			float3 normal_vel  = float3_mul_s(normal, float3_dot(vel, normal));
+			float3 tangent_vel = float3_sub(vel, normal_vel);
 
 			// Update old position to reflect new velocity (tangent only)
-			scene->old_positions[i] = HMM_SubV3(scene->positions[i], tangent_vel);
+			scene->old_positions[i] = float3_sub(scene->positions[i], tangent_vel);
 		}
 	}
 
@@ -226,7 +225,7 @@ static void _cloth_update_physics(scene_cloth_t* scene, float dt) {
 
 static void _cloth_update_normals(scene_cloth_t* scene) {
 	// Reset normals to zero
-	HMM_Vec3* normals = calloc(scene->vertex_count, sizeof(HMM_Vec3));
+	float3* normals = calloc(scene->vertex_count, sizeof(float3));
 
 	// Calculate face normals and accumulate
 	for (int32_t i = 0; i < scene->index_count; i += 3) {
@@ -234,26 +233,26 @@ static void _cloth_update_normals(scene_cloth_t* scene) {
 		uint32_t i1 = scene->indices[i + 1];
 		uint32_t i2 = scene->indices[i + 2];
 
-		HMM_Vec3 v0 = scene->positions[i0];
-		HMM_Vec3 v1 = scene->positions[i1];
-		HMM_Vec3 v2 = scene->positions[i2];
+		float3 v0 = scene->positions[i0];
+		float3 v1 = scene->positions[i1];
+		float3 v2 = scene->positions[i2];
 
-		HMM_Vec3 edge1  = HMM_SubV3(v1, v0);
-		HMM_Vec3 edge2  = HMM_SubV3(v2, v0);
-		HMM_Vec3 normal = HMM_Cross(edge1, edge2);
+		float3 edge1  = float3_sub(v1, v0);
+		float3 edge2  = float3_sub(v2, v0);
+		float3 normal = float3_cross(edge1, edge2);
 
-		normals[i0] = HMM_AddV3(normals[i0], normal);
-		normals[i1] = HMM_AddV3(normals[i1], normal);
-		normals[i2] = HMM_AddV3(normals[i2], normal);
+		normals[i0] = float3_add(normals[i0], normal);
+		normals[i1] = float3_add(normals[i1], normal);
+		normals[i2] = float3_add(normals[i2], normal);
 	}
 
 	// Normalize and convert to vertex data
 	for (int32_t i = 0; i < scene->vertex_count; i++) {
-		HMM_Vec3 n = HMM_NormV3(normals[i]);
-		HMM_Vec3 p = scene->positions[i];
+		float3 n = float3_norm(normals[i]);
+		float3 p = scene->positions[i];
 
-		scene->vertices[i].position = (skr_vec3_t){p.X, p.Y, p.Z};
-		scene->vertices[i].normal   = (skr_vec3_t){n.X, n.Y, n.Z};
+		scene->vertices[i].position = (skr_vec3_t){p.x, p.y, p.z};
+		scene->vertices[i].normal   = (skr_vec3_t){n.x, n.y, n.z};
 	}
 
 	free(normals);
@@ -340,16 +339,16 @@ static void _scene_cloth_update(scene_t* base, float delta_time) {
 	skr_mesh_set_verts(&scene->cloth_mesh, scene->vertices, scene->vertex_count);
 }
 
-static void _scene_cloth_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_cloth_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_cloth_t* scene = (scene_cloth_t*)base;
 
 	// Draw cloth at origin
-	HMM_Mat4 transform = su_matrix_trs(
-		HMM_V3(0, 0, 0),
-		HMM_V3(0, 0, 0),
-		HMM_V3(1, 1, 1)
+	float4x4 transform = float4x4_trs(
+		(float3){0, 0, 0},
+		(float4){0, 0, 0, 1},
+		(float3){1, 1, 1}
 	);
-	skr_render_list_add(ref_render_list, &scene->cloth_mesh, &scene->material, &transform, sizeof(HMM_Mat4), 1);
+	skr_render_list_add(ref_render_list, &scene->cloth_mesh, &scene->material, &transform, sizeof(float4x4), 1);
 }
 
 static void _scene_cloth_render_ui(scene_t* base) {

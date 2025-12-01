@@ -7,9 +7,6 @@
 #include "scene_util.h"
 #include "app.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
-
 #include <stdlib.h>
 #include <string.h>
 
@@ -114,7 +111,7 @@ static void _scene_array_texture_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time;
 }
 
-static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_array_texture_t* scene = (scene_array_texture_t*)base;
 
 	// Create/resize array texture if needed
@@ -156,69 +153,63 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 	sys_buffer.view_count = 2;
 
 	// Extract projection matrix from viewproj passed from app.c
-	HMM_Mat4 projection;
+	float4x4 projection;
 	memcpy(&projection, ref_system_buffer->projection[0], sizeof(float) * 16);
 
 	// Create view matrices for left and right eye
-	HMM_Vec3 camera_pos = HMM_V3(0, 3, 8);  // Match app.c default camera
-	HMM_Vec3 target     = HMM_V3(0, 0, 0);
-	HMM_Vec3 up         = HMM_V3(0, 1, 0);
+	float3 camera_pos = {0, 3, 8};  // Match app.c default camera
+	float3 target     = {0, 0, 0};
+	float3 up         = {0, 1, 0};
 
 	// Left eye (offset to the left)
-	HMM_Vec3 eye_sep   = HMM_V3(-scene->eye_separation * 0.5f, 0, 0);
-	HMM_Mat4 view_left = HMM_LookAt_RH(HMM_AddV3(camera_pos, eye_sep), HMM_AddV3(target, eye_sep), up);
+	float3   eye_sep_left = {-scene->eye_separation * 0.5f, 0, 0};
+	float4x4 view_left    = float4x4_lookat(float3_add(camera_pos, eye_sep_left), float3_add(target, eye_sep_left), up);
 
 	// Right eye (offset to the right)
-	eye_sep = HMM_V3(scene->eye_separation * 0.5f, 0, 0);
-	HMM_Mat4 view_right = HMM_LookAt_RH(HMM_AddV3(camera_pos, eye_sep), HMM_AddV3(target, eye_sep), up);
+	float3   eye_sep_right = {scene->eye_separation * 0.5f, 0, 0};
+	float4x4 view_right    = float4x4_lookat(float3_add(camera_pos, eye_sep_right), float3_add(target, eye_sep_right), up);
 
-	// Calculate inverse matrices and transpose everything to match app.c convention
-	HMM_Mat4 view_left_inv_t   = HMM_Transpose(HMM_InvGeneralM4(view_left));
-	HMM_Mat4 view_right_inv_t  = HMM_Transpose(HMM_InvGeneralM4(view_right));
-	HMM_Mat4 projection_inv_t  = HMM_Transpose(HMM_InvGeneralM4(HMM_Transpose(projection))); // projection is already transposed
-	HMM_Mat4 view_left_t       = HMM_Transpose(view_left);
-	HMM_Mat4 view_right_t      = HMM_Transpose(view_right);
+	// Calculate inverse matrices
+	float4x4 view_left_inv   = float4x4_invert(view_left);
+	float4x4 view_right_inv  = float4x4_invert(view_right);
+	float4x4 projection_inv  = float4x4_invert(projection);
 
-	// Copy to system buffer (all matrices transposed to match shader expectations)
-	memcpy(sys_buffer.view          [0], &view_left_t,       sizeof(float) * 16);
-	memcpy(sys_buffer.view          [1], &view_right_t,      sizeof(float) * 16);
-	memcpy(sys_buffer.view_inv      [0], &view_left_inv_t,   sizeof(float) * 16);
-	memcpy(sys_buffer.view_inv      [1], &view_right_inv_t,  sizeof(float) * 16);
-	memcpy(sys_buffer.projection    [0], &projection,        sizeof(float) * 16); // Already transposed
-	memcpy(sys_buffer.projection    [1], &projection,        sizeof(float) * 16); // Already transposed
-	memcpy(sys_buffer.projection_inv[0], &projection_inv_t,  sizeof(float) * 16);
-	memcpy(sys_buffer.projection_inv[1], &projection_inv_t,  sizeof(float) * 16);
+	// Copy to system buffer
+	memcpy(sys_buffer.view          [0], &view_left,       sizeof(float) * 16);
+	memcpy(sys_buffer.view          [1], &view_right,      sizeof(float) * 16);
+	memcpy(sys_buffer.view_inv      [0], &view_left_inv,   sizeof(float) * 16);
+	memcpy(sys_buffer.view_inv      [1], &view_right_inv,  sizeof(float) * 16);
+	memcpy(sys_buffer.projection    [0], &projection,      sizeof(float) * 16);
+	memcpy(sys_buffer.projection    [1], &projection,      sizeof(float) * 16);
+	memcpy(sys_buffer.projection_inv[0], &projection_inv,  sizeof(float) * 16);
+	memcpy(sys_buffer.projection_inv[1], &projection_inv,  sizeof(float) * 16);
 
-	// Compute viewproj matrices (projection * view, matching app.c)
-	// projection is already transposed, so un-transpose it for the multiply
-	HMM_Mat4 proj_untransposed = HMM_Transpose(projection);
-	HMM_Mat4 vp_left           = HMM_MulM4(proj_untransposed, view_left);
-	HMM_Mat4 vp_right          = HMM_MulM4(proj_untransposed, view_right);
-	HMM_Mat4 viewproj_left     = HMM_Transpose(vp_left);
-	HMM_Mat4 viewproj_right    = HMM_Transpose(vp_right);
+	// Compute viewproj matrices
+	float4x4 viewproj_left  = float4x4_mul(projection, view_left);
+	float4x4 viewproj_right = float4x4_mul(projection, view_right);
 	memcpy(sys_buffer.viewproj[0], &viewproj_left,  sizeof(float) * 16);
 	memcpy(sys_buffer.viewproj[1], &viewproj_right, sizeof(float) * 16);
 
 	// Calculate camera positions and directions for both eyes
-	HMM_Vec3 cam_pos_left  = HMM_AddV3(camera_pos, HMM_V3(-scene->eye_separation * 0.5f, 0, 0));
-	HMM_Vec3 cam_pos_right = HMM_AddV3(camera_pos, HMM_V3( scene->eye_separation * 0.5f, 0, 0));
-	HMM_Vec3 cam_forward   = HMM_NormV3(HMM_SubV3(target, camera_pos));
+	float3 cam_pos_left  = float3_add(camera_pos, (float3){-scene->eye_separation * 0.5f, 0, 0});
+	float3 cam_pos_right = float3_add(camera_pos, (float3){ scene->eye_separation * 0.5f, 0, 0});
+	float3 cam_forward   = float3_norm(float3_sub(target, camera_pos));
 
-	sys_buffer.cam_pos[0][0] = cam_pos_left.X;
-	sys_buffer.cam_pos[0][1] = cam_pos_left.Y;
-	sys_buffer.cam_pos[0][2] = cam_pos_left.Z;
+	sys_buffer.cam_pos[0][0] = cam_pos_left.x;
+	sys_buffer.cam_pos[0][1] = cam_pos_left.y;
+	sys_buffer.cam_pos[0][2] = cam_pos_left.z;
 	sys_buffer.cam_pos[0][3] = 0.0f;
-	sys_buffer.cam_pos[1][0] = cam_pos_right.X;
-	sys_buffer.cam_pos[1][1] = cam_pos_right.Y;
-	sys_buffer.cam_pos[1][2] = cam_pos_right.Z;
+	sys_buffer.cam_pos[1][0] = cam_pos_right.x;
+	sys_buffer.cam_pos[1][1] = cam_pos_right.y;
+	sys_buffer.cam_pos[1][2] = cam_pos_right.z;
 	sys_buffer.cam_pos[1][3] = 0.0f;
-	sys_buffer.cam_dir[0][0] = cam_forward.X;
-	sys_buffer.cam_dir[0][1] = cam_forward.Y;
-	sys_buffer.cam_dir[0][2] = cam_forward.Z;
+	sys_buffer.cam_dir[0][0] = cam_forward.x;
+	sys_buffer.cam_dir[0][1] = cam_forward.y;
+	sys_buffer.cam_dir[0][2] = cam_forward.z;
 	sys_buffer.cam_dir[0][3] = 0.0f;
-	sys_buffer.cam_dir[1][0] = cam_forward.X;
-	sys_buffer.cam_dir[1][1] = cam_forward.Y;
-	sys_buffer.cam_dir[1][2] = cam_forward.Z;
+	sys_buffer.cam_dir[1][0] = cam_forward.x;
+	sys_buffer.cam_dir[1][1] = cam_forward.y;
+	sys_buffer.cam_dir[1][2] = cam_forward.z;
 	sys_buffer.cam_dir[1][3] = 0.0f;
 
 	// Build cube instance data (configurable grid)
@@ -227,7 +218,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 	const float   spacing     = 2.0f;
 	const int32_t total_cubes = grid_size_x * grid_size_z;
 
-	HMM_Mat4 cube_instances[grid_size_x*grid_size_z];
+	float4x4 cube_instances[grid_size_x*grid_size_z];
 
 	for (int z = 0; z < grid_size_z; z++) {
 		for (int x = 0; x < grid_size_x; x++) {
@@ -235,10 +226,10 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 			float xpos = (x - grid_size_x * 0.5f + 0.5f) * spacing;
 			float zpos = (z - grid_size_z * 0.5f + 0.5f) * spacing;
 			float yrot = scene->rotation + (x + z) * 0.2f;
-			cube_instances[idx] = su_matrix_trs(
-				HMM_V3(xpos, 0.0f, zpos),
-				HMM_V3(0.0f, yrot, 0.0f),
-				HMM_V3(1.0f, 1.0f, 1.0f)
+			cube_instances[idx] = float4x4_trs(
+				(float3){xpos, 0.0f, zpos},
+				float4_quat_from_euler((float3){0.0f, yrot, 0.0f}),
+				(float3){1.0f, 1.0f, 1.0f}
 			);
 		}
 	}
@@ -248,7 +239,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 	skr_renderer_set_viewport((skr_rect_t ){0, 0, (float)scene->array_render_target.size.x, (float)scene->array_render_target.size.y});
 	skr_renderer_set_scissor ((skr_recti_t){0, 0, scene->array_render_target.size.x, scene->array_render_target.size.y});
 
-	skr_render_list_add  (&scene->render_list, &scene->cube_mesh, &scene->cube_material, cube_instances, sizeof(HMM_Mat4), total_cubes);
+	skr_render_list_add  (&scene->render_list, &scene->cube_mesh, &scene->cube_material, cube_instances, sizeof(float4x4), total_cubes);
 	skr_renderer_draw    (&scene->render_list, &sys_buffer, sizeof(app_system_buffer_t), sys_buffer.view_count);
 	skr_render_list_clear(&scene->render_list);
 	skr_renderer_end_pass();

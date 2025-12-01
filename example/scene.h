@@ -7,7 +7,7 @@
 
 #include <sk_renderer.h>
 #include "app.h"
-#include "HandmadeMath.h"
+#include "float_math.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -16,9 +16,9 @@ typedef struct scene_t scene_t;
 
 // Camera info structure
 typedef struct {
-	HMM_Vec3 position;
-	HMM_Vec3 target;
-	HMM_Vec3 up;
+	float3 position;
+	float3 target;
+	float3 up;
 } scene_camera_t;
 
 // Scene interface - each scene must implement these functions
@@ -27,7 +27,7 @@ typedef struct {
 	scene_t*    (*create)     (void);
 	void        (*destroy)    (scene_t* scene);
 	void        (*update)     (scene_t* scene, float delta_time);
-	void        (*render)     (scene_t* scene, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer);
+	void        (*render)     (scene_t* scene, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer);
 	bool        (*get_camera) (scene_t* scene, scene_camera_t* out_camera);  // Optional - return true to override camera
 	void        (*render_ui)  (scene_t* scene);  // Optional - scene-specific ImGui controls
 } scene_vtable_t;

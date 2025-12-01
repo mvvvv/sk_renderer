@@ -7,9 +7,6 @@
 #include "scene_util.h"
 #include "app.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
-
 #include <stdlib.h>
 #include <string.h>
 
@@ -133,35 +130,35 @@ static void _scene_meshes_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time;
 }
 
-static void _scene_meshes_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_meshes_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_meshes_t* scene = (scene_meshes_t*)base;
 
 	// Cubes (10x10 grid)
 	for (int z = 0; z < 10; z++) {
 		for (int x = 0; x < 10; x++) {
-			HMM_Mat4 transform = su_matrix_trs(
-				HMM_V3((x - 4.5f) * 1.5f, 0.0f, (z - 4.5f) * 1.5f),
-				HMM_V3(0.0f, scene->rotation + (x + z) * 0.1f, 0.0f),
-				HMM_V3(1.0f, 1.0f, 1.0f) );
-			skr_render_list_add(ref_render_list, &scene->cube_mesh, &scene->cube_material, &transform, sizeof(HMM_Mat4), 1);
+			float4x4 transform = float4x4_trs(
+				(float3){(x - 4.5f) * 1.5f, 0.0f, (z - 4.5f) * 1.5f},
+				float4_quat_from_euler((float3){0.0f, scene->rotation + (x + z) * 0.1f, 0.0f}),
+				(float3){1.0f, 1.0f, 1.0f} );
+			skr_render_list_add(ref_render_list, &scene->cube_mesh, &scene->cube_material, &transform, sizeof(float4x4), 1);
 		}
 	}
 
 	// Pyramids (5 in a line)
 	for (int i = 0; i < 5; i++) {
-		HMM_Mat4 transform = su_matrix_trs(
-			HMM_V3((i - 2.0f) * 3.0f, 2.0f, 0.0f),
-			HMM_V3(0.0f, -scene->rotation * 2.0f, 0.0f),
-			HMM_V3(1.0f, 1.0f, 1.0f) );
-		skr_render_list_add(ref_render_list, &scene->pyramid_mesh, &scene->pyramid_material, &transform, sizeof(HMM_Mat4), 1);
+		float4x4 transform = float4x4_trs(
+			(float3){(i - 2.0f) * 3.0f, 2.0f, 0.0f},
+			float4_quat_from_euler((float3){0.0f, -scene->rotation * 2.0f, 0.0f}),
+			(float3){1.0f, 1.0f, 1.0f} );
+		skr_render_list_add(ref_render_list, &scene->pyramid_mesh, &scene->pyramid_material, &transform, sizeof(float4x4), 1);
 	}
 
 	// Sphere (center, slowly rotating, scale 3x)
-	HMM_Mat4 sphere_transform = su_matrix_trs(
-		HMM_V3(0.0f, 0.0f, 0.0f),
-		HMM_V3(0.0f, scene->rotation * 0.5f, 0.0f),
-		HMM_V3(5.0f, 5.0f, 5.0f) );
-	skr_render_list_add(ref_render_list, &scene->sphere_mesh, &scene->sphere_material, &sphere_transform, sizeof(HMM_Mat4), 1);
+	float4x4 sphere_transform = float4x4_trs(
+		(float3){0.0f, 0.0f, 0.0f},
+		float4_quat_from_euler((float3){0.0f, scene->rotation * 0.5f, 0.0f}),
+		(float3){5.0f, 5.0f, 5.0f} );
+	skr_render_list_add(ref_render_list, &scene->sphere_mesh, &scene->sphere_material, &sphere_transform, sizeof(float4x4), 1);
 }
 
 const scene_vtable_t scene_meshes_vtable = {

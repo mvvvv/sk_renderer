@@ -6,7 +6,7 @@
 #pragma once
 
 #include <sk_renderer.h>
-#include "HandmadeMath.h"
+#include "float_math.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -38,7 +38,7 @@ void su_vertex_types_init(void);
 
 // Standard instance data for world transform only
 typedef struct {
-	HMM_Mat4 world;
+	float4x4 world;
 } su_instance_transform_t;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -191,17 +191,6 @@ skr_shader_t su_shader_load(const char* filename, const char* opt_name);
 // Generates a pseudo-random float [0.0, 1.0] from integer position and seed
 // Useful for procedural generation with consistent results
 float su_hash_f(int32_t position, uint32_t seed);
-
-///////////////////////////////////////////////////////////////////////////////
-// Matrix Utilities
-///////////////////////////////////////////////////////////////////////////////
-
-// Creates a Translate-Rotate-Scale matrix ready for sk_renderer (pre-transposed)
-// position: Translation vector
-// rotation_euler_xyz: Rotation in radians (applied in X->Y->Z order)
-// scale: Scale vector
-// Returns: 4x4 transform matrix ready to send to GPU (already transposed)
-HMM_Mat4 su_matrix_trs(HMM_Vec3 position, HMM_Vec3 rotation_euler_xyz, HMM_Vec3 scale);
 
 #ifdef __cplusplus
 }

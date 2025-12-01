@@ -7,9 +7,6 @@
 #include "scene_util.h"
 #include "app.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
-
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -21,10 +18,10 @@
 
 // Create particle params buffer for rendering (colors)
 typedef struct {
-	HMM_Vec3 color_slow;
-	float    max_speed;
-	HMM_Vec3 color_fast;
-	float    _pad;
+	float3 color_slow;
+	float  max_speed;
+	float3 color_fast;
+	float  _pad;
 } particle_params_t;
 
 // Orbital particles scene - displays particles orbiting around moving attractors
@@ -47,13 +44,13 @@ typedef struct {
 
 // Particle data
 typedef struct {
-	HMM_Vec3 position;
-	HMM_Vec3 velocity;
+	float3 position;
+	float3 velocity;
 } particle_t;
 
 // Instance data - just translation!
 typedef struct {
-	HMM_Vec3 position;
+	float3 position;
 } instance_data_t;
 
 // Helper function for random hash
@@ -145,12 +142,12 @@ static scene_t* _scene_orbital_particles_create(void) {
 		float phi     = _hash_f(i, 1) * 3.14159f;
 		float radius  = _hash_f(i, 2) * 5.0f + 1.0f;
 
-		particles[i].velocity = HMM_V3(0, 0, 0);
-		particles[i].position = HMM_V3(
+		particles[i].velocity = (float3){0, 0, 0};
+		particles[i].position = (float3){
 			sinf(phi) * cosf(theta) * radius,
 			sinf(phi) * sinf(theta) * radius,
 			cosf(phi) * radius
-		);
+		};
 	}
 
 	// Create particle buffers for ping-pong compute
@@ -191,9 +188,9 @@ static scene_t* _scene_orbital_particles_create(void) {
 	skr_compute_set_param(&scene->compute_pong, "particle_count", sksc_shader_var_uint,  1, &(uint32_t){PARTICLE_COUNT});
 
 	scene->particle_params = (particle_params_t){
-		.color_slow = HMM_V3(0.818f, 0.0100f, 0.0177f),  // Red (sRGB 0.92, 0.1, 0.14 -> linear)
+		.color_slow = {0.818f, 0.0100f, 0.0177f},  // Red (sRGB 0.92, 0.1, 0.14 -> linear)
 		.max_speed  = 5.0f,
-		.color_fast = HMM_V3(0.955f, 0.758f, 0.0177f),   // Yellow (sRGB 0.98, 0.89, 0.14 -> linear)
+		.color_fast = {0.955f, 0.758f, 0.0177f},   // Yellow (sRGB 0.98, 0.89, 0.14 -> linear)
 		._pad       = 0.0f
 	};
 
@@ -232,7 +229,7 @@ static void _scene_orbital_particles_update(scene_t* base, float delta_time) {
 	scene->compute_iteration++;
 }
 
-static void _scene_orbital_particles_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_orbital_particles_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_orbital_particles_t* scene = (scene_orbital_particles_t*)base;
 
 	// Bind particle params buffer (colors) to slot 0

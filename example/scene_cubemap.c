@@ -7,9 +7,6 @@
 #include "scene_util.h"
 #include "app.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
-
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -137,13 +134,15 @@ static void _scene_cubemap_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time;
 }
 
-static void _scene_cubemap_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_cubemap_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_cubemap_t* scene = (scene_cubemap_t*)base;
 
 	// Build instance data
+	// NOTE: Explicit padding to match HLSL StructuredBuffer alignment (16 bytes)
 	typedef struct {
-		HMM_Mat4 world;
+		float4x4 world;
 		float    roughness;
+		float    _pad[3];  // Pad to 16-byte alignment for HLSL
 	} instance_data_t;
 
 	// Create 3x3 grid of spheres with varying roughness
@@ -162,10 +161,10 @@ static void _scene_cubemap_render(scene_t* base, int32_t width, int32_t height, 
 			float roughness_cycle = sinf(scene->rotation * 0.5f + x * 2 + z * 7) * 0.5f + 0.5f;
 			float roughness       = roughness_cycle;
 
-			sphere_instances[idx].world = su_matrix_trs(
-				HMM_V3(xpos, 0.0f, zpos),
-				HMM_V3(0.0f, scene->rotation * 0.3f + idx, 0.0f),
-				HMM_V3(1.5f, 1.5f, 1.5f)
+			sphere_instances[idx].world = float4x4_trs(
+				(float3){xpos, 0.0f, zpos},
+				float4_quat_from_euler((float3){0.0f, scene->rotation * 0.3f + idx, 0.0f}),
+				(float3){1.5f, 1.5f, 1.5f}
 			);
 			sphere_instances[idx].roughness = roughness;
 		}
@@ -184,9 +183,9 @@ static bool _scene_cubemap_get_camera(scene_t* base, scene_camera_t* out_camera)
 	float height = 4.0f;   // Higher up for better view
 	float angle  = scene->rotation * 0.4f;  // Smooth orbit
 
-	out_camera->position = HMM_V3(cosf(angle) * radius, height, sinf(angle) * radius);
-	out_camera->target   = HMM_V3(0.0f, 0.0f, 0.0f);  // Look at center of grid
-	out_camera->up       = HMM_V3(0.0f, 1.0f, 0.0f);
+	out_camera->position = (float3){cosf(angle) * radius, height, sinf(angle) * radius};
+	out_camera->target   = (float3){0.0f, 0.0f, 0.0f};  // Look at center of grid
+	out_camera->up       = (float3){0.0f, 1.0f, 0.0f};
 
 	return true;  // Use this camera
 }

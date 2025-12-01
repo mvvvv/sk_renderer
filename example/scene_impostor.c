@@ -7,9 +7,6 @@
 #include "scene_util.h"
 #include "app.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
-
 #include <stdlib.h>
 #include <string.h>
 
@@ -91,7 +88,7 @@ static scene_t* _scene_impostor_create(void) {
 	for (int z = 0; z <= grid_size; z++) {
 		for (int x = 0; x <= grid_size; x++) {
 			int idx = x + z * (grid_size + 1);
-			HMM_Vec3 normal = HMM_V3(0, 0, 0);
+			float3 normal = {0, 0, 0};
 
 			// Sample neighboring heights to calculate normal
 			float h_c = terrain_vertices[idx].position.y;
@@ -100,11 +97,11 @@ static scene_t* _scene_impostor_create(void) {
 			float h_d = (z > 0) ? terrain_vertices[idx - (grid_size + 1)].position.y : h_c;
 			float h_u = (z < grid_size) ? terrain_vertices[idx + (grid_size + 1)].position.y : h_c;
 
-			HMM_Vec3 tangent_x = HMM_V3(grid_spacing, h_r - h_l, 0);
-			HMM_Vec3 tangent_z = HMM_V3(0, h_u - h_d, grid_spacing);
-			normal = HMM_NormV3(HMM_Cross(tangent_z, tangent_x));
+			float3 tangent_x = {grid_spacing, h_r - h_l, 0};
+			float3 tangent_z = {0, h_u - h_d, grid_spacing};
+			normal = float3_norm(float3_cross(tangent_z, tangent_x));
 
-			terrain_vertices[idx].normal = (skr_vec3_t){normal.X, normal.Y, normal.Z};
+			terrain_vertices[idx].normal = (skr_vec3_t){normal.x, normal.y, normal.z};
 		}
 	}
 
@@ -205,11 +202,11 @@ static void _scene_impostor_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time * 0.5f;
 }
 
-static void _scene_impostor_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_impostor_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_impostor_t* scene = (scene_impostor_t*)base;
 
 	// Build instance data - 1000 randomly placed trees
-	HMM_Mat4* instances = malloc(1000 * sizeof(HMM_Mat4));
+	float4x4* instances = malloc(1000 * sizeof(float4x4));
 
 	// Simple hash function for consistent random placement
 	for (int i = 0; i < 1000; i++) {
@@ -225,22 +222,22 @@ static void _scene_impostor_render(scene_t* base, int32_t width, int32_t height,
 		// Get terrain height for tree placement
 		float y = _get_terrain_height(x, z);
 
-		instances[i] = su_matrix_trs(
-			HMM_V3(x, y, z),
-			HMM_V3(0.0f, rot, 0.0f),
-			HMM_V3(scale, scale * 2.0f, scale) );  // 2x taller than wide, with random scale
+		instances[i] = float4x4_trs(
+			(float3){x, y, z},
+			float4_quat_from_euler((float3){0.0f, rot, 0.0f}),
+			(float3){scale, scale * 2.0f, scale} );  // 2x taller than wide, with random scale
 	}
 
 	// Add to render list
 	// First: Render terrain
-	HMM_Mat4 terrain_instance = su_matrix_trs(
-		HMM_V3(0.0f, 0.0f, 0.0f),
-		HMM_V3(0.0f, 0.0f, 0.0f),
-		HMM_V3(1.0f, 1.0f, 1.0f) );
-	skr_render_list_add(ref_render_list, &scene->terrain_mesh, &scene->terrain_material, &terrain_instance, sizeof(HMM_Mat4), 1);
+	float4x4 terrain_instance = float4x4_trs(
+		(float3){0.0f, 0.0f, 0.0f},
+		(float4){0, 0, 0, 1},
+		(float3){1.0f, 1.0f, 1.0f} );
+	skr_render_list_add(ref_render_list, &scene->terrain_mesh, &scene->terrain_material, &terrain_instance, sizeof(float4x4), 1);
 
 	// Second: Render trees with alpha-to-coverage for smooth edges
-	skr_render_list_add(ref_render_list, &scene->impostor_mesh, &scene->tree_material, instances, sizeof(HMM_Mat4), 1000);
+	skr_render_list_add(ref_render_list, &scene->impostor_mesh, &scene->tree_material, instances, sizeof(float4x4), 1000);
 
 	free(instances);
 }
@@ -253,9 +250,9 @@ static bool _scene_impostor_get_camera(scene_t* base, scene_camera_t* out_camera
 	float height = 7.0f;
 	float angle = scene->rotation * 0.3f;  // Slow orbit
 
-	out_camera->position = HMM_V3(cosf(angle) * radius, height, sinf(angle) * radius);
-	out_camera->target   = HMM_V3(0.0f, 1.0f, 0.0f);  // Look at center, slightly up
-	out_camera->up       = HMM_V3(0.0f, 1.0f, 0.0f);
+	out_camera->position = (float3){cosf(angle) * radius, height, sinf(angle) * radius};
+	out_camera->target   = (float3){0.0f, 1.0f, 0.0f};  // Look at center, slightly up
+	out_camera->up       = (float3){0.0f, 1.0f, 0.0f};
 
 	return true;  // Use this camera
 }

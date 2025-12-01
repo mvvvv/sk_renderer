@@ -7,9 +7,6 @@
 #include "scene_util.h"
 #include "app.h"
 
-#define HANDMADE_MATH_IMPLEMENTATION
-#include "HandmadeMath.h"
-
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -149,24 +146,24 @@ static void _scene_3d_texture_update(scene_t* base, float delta_time) {
 	scene->time += delta_time;
 }
 
-static void _scene_3d_texture_render(scene_t* base, int32_t width, int32_t height, HMM_Mat4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_3d_texture_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
 	scene_3d_texture_t* scene = (scene_3d_texture_t*)base;
 
-	HMM_Mat4 quad_instances[2];
+	float4x4 quad_instances[2];
 
 	// First quad: moves up and down (horizontal)
-	quad_instances[0] = su_matrix_trs(
-		HMM_V3(0.0f, sinf(scene->time * 2.0f) * 2.0f, 0.0f),
-		HMM_V3(0.0f, 0.0f, 0.0f),
-		HMM_V3(1.0f, 1.0f, 1.0f) );
+	quad_instances[0] = float4x4_trs(
+		(float3){0.0f, sinf(scene->time * 2.0f) * 2.0f, 0.0f},
+		(float4){0, 0, 0, 1},
+		(float3){1.0f, 1.0f, 1.0f} );
 	// Second quad: spins around Y axis (vertical, standing up)
-	quad_instances[1] = su_matrix_trs(
-		HMM_V3(0.0f, 0.0f, 0.0f),
-		HMM_V3(1.5708f, scene->time * 1.5f, 0.0f),
-		HMM_V3(1.0f, 1.0f, 1.0f) );
+	quad_instances[1] = float4x4_trs(
+		(float3){0.0f, 0.0f, 0.0f},
+		float4_quat_from_euler((float3){1.5708f, scene->time * 1.5f, 0.0f}),
+		(float3){1.0f, 1.0f, 1.0f} );
 
 	// Add both quads to the provided render list
-	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->material, quad_instances, sizeof(HMM_Mat4), 2);
+	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->material, quad_instances, sizeof(float4x4), 2);
 }
 
 const scene_vtable_t scene_3d_texture_vtable = {
