@@ -56,7 +56,6 @@ static bool _skr_surface_create_swapchain(VkDevice device, VkPhysicalDevice phys
 		}
 	}
 format_found:
-	skr_log(skr_log_info, "Selected surface format: %d (colorSpace: %d)", surface_format.format, surface_format.colorSpace);
 
 	// Get present modes
 	uint32_t         present_mode_count;
@@ -126,8 +125,6 @@ format_found:
 	uint32_t requested_count = image_count;
 	vkGetSwapchainImagesKHR(device, swapchain, &image_count, NULL);
 	vkGetSwapchainImagesKHR(device, swapchain, &image_count, vk_images);
-
-	skr_log(skr_log_info, "Swapchain created: requested %d, actual %d images", requested_count, image_count);
 
 	// Reallocate images array and per-image semaphores if count changed
 	if (image_count != ref_surface->image_count) {
@@ -310,8 +307,6 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* ref_surface, skr_tex_t** out_te
 
 	// Handle swapchain out-of-date or suboptimal
 	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-		skr_log(skr_log_info, "Swapchain out of date - needs resize");
-
 		// If VK_SUBOPTIMAL_KHR, the semaphore was signaled even though we won't use the image
 		// We need to consume the semaphore with a dummy submit to unsignal it
 		if (result == VK_SUBOPTIMAL_KHR) {

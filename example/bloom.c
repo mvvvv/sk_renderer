@@ -29,27 +29,27 @@ void bloom_create(int32_t width, int32_t height, int32_t mip_count) {
 	g_bloom.width      = width;
 	g_bloom.height     = height;
 
-	printf("Creating bloom mip chain...\n");
+	su_log(su_log_info, "Creating bloom mip chain...");
 	skr_tex_sampler_t linear_clamp = { .sample = skr_tex_sample_linear, .address = skr_tex_address_clamp };
 	int32_t           mip_width    = width  / 2;
 	int32_t           mip_height   = height / 2;
 	for (int32_t i = 0; i < mip_count; i++) {
 		skr_tex_create(skr_tex_fmt_rgba128, skr_tex_flags_readable | skr_tex_flags_compute, linear_clamp, (skr_vec3i_t){mip_width, mip_height, 1}, 1, 1, NULL, &g_bloom.bloom_chain[i]);
 		skr_tex_create(skr_tex_fmt_rgba128, skr_tex_flags_readable | skr_tex_flags_compute, linear_clamp, (skr_vec3i_t){mip_width, mip_height, 1}, 1, 1, NULL, &g_bloom.bloom_upsample[i]);
-		printf("  Bloom mip %d: %dx%d (valid=%d)\n", i, mip_width, mip_height, skr_tex_is_valid(&g_bloom.bloom_chain[i]));
+		su_log(su_log_info, "  Bloom mip %d: %dx%d (valid=%d)", i, mip_width, mip_height, skr_tex_is_valid(&g_bloom.bloom_chain[i]));
 		mip_width  /= 2;
 		mip_height /= 2;
 	}
 
-	printf("Loading bloom shaders...\n");
+	su_log(su_log_info, "Loading bloom shaders...");
 	g_bloom.bloom_downsample_shader = su_shader_load("shaders/bloom_downsample.hlsl.sks", NULL);
-	printf("  Downsample shader loaded: %d\n", skr_shader_is_valid(&g_bloom.bloom_downsample_shader));
+	su_log(su_log_info, "  Downsample shader loaded: %d", skr_shader_is_valid(&g_bloom.bloom_downsample_shader));
 
 	g_bloom.bloom_upsample_shader = su_shader_load("shaders/bloom_upsample.hlsl.sks", NULL);
-	printf("  Upsample shader loaded:   %d\n", skr_shader_is_valid(&g_bloom.bloom_upsample_shader));
+	su_log(su_log_info, "  Upsample shader loaded:   %d", skr_shader_is_valid(&g_bloom.bloom_upsample_shader));
 
 	g_bloom.bloom_composite_shader = su_shader_load("shaders/bloom_composite.hlsl.sks", NULL);
-	printf("  Composite shader loaded:  %d\n", skr_shader_is_valid(&g_bloom.bloom_composite_shader));
+	su_log(su_log_info, "  Composite shader loaded:  %d", skr_shader_is_valid(&g_bloom.bloom_composite_shader));
 
 	// Create compute instances
 	skr_material_create((skr_material_info_t){
@@ -98,7 +98,7 @@ void bloom_create(int32_t width, int32_t height, int32_t mip_count) {
 	composite_params_t composite_params = { .bloom_strength = 0.0f };
 	skr_buffer_create(&composite_params, 1, sizeof(composite_params_t), skr_buffer_type_constant, skr_use_dynamic, &g_bloom.composite_params_buffer);
 
-	printf("Bloom system initialized\n");
+	su_log(su_log_info, "Bloom system initialized");
 }
 
 void bloom_apply(skr_tex_t* scene_color, skr_tex_t* target, float bloom_strength, float radius, float intensity) {

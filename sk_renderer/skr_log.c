@@ -17,14 +17,16 @@
 
 void _default_log(skr_log_ level, const char *text) {
 #ifdef __ANDROID__
-	android_LogPriority priority = level == skr_log_info     ? ANDROID_LOG_INFO  :
-	                               level == skr_log_warning  ? ANDROID_LOG_WARN  :
-	                               level == skr_log_critical ? ANDROID_LOG_ERROR : ANDROID_LOG_UNKNOWN;
+	android_LogPriority priority = 
+		level == skr_log_info     ? ANDROID_LOG_INFO  :
+		level == skr_log_warning  ? ANDROID_LOG_WARN  :
+		level == skr_log_critical ? ANDROID_LOG_ERROR : ANDROID_LOG_UNKNOWN;
 	__android_log_write(priority, "sk_renderer", text);
 #else
-	const char *prefix = level == skr_log_info     ? "[info] "     :
-	                     level == skr_log_warning  ? "[warning] "  :
-	                     level == skr_log_critical ? "[critical] " : "[unknown] ";
+	const char *prefix = 
+		level == skr_log_info     ? "[skr:info] " :
+		level == skr_log_warning  ? "[skr:warn] " :
+		level == skr_log_critical ? "[skr:crit] " : "[skr:unkn] ";
 	
 	if (level == skr_log_critical) {
 		level = level;

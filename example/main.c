@@ -4,6 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "app.h"
+#include "scene_util.h"
 #include "imgui_backend/imgui_impl_sk_renderer.h"
 
 #include <stdlib.h>
@@ -30,7 +31,7 @@ int main(int argc, char* argv[]) {
 
 	// Initialize SDL
 	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-		skr_log(skr_log_critical, "SDL initialization failed: %s", SDL_GetError());
+		su_log(su_log_critical, "SDL initialization failed: %s", SDL_GetError());
 		return 1;
 	}
 
@@ -48,7 +49,7 @@ int main(int argc, char* argv[]) {
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
 #endif
 	if (!window) {
-		skr_log(skr_log_critical, "Failed to create SDL window: %s", SDL_GetError());
+		su_log(su_log_critical, "Failed to create SDL window: %s", SDL_GetError());
 		SDL_Quit();
 		return 1;
 	}
@@ -69,7 +70,7 @@ int main(int argc, char* argv[]) {
 	};
 
 	if (!skr_init(settings)) {
-		skr_log(skr_log_critical, "Failed to initialize sk_renderer!");
+		su_log(su_log_critical, "Failed to initialize sk_renderer!");
 		free(extensions);
 		SDL_DestroyWindow(window);
 		SDL_Quit();
@@ -80,7 +81,7 @@ int main(int argc, char* argv[]) {
 	// Create Vulkan surface
 	VkSurfaceKHR vk_surface;
 	if (!SDL_Vulkan_CreateSurface(window, skr_get_vk_instance(), &vk_surface)) {
-		skr_log(skr_log_critical, "Failed to create Vulkan surface: %s", SDL_GetError());
+		su_log(su_log_critical, "Failed to create Vulkan surface: %s", SDL_GetError());
 		skr_shutdown();
 		SDL_DestroyWindow(window);
 		SDL_Quit();
@@ -91,25 +92,14 @@ int main(int argc, char* argv[]) {
 	skr_surface_t surface;
 	skr_surface_create(vk_surface, &surface);
 	if (surface.surface == VK_NULL_HANDLE) {
-		skr_log(skr_log_critical, "Failed to create surface!");
+		su_log(su_log_critical, "Failed to create surface!");
 		skr_shutdown();
 		SDL_DestroyWindow(window);
 		SDL_Quit();
 		return 1;
 	}
 
-	skr_log(skr_log_info, "sk_renderer initialized successfully!");
-
-	// Create application
-	app_t* app = app_create();
-	if (!app) {
-		skr_log(skr_log_critical, "Failed to create application!");
-		skr_surface_destroy(&surface);
-		skr_shutdown();
-		SDL_DestroyWindow(window);
-		SDL_Quit();
-		return 1;
-	}
+	su_log(su_log_info, "sk_renderer initialized successfully!");
 
 	// Initialize ImGui
 	igCreateContext(NULL);
@@ -126,8 +116,7 @@ int main(int argc, char* argv[]) {
 
 	// Initialize ImGui sk_renderer backend
 	if (!ImGui_ImplSkRenderer_Init()) {
-		skr_log(skr_log_critical, "Failed to initialize ImGui sk_renderer backend!");
-		app_destroy(app);
+		su_log(su_log_critical, "Failed to initialize ImGui sk_renderer backend!");
 		skr_surface_destroy(&surface);
 		skr_shutdown();
 		SDL_DestroyWindow(window);
@@ -135,7 +124,21 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	skr_log(skr_log_info, "ImGui initialized successfully!");
+	su_log(su_log_info, "ImGui initialized successfully!");
+
+	// Create application
+	app_t* app = app_create();
+	if (!app) {
+		su_log(su_log_critical, "Failed to create application!");
+		ImGui_ImplSkRenderer_Shutdown();
+		ImGui_ImplSDL2_Shutdown_C();
+		igDestroyContext(NULL);
+		skr_surface_destroy(&surface);
+		skr_shutdown();
+		SDL_DestroyWindow(window);
+		SDL_Quit();
+		return 1;
+	}
 
 	// Main loop
 	int      frame_count = 0;
@@ -161,10 +164,10 @@ int main(int argc, char* argv[]) {
 					suspended = false;
 				}
 			} else if (event.type == SDL_APP_WILLENTERBACKGROUND) {
-				skr_log(skr_log_info, "App entering background - suspending rendering");
+				su_log(su_log_info, "App entering background - suspending rendering");
 				suspended = true;
 			} else if (event.type == SDL_APP_DIDENTERFOREGROUND) {
-				skr_log(skr_log_info, "App entering foreground - resuming rendering");
+				su_log(su_log_info, "App entering foreground - resuming rendering");
 				suspended = false;
 			}
 		}
@@ -211,7 +214,7 @@ int main(int argc, char* argv[]) {
 		} else { // Failed to acquire swapchain image!
 			skr_renderer_frame_end(NULL, 0);
 			if (!running) {
-				skr_log(skr_log_info, "Surface issue during shutdown - exiting gracefully");
+				su_log(su_log_info, "Surface issue during shutdown - exiting gracefully");
 				break;
 			}
 
@@ -219,12 +222,12 @@ int main(int argc, char* argv[]) {
 				skr_surface_resize(&surface);
 			} else if (acquire_result == skr_acquire_surface_lost) {
 				// Surface was lost (Android app resume) - need to recreate from SDL
-				skr_log(skr_log_info, "Recreating surface after loss");
+				su_log(su_log_info, "Recreating surface after loss");
 				vkDeviceWaitIdle(skr_get_vk_device());
 
 				VkSurfaceKHR new_vk_surface;
 				if (!SDL_Vulkan_CreateSurface(window, skr_get_vk_instance(), &new_vk_surface)) {
-					skr_log(skr_log_critical, "Failed to recreate SDL Vulkan surface: %s", SDL_GetError());
+					su_log(su_log_critical, "Failed to recreate SDL Vulkan surface: %s", SDL_GetError());
 					running = false;
 					break;
 				}
@@ -232,7 +235,7 @@ int main(int argc, char* argv[]) {
 				skr_surface_destroy(&surface);
 				skr_surface_create(new_vk_surface, &surface);
 				if (surface.surface == VK_NULL_HANDLE) {
-					skr_log(skr_log_critical, "Failed to recreate sk_renderer surface");
+					su_log(su_log_critical, "Failed to recreate sk_renderer surface");
 					running = false;
 					break;
 				}
@@ -240,7 +243,7 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	skr_log(skr_log_info, "Completed %d frames, shutting down...", frame_count);
+	su_log(su_log_info, "Completed %d frames, shutting down...", frame_count);
 
 	// Wait for GPU
 	vkDeviceWaitIdle(skr_get_vk_device());

@@ -106,9 +106,9 @@ target_sources            (sk_renderer_test PRIVATE
 ###############################################################################
 
 if(ANDROID)
-	set(ASSET_PATH ${CMAKE_BINARY_DIR}/assets)
+	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR}/assets)
 else()
-	set(ASSET_PATH ${CMAKE_BINARY_DIR})
+	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 # Compile ImGui shader to header file (no debug info, embedded in binary)

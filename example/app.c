@@ -48,6 +48,35 @@ struct app_t {
 	float frame_time_ms;
 };
 
+static const char* _tex_fmt_name(skr_tex_fmt_ fmt) {
+	switch (fmt) {
+	case skr_tex_fmt_none:          return "none";
+	case skr_tex_fmt_rgba32_srgb:   return "rgba32_srgb";
+	case skr_tex_fmt_rgba32_linear: return "rgba32_linear";
+	case skr_tex_fmt_bgra32_srgb:   return "bgra32_srgb";
+	case skr_tex_fmt_bgra32_linear: return "bgra32_linear";
+	case skr_tex_fmt_rg11b10:       return "rg11b10";
+	case skr_tex_fmt_rgb10a2:       return "rgb10a2";
+	case skr_tex_fmt_rgba64u:       return "rgba64u";
+	case skr_tex_fmt_rgba64s:       return "rgba64s";
+	case skr_tex_fmt_rgba64f:       return "rgba64f";
+	case skr_tex_fmt_rgba128:       return "rgba128";
+	case skr_tex_fmt_r8:            return "r8";
+	case skr_tex_fmt_r16u:          return "r16u";
+	case skr_tex_fmt_r16s:          return "r16s";
+	case skr_tex_fmt_r16f:          return "r16f";
+	case skr_tex_fmt_r32f:          return "r32f";
+	case skr_tex_fmt_r8g8:          return "r8g8";
+	case skr_tex_fmt_rgb9e5:        return "rgb9e5";
+	case skr_tex_fmt_depth16:       return "depth16";
+	case skr_tex_fmt_depth32:       return "depth32";
+	case skr_tex_fmt_depth24s8:     return "depth24s8";
+	case skr_tex_fmt_depth32s8:     return "depth32s8";
+	case skr_tex_fmt_depth16s8:     return "depth16s8";
+	default:                        return "unknown";
+	}
+}
+
 static void _create_render_targets(app_t* app, int32_t width, int32_t height, skr_tex_t* render_target) {
 	skr_tex_sampler_t no_sampler   = {0};
 	skr_tex_sampler_t linear_clamp = { .sample = skr_tex_sample_linear, .address = skr_tex_address_clamp };
@@ -67,8 +96,8 @@ static void _create_render_targets(app_t* app, int32_t width, int32_t height, sk
 	app->current_width  = width;
 	app->current_height = height;
 
-	skr_log(skr_log_info, "Render targets created: %dx%d, color=%d, depth=%d, scene=%d",
-		width, height, skr_tex_is_valid(&app->color_msaa), skr_tex_is_valid(&app->depth_buffer), skr_tex_is_valid(&app->scene_color));
+	su_log(su_log_info, "Render target: %dx%d @ %dx, %s / %s",
+		width, height, app->msaa, _tex_fmt_name(skr_tex_get_format(&app->color_msaa)), _tex_fmt_name(app->depth_format));
 }
 
 static void _destroy_render_targets(app_t* app) {
@@ -92,7 +121,7 @@ static void _switch_scene(app_t* app, int32_t new_index) {
 	app->scene_index   = new_index;
 	app->scene_current = scene_create(app->scene_types[new_index]);
 
-	skr_log(skr_log_info, "Switched to scene: %s", scene_get_name(app->scene_types[new_index]));
+	su_log(su_log_info, "Switched to scene: %s", scene_get_name(app->scene_types[new_index]));
 }
 
 app_t* app_create() {
@@ -114,7 +143,7 @@ app_t* app_create() {
 	}  else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth32)) {
 		app->depth_format = skr_tex_fmt_depth32;
 	} else {
-		skr_log(skr_log_critical, "No supported depth format found!");
+		su_log(su_log_critical, "No supported depth format found!");
 		free(app);
 		return NULL;
 	}
@@ -138,12 +167,12 @@ app_t* app_create() {
 	app->scene_types[9] = &scene_cloth_vtable;
 	app->scene_count = 10;
 
+	su_log(su_log_info, "Application created successfully!");
+	su_log(su_log_info, "Available scenes: %d (use arrow keys to switch)", app->scene_count);
+
 	// Start with the first scene
 	app->scene_index = -1;
 	_switch_scene(app, 9);
-
-	skr_log (skr_log_info, "Application created successfully!");
-	skr_log(skr_log_info, "Available scenes: %d (use arrow keys to switch)", app->scene_count);
 
 	return app;
 }
@@ -169,7 +198,7 @@ void app_destroy(app_t* app) {
 
 	free(app);
 
-	skr_log(skr_log_info, "Application destroyed");
+	su_log(su_log_info, "Application destroyed");
 }
 
 void app_key_press(app_t* app, app_key_ key) {

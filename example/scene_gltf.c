@@ -396,7 +396,7 @@ static int32_t _load_gltf_thread(void* arg) {
 	// Initialize this thread for sk_renderer
 	skr_thread_init();
 
-	skr_log(skr_log_info, "GLTF: Loading started");
+	su_log(su_log_info, "GLTF: Loading started");
 
 	// Extract directory path for loading external resources
 	char base_path[256] = "";
@@ -414,7 +414,7 @@ static int32_t _load_gltf_thread(void* arg) {
 	size_t file_size = 0;
 
 	if (!su_file_read(ctx->filepath, &file_data, &file_size)) {
-		skr_log(skr_log_critical, "GLTF: Failed to read file");
+		su_log(su_log_critical, "GLTF: Failed to read file");
 		ctx->state = gltf_load_state_error;
 		skr_thread_shutdown();
 		return 0;
@@ -428,7 +428,7 @@ static int32_t _load_gltf_thread(void* arg) {
 	cgltf_result  result  = cgltf_parse(&options, file_data, file_size, &data);
 
 	if (result != cgltf_result_success) {
-		skr_log(skr_log_critical, "GLTF: Failed to parse");
+		su_log(su_log_critical, "GLTF: Failed to parse");
 		free(file_data);
 		ctx->state = gltf_load_state_error;
 		skr_thread_shutdown();
@@ -438,7 +438,7 @@ static int32_t _load_gltf_thread(void* arg) {
 	// Load buffers
 	result = cgltf_load_buffers(&options, data, ctx->filepath);
 	if (result != cgltf_result_success) {
-		skr_log(skr_log_critical, "GLTF: Failed to load buffers");
+		su_log(su_log_critical, "GLTF: Failed to load buffers");
 		cgltf_free(data);
 		free(file_data);
 		ctx->state = gltf_load_state_error;
@@ -534,7 +534,7 @@ static int32_t _load_gltf_thread(void* arg) {
 	cgltf_free(data);
 	free(file_data);
 
-	skr_log(skr_log_info, "GLTF: Ready (%d meshes, %d textures)", ctx->mesh_count, scene->texture_count);
+	su_log(su_log_info, "GLTF: Ready (%d meshes, %d textures)", ctx->mesh_count, scene->texture_count);
 	ctx->state = gltf_load_state_ready;
 	skr_thread_shutdown();
 	return 0;

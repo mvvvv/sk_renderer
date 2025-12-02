@@ -14,7 +14,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 void _skr_set_debug_name(VkDevice device, VkObjectType type, uint64_t handle, const char* name) {
-	if (name == NULL || handle == 0) return;
+	if (name == NULL || handle == 0 || vkSetDebugUtilsObjectNameEXT == NULL) return;
 
 	vkSetDebugUtilsObjectNameEXT(device, &(VkDebugUtilsObjectNameInfoEXT){
 		.sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,

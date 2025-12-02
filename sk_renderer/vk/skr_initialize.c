@@ -50,6 +50,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL _skr_vk_debug_callback(
 	const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
 	void*                                       user_data) {
 
+	if (callback_data->messageIdNumber == 0)           return VK_FALSE; // A lot of noise?
 	if (callback_data->messageIdNumber == -1744492148) return VK_FALSE; // vkCreateGraphicsPipelines: pCreateInfos[] Inside the fragment shader, it writes to output Location X but there is no VkSubpassDescription::pColorAttachments[X] and this write is unused. Spec information at https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-fragmentoutput
 	if (callback_data->messageIdNumber == -937765618 ) return VK_FALSE; // vkCreateGraphicsPipelines: pCreateInfos[].pVertexInputState Vertex attribute at location X not consumed by shader.
 	if (callback_data->messageIdNumber == -60244330  ) return VK_FALSE;
@@ -61,7 +62,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL _skr_vk_debug_callback(
 							   severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT ? "WARNING" :
 							   severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT   ? "ERROR"   : "UNKNOWN";
 
-	printf("[Vulkan:%s] %s\n", severity_str, callback_data->pMessage);
+	printf("[Vulkan:%s:%d] %s\n", severity_str, callback_data->messageIdNumber, callback_data->pMessage);
 
 	if (severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
 		severity_str = severity_str;
@@ -163,8 +164,6 @@ bool skr_init(skr_settings_t settings) {
 		}
 		if (found) {
 			extensions[extension_count++] = desired_extensions[i];
-		} else {
-			skr_log(skr_log_warning, "Extension '%s' not available, skipping", desired_extensions[i]);
 		}
 	}
 	_skr_free(available_exts);
@@ -257,7 +256,6 @@ bool skr_init(skr_settings_t settings) {
 		vkGetPhysicalDeviceProperties(devices[i], &props);
 		if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
 			_skr_vk.physical_device = devices[i];
-			skr_log(skr_log_info, "Selected discrete GPU: %s", props.deviceName);
 			break;
 		}
 	}
@@ -267,9 +265,7 @@ bool skr_init(skr_settings_t settings) {
 	vkGetPhysicalDeviceProperties(_skr_vk.physical_device, &device_props);
 
 	// Print selected device if we didn't find discrete GPU
-	if (_skr_vk.physical_device == devices[0]) {
-		skr_log(skr_log_info, "Using GPU: %s", device_props.deviceName);
-	}
+	skr_log(skr_log_info, "Using GPU: %s", device_props.deviceName);
 
 	// Store timestamp period for GPU timing
 	_skr_vk.timestamp_period = device_props.limits.timestampPeriod;
@@ -349,21 +345,13 @@ bool skr_init(skr_settings_t settings) {
 	VkExtensionProperties* available_device_exts = _skr_malloc(available_device_ext_count * sizeof(VkExtensionProperties));
 	vkEnumerateDeviceExtensionProperties(_skr_vk.physical_device, NULL, &available_device_ext_count, available_device_exts);
 
-	// Log available extensions for debugging
-	skr_log(skr_log_info, "Available device extensions (%u):", available_device_ext_count);
-	for (uint32_t i = 0; i < available_device_ext_count && i < 10; i++) {
-		skr_log(skr_log_info, "  %s", available_device_exts[i].extensionName);
-	}
-	if (available_device_ext_count > 10) {
-		skr_log(skr_log_info, "  ... and %u more", available_device_ext_count - 10);
-	}
-
 	// Filter device extensions to only those available
 	const char* device_extensions[32];
 	uint32_t    device_extension_count = 0;
-	bool has_swapchain = false;
+	bool has_swapchain       = false;
 	bool has_push_descriptor = false;
-	
+	bool has_viewport_layer  = false;
+
 	for (uint32_t i = 0; i < sizeof(desired_device_extensions) / sizeof(desired_device_extensions[0]); i++) {
 		bool found = false;
 		for (uint32_t j = 0; j < available_device_ext_count; j++) {
@@ -380,6 +368,9 @@ bool skr_init(skr_settings_t settings) {
 			if (strcmp(desired_device_extensions[i], VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME) == 0) {
 				has_push_descriptor = true;
 			}
+			if (strcmp(desired_device_extensions[i], VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME) == 0) {
+				has_viewport_layer = true;
+			}
 		} else {
 			skr_log(skr_log_warning, "Device extension '%s' not available, skipping", desired_device_extensions[i]);
 		}
@@ -391,8 +382,9 @@ bool skr_init(skr_settings_t settings) {
 		skr_log(skr_log_critical, "Required device extension '%s' not available", VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 		return false;
 	}
-	
-	// Store push descriptor support and use fallback if unavailable
+	if (!has_viewport_layer) {
+		skr_log(skr_log_critical, "Device extension '%s' not available, multi-view rendering will not work", VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME);
+	}
 	_skr_vk.has_push_descriptors = has_push_descriptor;
 	if (!has_push_descriptor) {
 		skr_log(skr_log_info, "Device extension '%s' not available, using descriptor set fallback", VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);

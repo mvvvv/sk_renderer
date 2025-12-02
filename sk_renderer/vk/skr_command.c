@@ -18,8 +18,6 @@ thread_local int32_t _skr_thread_idx = -1;
 ///////////////////////////////////////////////////////////////////////////////
 
 bool _skr_cmd_init() {
-	skr_log(skr_log_info, "Using %s queue (family %d)", _skr_vk.has_dedicated_transfer ? "transfer" : "graphics", _skr_vk.transfer_queue_family);
-
 	memset(_skr_vk.thread_pools, 0, sizeof(_skr_vk.thread_pools));
 	return true;
 }
@@ -111,8 +109,6 @@ void skr_thread_init() {
 	char name[64];
 	snprintf(name, sizeof(name), "CommandPool_thr%d", thread_idx);
 	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)thread.cmd_pool, name);
-
-	skr_log(skr_log_info, "Thread slot #%d initialized", thread_idx);
 
 	return;
 }

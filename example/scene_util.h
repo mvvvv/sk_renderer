@@ -9,10 +9,50 @@
 #include "float_math.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdarg.h>
+#include <stdio.h>
+
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+///////////////////////////////////////////////////////////////////////////////
+// Logging
+///////////////////////////////////////////////////////////////////////////////
+
+typedef enum su_log_ {
+	su_log_info,
+	su_log_warning,
+	su_log_critical,
+} su_log_;
+
+static inline void su_log(su_log_ level, const char* text, ...) {
+	va_list args;
+	va_start(args, text);
+
+	char buffer[1024];
+	vsnprintf(buffer, sizeof(buffer), text, args);
+
+#ifdef __ANDROID__
+	android_LogPriority priority = 
+		level == su_log_info     ? ANDROID_LOG_INFO  :
+		level == su_log_warning  ? ANDROID_LOG_WARN  :
+		level == su_log_critical ? ANDROID_LOG_ERROR : ANDROID_LOG_UNKNOWN;
+	__android_log_write(priority, "sk_example", buffer);
+#else
+	const char* prefix = 
+		level == su_log_info     ? "[app:info] "     :
+		level == su_log_warning  ? "[app:warn] "  :
+		level == su_log_critical ? "[app:crit] " : "[app:unkn] ";
+	printf("%s%s\n", prefix, buffer);
+#endif
+
+	va_end(args);
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common Vertex Format
