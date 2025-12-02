@@ -35,6 +35,7 @@ set(VULKAN_VERSION vulkan-sdk-1.4.328.1) # Most of our dependencies here use the
 add_executable(skshaderc)
 
 # For SPIRV-Tools
+message(STATUS "Fetching SPIRV-Headers...")
 FetchContent_Declare( SPIRV-Headers
 	GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
 	GIT_TAG        ${VULKAN_VERSION}
@@ -47,6 +48,7 @@ target_link_libraries     (skshaderc PRIVATE SPIRV)
 # For optimizing SPIR-V shaders, a baseline amount of
 # optimization is crucial for meta compatability with
 # HLSL compilers.
+message(STATUS "Fetching SPIRV-Tools...")
 FetchContent_Declare( SPIRV-Tools
 	GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Tools.git
 	GIT_TAG        ${VULKAN_VERSION}
@@ -61,6 +63,7 @@ target_link_libraries     (skshaderc PRIVATE SPIRV-Tools-opt)
 
 # For grabbing shader metadata, SPIRV-Cross can also do
 # this, but Reflect is lighter weight.
+message(STATUS "Fetching SPIRV-Reflect...")
 FetchContent_Declare( SPIRV-Reflect
 	GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Reflect.git
 	GIT_TAG        ${VULKAN_VERSION}
@@ -75,6 +78,7 @@ target_link_libraries     (skshaderc PRIVATE spirv-reflect-static)
 # This is used to convert HLSL to SPIR-V. DXC is an
 # alternative, but is far more difficult to compile,
 # and generates a much larger binary.
+message(STATUS "Fetching glslang...")
 FetchContent_Declare( glslang
 	GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
 	GIT_TAG        ${VULKAN_VERSION}

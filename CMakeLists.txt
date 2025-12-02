@@ -38,6 +38,20 @@ else()
 	add_library(sk_renderer)
 endif()
 
+# Grab Vulkan headers first before Volk goes looking for its own. Good for a
+# few reasons, but notably avoids a problem when cross-compiling with mingw.
+message(STATUS "Fetching Vulkan-Headers...")
+FetchContent_Declare(
+	vulkan_headers
+	GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+	GIT_TAG        v1.3.270
+	GIT_SHALLOW    TRUE
+	GIT_PROGRESS   TRUE
+)
+FetchContent_MakeAvailable(vulkan_headers)
+set(VULKAN_HEADERS_INSTALL_DIR "${vulkan_headers_SOURCE_DIR}" CACHE PATH "Vulkan headers location" FORCE)
+
+message(STATUS "Fetching volk...")
 FetchContent_Declare( volk
 	GIT_REPOSITORY https://github.com/zeux/volk.git
 	GIT_TAG        1.3.270
