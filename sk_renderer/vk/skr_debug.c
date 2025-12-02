@@ -13,10 +13,10 @@
 // Debug naming utilities
 ///////////////////////////////////////////////////////////////////////////////
 
-void _skr_set_debug_name(VkObjectType type, uint64_t handle, const char* name) {
+void _skr_set_debug_name(VkDevice device, VkObjectType type, uint64_t handle, const char* name) {
 	if (name == NULL || handle == 0) return;
 
-	vkSetDebugUtilsObjectNameEXT(_skr_vk.device, &(VkDebugUtilsObjectNameInfoEXT){
+	vkSetDebugUtilsObjectNameEXT(device, &(VkDebugUtilsObjectNameInfoEXT){
 		.sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
 		.objectType   = type,
 		.objectHandle = handle,
@@ -24,10 +24,10 @@ void _skr_set_debug_name(VkObjectType type, uint64_t handle, const char* name) {
 	});
 }
 
-void _skr_append_vertex_format(char* str, size_t str_size, const skr_vert_component_t* components, uint32_t component_count) {
-	if (!str || !components || component_count == 0) return;
+void _skr_append_vertex_format(char* ref_str, size_t str_size, const skr_vert_component_t* components, uint32_t component_count) {
+	if (!ref_str || !components || component_count == 0) return;
 
-	size_t pos = strlen(str);
+	size_t pos = strlen(ref_str);
 
 	for (uint32_t i = 0; i < component_count && pos < str_size - 3; i++) {
 		char semantic = '?';
@@ -47,15 +47,15 @@ void _skr_append_vertex_format(char* str, size_t str_size, const skr_vert_compon
 		// Limit count to single digit (clamp to 0-9)
 		uint8_t count = components[i].count > 9 ? 9 : components[i].count;
 
-		str[pos++] = semantic;
-		str[pos++] = '0' + count;
+		ref_str[pos++] = semantic;
+		ref_str[pos++] = '0' + count;
 	}
 
-	str[pos] = '\0';
+	ref_str[pos] = '\0';
 }
 
-void _skr_append_material_config(char* str, size_t str_size, const skr_material_info_t* mat_info) {
-	if (!str || !mat_info) return;
+void _skr_append_material_config(char* ref_str, size_t str_size, const skr_material_info_t* mat_info) {
+	if (!ref_str || !mat_info) return;
 
 	// Cull mode
 	const char* cull_str =
@@ -90,12 +90,12 @@ void _skr_append_material_config(char* str, size_t str_size, const skr_material_
 	if (mat_info->write_mask & skr_write_stencil) write_str[write_pos++] = 's';
 	write_str[write_pos] = '\0';
 
-	size_t pos = strlen(str);
-	snprintf(str + pos, str_size - pos, "%s%s%s-%s", cull_str, depth_str, blend_str, write_str);
+	size_t pos = strlen(ref_str);
+	snprintf(ref_str + pos, str_size - pos, "%s%s%s-%s", cull_str, depth_str, blend_str, write_str);
 }
 
-void _skr_append_renderpass_config(char* str, size_t str_size, const skr_pipeline_renderpass_key_t* rp_key) {
-	if (!str || !rp_key) return;
+void _skr_append_renderpass_config(char* ref_str, size_t str_size, const skr_pipeline_renderpass_key_t* rp_key) {
+	if (!ref_str || !rp_key) return;
 
 	const char* color_str =
 		rp_key->color_format == VK_FORMAT_UNDEFINED           ? "none" :
@@ -111,8 +111,8 @@ void _skr_append_renderpass_config(char* str, size_t str_size, const skr_pipelin
 		rp_key->depth_format == VK_FORMAT_D16_UNORM  ? "d16" :
 		rp_key->depth_format == VK_FORMAT_D32_SFLOAT ? "d32" : "?";
 
-	size_t pos = strlen(str);
-	snprintf(str + pos, str_size - pos, "%s_%s_x%d", color_str, depth_str, rp_key->samples);
+	size_t pos = strlen(ref_str);
+	snprintf(ref_str + pos, str_size - pos, "%s_%s_x%d", color_str, depth_str, rp_key->samples);
 }
 
 static const char* _skr_descriptor_type_name(VkDescriptorType type) {

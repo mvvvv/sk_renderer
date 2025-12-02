@@ -69,7 +69,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL _skr_vk_debug_callback(
 	return VK_FALSE;
 }
 
-static bool _skr_vk_create_debug_messenger() {
+static bool _skr_vk_create_debug_messenger(VkInstance instance, PFN_vkDebugUtilsMessengerCallbackEXT callback, VkDebugUtilsMessengerEXT* out_messenger) {
 	VkDebugUtilsMessengerCreateInfoEXT create_info = {
 		.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
 		.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
@@ -79,13 +79,11 @@ static bool _skr_vk_create_debug_messenger() {
 		.messageType     = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
 						   VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
 						   VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-		.pfnUserCallback = _skr_vk_debug_callback,
+		.pfnUserCallback = callback,
 	};
 
-	VkResult vr = vkCreateDebugUtilsMessengerEXT(_skr_vk.instance, &create_info, NULL, &_skr_vk.debug_messenger);
+	VkResult vr = vkCreateDebugUtilsMessengerEXT(instance, &create_info, NULL, out_messenger);
 	SKR_VK_CHECK_RET(vr, "vkCreateDebugUtilsMessengerEXT", false);
-
-	_skr_cmd_destroy_debug_messenger(&_skr_vk.destroy_list, _skr_vk.debug_messenger);
 	return true;
 }
 
@@ -234,8 +232,10 @@ bool skr_init(skr_settings_t settings) {
 	volkLoadInstance(_skr_vk.instance);
 
 	if (_skr_vk.validation_enabled) {
-		if (!_skr_vk_create_debug_messenger()) {
+		if (!_skr_vk_create_debug_messenger(_skr_vk.instance, _skr_vk_debug_callback, &_skr_vk.debug_messenger )) {
 			skr_log(skr_log_warning, "Failed to create debug messenger");
+		} else {
+			_skr_cmd_destroy_debug_messenger(&_skr_vk.destroy_list, _skr_vk.debug_messenger);
 		}
 	}
 
@@ -548,7 +548,7 @@ bool skr_init(skr_settings_t settings) {
 	return true;
 }
 
-void skr_shutdown() {
+void skr_shutdown(void) {
 	if (!_skr_vk.initialized) return;
 
 	vkDeviceWaitIdle(_skr_vk.device);
@@ -579,10 +579,10 @@ void skr_shutdown() {
 	_skr_vk = (_skr_vk_t){};
 }
 
-VkInstance skr_get_vk_instance() {
+VkInstance skr_get_vk_instance(void) {
 	return _skr_vk.instance;
 }
 
-VkDevice skr_get_vk_device() {
+VkDevice skr_get_vk_device(void) {
 	return _skr_vk.device;
 }

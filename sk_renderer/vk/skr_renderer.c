@@ -26,7 +26,7 @@
 // Helpers
 ///////////////////////////////////////////////////////////////////////////////
 
-static VkFramebuffer _skr_get_or_create_framebuffer(skr_tex_t* cache_target, VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve, bool has_depth) {
+static VkFramebuffer _skr_get_or_create_framebuffer(VkDevice device, skr_tex_t* cache_target, VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve, bool has_depth) {
 	VkFramebuffer* cached_fb = has_depth
 		? &cache_target->framebuffer_depth
 		: &cache_target->framebuffer;
@@ -42,26 +42,26 @@ static VkFramebuffer _skr_get_or_create_framebuffer(skr_tex_t* cache_target, VkR
 	}
 
 	// Create and cache new framebuffer
-	*cached_fb = _skr_create_framebuffer(render_pass, color, depth, opt_resolve);
+	*cached_fb = _skr_create_framebuffer(device, render_pass, color, depth, opt_resolve);
 	cache_target->framebuffer_pass = render_pass;
 	return *cached_fb;
 }
 
-static void _skr_ensure_buffer(skr_buffer_t* buffer, bool* ref_valid, const void* data, uint32_t size, skr_buffer_type_ type, const char* name) {
-	bool needs_recreate = !*ref_valid || buffer->size < size;
+static void _skr_ensure_buffer(skr_buffer_t* ref_buffer, bool* ref_valid, const void* data, uint32_t size, skr_buffer_type_ type, const char* name) {
+	bool needs_recreate = !*ref_valid || ref_buffer->size < size;
 
 	if (needs_recreate) {
 		// Destroy old buffer if it exists
 		if (*ref_valid) {
-			skr_buffer_destroy(buffer);
+			skr_buffer_destroy(ref_buffer);
 		}
 		// Create new buffer with required size
-		skr_buffer_create(data, size, 1, type, skr_use_dynamic, buffer);
-		skr_buffer_set_name(buffer, name);
+		skr_buffer_create(data, size, 1, type, skr_use_dynamic, ref_buffer);
+		skr_buffer_set_name(ref_buffer, name);
 		*ref_valid = true;
 	} else {
 		// Buffer is valid and large enough, just update contents
-		skr_buffer_set(buffer, data, size);
+		skr_buffer_set(ref_buffer, data, size);
 	}
 }
 
@@ -70,12 +70,12 @@ static void _skr_ensure_buffer(skr_buffer_t* buffer, bool* ref_valid, const void
 ///////////////////////////////////////////////////////////////////////////////
 
 // Queue a texture for transition (will be flushed before next render pass)
-void _skr_tex_transition_enqueue(skr_tex_t* tex, uint8_t type) {
-	if (!tex || !tex->image) return;
+void _skr_tex_transition_enqueue(skr_tex_t* ref_tex, uint8_t type) {
+	if (!ref_tex || !ref_tex->image) return;
 
 	// Check if already queued (avoid duplicates)
 	for (uint32_t i = 0; i < _skr_vk.pending_transition_count; i++) {
-		if (_skr_vk.pending_transitions[i] == tex) {
+		if (_skr_vk.pending_transitions[i] == ref_tex) {
 			// Update type if needed (storage takes priority over shader_read)
 			if (type > _skr_vk.pending_transition_types[i]) {
 				_skr_vk.pending_transition_types[i] = type;
@@ -93,7 +93,7 @@ void _skr_tex_transition_enqueue(skr_tex_t* tex, uint8_t type) {
 	}
 
 	// Add to queue
-	_skr_vk.pending_transitions[_skr_vk.pending_transition_count] = tex;
+	_skr_vk.pending_transitions     [_skr_vk.pending_transition_count] = ref_tex;
 	_skr_vk.pending_transition_types[_skr_vk.pending_transition_count] = type;
 	_skr_vk.pending_transition_count++;
 }
@@ -225,7 +225,7 @@ void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_
 	}
 
 	// Get or create cached framebuffer
-	VkFramebuffer framebuffer = _skr_get_or_create_framebuffer(fb_cache_target, render_pass, color, depth, opt_resolve, depth != NULL);
+	VkFramebuffer framebuffer = _skr_get_or_create_framebuffer(_skr_vk.device, fb_cache_target, render_pass, color, depth, opt_resolve, depth != NULL);
 
 	if (framebuffer == VK_NULL_HANDLE) return;
 
@@ -510,7 +510,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		draw_instances = layer_count;  // One instance per layer
 	} else {
 		// Regular 2D: use cached framebuffer
-		framebuffer = _skr_get_or_create_framebuffer(to, render_pass, to, NULL, NULL, false);
+		framebuffer = _skr_get_or_create_framebuffer(_skr_vk.device, to, render_pass, to, NULL, NULL, false);
 		if (framebuffer == VK_NULL_HANDLE) {
 			_skr_cmd_release(ctx.cmd);
 			return;

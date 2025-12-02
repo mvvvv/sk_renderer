@@ -158,23 +158,23 @@ skr_bind_t skr_compute_get_bind(const skr_compute_t* compute, const char* bind_n
 	return sksc_shader_meta_get_bind(compute->shader->meta, bind_name);
 }
 
-void skr_compute_destroy(skr_compute_t* compute) {
-	if (!compute) return;
+void skr_compute_destroy(skr_compute_t* ref_compute) {
+	if (!ref_compute) return;
 
-	_skr_cmd_destroy_pipeline             (NULL, compute->pipeline);
-	_skr_cmd_destroy_pipeline_layout      (NULL, compute->layout);
-	_skr_cmd_destroy_descriptor_set_layout(NULL, compute->descriptor_layout);
+	_skr_cmd_destroy_pipeline             (NULL, ref_compute->pipeline);
+	_skr_cmd_destroy_pipeline_layout      (NULL, ref_compute->layout);
+	_skr_cmd_destroy_descriptor_set_layout(NULL, ref_compute->descriptor_layout);
 
-	_skr_free(compute->binds);
-	_skr_free(compute->param_buffer);
+	_skr_free(ref_compute->binds);
+	_skr_free(ref_compute->param_buffer);
 
-	skr_buffer_destroy(&compute->param_gpu_buffer);
+	skr_buffer_destroy(&ref_compute->param_gpu_buffer);
 
-	*compute = (skr_compute_t){};
+	*ref_compute = (skr_compute_t){};
 }
 
-void skr_compute_set_buffer(skr_compute_t* compute, const char* name, skr_buffer_t* buffer) {
-	const sksc_shader_meta_t *meta = compute->shader->meta;
+void skr_compute_set_buffer(skr_compute_t* ref_compute, const char* name, skr_buffer_t* buffer) {
+	const sksc_shader_meta_t *meta = ref_compute->shader->meta;
 
 	int32_t  idx  = -1;
 	uint64_t hash = skr_hash(name);
@@ -186,7 +186,7 @@ void skr_compute_set_buffer(skr_compute_t* compute, const char* name, skr_buffer
 	}
 
 	if (idx >= 0) {
-		compute->binds[idx].buffer = buffer;
+		ref_compute->binds[idx].buffer = buffer;
 		return;
 	}
 
@@ -199,15 +199,15 @@ void skr_compute_set_buffer(skr_compute_t* compute, const char* name, skr_buffer
 	}
 
 	if (idx >= 0) {
-		compute->binds[meta->buffer_count + idx].buffer = buffer;
+		ref_compute->binds[meta->buffer_count + idx].buffer = buffer;
 	} else {
 		skr_log(skr_log_warning, "Buffer name '%s' not found", name);
 	}
 	return;
 }
 
-void skr_compute_set_tex(skr_compute_t* compute, const char* name, skr_tex_t* texture) {
-	const sksc_shader_meta_t *meta = compute->shader->meta;
+void skr_compute_set_tex(skr_compute_t* ref_compute, const char* name, skr_tex_t* texture) {
+	const sksc_shader_meta_t *meta = ref_compute->shader->meta;
 
 	int32_t  idx  = -1;
 	uint64_t hash = skr_hash(name);
@@ -223,7 +223,7 @@ void skr_compute_set_tex(skr_compute_t* compute, const char* name, skr_tex_t* te
 		return;
 	}
 
-	compute->binds[meta->buffer_count + idx].texture = texture;
+	ref_compute->binds[meta->buffer_count + idx].texture = texture;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -241,29 +241,29 @@ static uint32_t _skr_shader_var_size(sksc_shader_var_ type) {
 	}
 }
 
-void skr_compute_set_params(skr_compute_t* compute, void* data, uint32_t size) {
-	if (!compute || !compute->param_buffer) {
+void skr_compute_set_params(skr_compute_t* ref_compute, const void* data, uint32_t size) {
+	if (!ref_compute || !ref_compute->param_buffer) {
 		skr_log(skr_log_warning, "compute_set_params: compute has no $Global buffer");
 		return;
 	}
-	if (size != compute->param_buffer_size) {
-		skr_log(skr_log_warning, "compute_set_params: incorrect size! Expected %u, got %u", compute->param_buffer_size, size);
+	if (size != ref_compute->param_buffer_size) {
+		skr_log(skr_log_warning, "compute_set_params: incorrect size! Expected %u, got %u", ref_compute->param_buffer_size, size);
 		return;
 	}
-	memcpy(compute->param_buffer, data, size);
-	compute->param_dirty = true;
+	memcpy(ref_compute->param_buffer, data, size);
+	ref_compute->param_dirty = true;
 }
 
-void skr_compute_set_param(skr_compute_t* compute, const char* name, sksc_shader_var_ type, uint32_t count, const void* data) {
-	if (!compute || !compute->shader || !compute->shader->meta || !compute->param_buffer) return;
+void skr_compute_set_param(skr_compute_t* ref_compute, const char* name, sksc_shader_var_ type, uint32_t count, const void* data) {
+	if (!ref_compute || !ref_compute->shader || !ref_compute->shader->meta || !ref_compute->param_buffer) return;
 
-	int32_t var_index = sksc_shader_meta_get_var_index(compute->shader->meta, name);
+	int32_t var_index = sksc_shader_meta_get_var_index(ref_compute->shader->meta, name);
 	if (var_index < 0) {
 		skr_log(skr_log_warning, "Compute parameter '%s' not found", name);
 		return;
 	}
 
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(compute->shader->meta, var_index);
+	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(ref_compute->shader->meta, var_index);
 	if (!var || var->type != type) {
 		skr_log(skr_log_warning, "Compute parameter '%s' type mismatch", name);
 		return;
@@ -272,13 +272,13 @@ void skr_compute_set_param(skr_compute_t* compute, const char* name, sksc_shader
 	uint32_t element_size = _skr_shader_var_size(type);
 	uint32_t copy_size    = element_size * count;
 
-	if (var->offset + copy_size > compute->param_buffer_size) {
+	if (var->offset + copy_size > ref_compute->param_buffer_size) {
 		skr_log(skr_log_warning, "Compute parameter '%s' write would exceed buffer size", name);
 		return;
 	}
 
-	memcpy((uint8_t*)compute->param_buffer + var->offset, data, copy_size);
-	compute->param_dirty = true;
+	memcpy((uint8_t*)ref_compute->param_buffer + var->offset, data, copy_size);
+	ref_compute->param_dirty = true;
 }
 
 void skr_compute_get_param(const skr_compute_t* compute, const char* name, sksc_shader_var_ type, uint32_t count, void* out_data) {
@@ -307,23 +307,23 @@ void skr_compute_get_param(const skr_compute_t* compute, const char* name, sksc_
 	memcpy(out_data, (uint8_t*)compute->param_buffer + var->offset, copy_size);
 }
 
-void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_t z) {
-	if (!skr_compute_is_valid(compute)) return;
+void skr_compute_execute(skr_compute_t* ref_compute, uint32_t x, uint32_t y, uint32_t z) {
+	if (!skr_compute_is_valid(ref_compute)) return;
 
 	// Upload parameter buffer if it exists and is dirty
-	if (compute->param_buffer && compute->param_dirty) {
-		if (!skr_buffer_is_valid(&compute->param_gpu_buffer)) {
-			skr_buffer_create(compute->param_buffer, 1, compute->param_buffer_size, skr_buffer_type_constant, skr_use_dynamic, &compute->param_gpu_buffer);
+	if (ref_compute->param_buffer && ref_compute->param_dirty) {
+		if (!skr_buffer_is_valid(&ref_compute->param_gpu_buffer)) {
+			skr_buffer_create(ref_compute->param_buffer, 1, ref_compute->param_buffer_size, skr_buffer_type_constant, skr_use_dynamic, &ref_compute->param_gpu_buffer);
 		} else {
-			skr_buffer_set(&compute->param_gpu_buffer, compute->param_buffer, compute->param_buffer_size);
+			skr_buffer_set(&ref_compute->param_gpu_buffer, ref_compute->param_buffer, ref_compute->param_buffer_size);
 		}
-		compute->param_dirty = false;
+		ref_compute->param_dirty = false;
 	}
 
 	// Auto-bind $Global buffer if it exists
-	const sksc_shader_meta_t* meta = compute->shader->meta;
-	if (meta->global_buffer_id >= 0 && skr_buffer_is_valid(&compute->param_gpu_buffer)) {
-		compute->binds[meta->global_buffer_id].buffer = &compute->param_gpu_buffer;
+	const sksc_shader_meta_t* meta = ref_compute->shader->meta;
+	if (meta->global_buffer_id >= 0 && skr_buffer_is_valid(&ref_compute->param_gpu_buffer)) {
+		ref_compute->binds[meta->global_buffer_id].buffer = &ref_compute->param_gpu_buffer;
 	}
 
 	_skr_cmd_ctx_t  ctx = _skr_cmd_acquire();
@@ -333,11 +333,11 @@ void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_
 		return;
 	}
 
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline);
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, ref_compute->pipeline);
 
 	// Transition all bound textures to appropriate layouts before dispatch
-	for (uint32_t i = 0; i < compute->bind_count; i++) {
-		skr_material_bind_t *res = &compute->binds[i];
+	for (uint32_t i = 0; i < ref_compute->bind_count; i++) {
+		skr_material_bind_t *res = &ref_compute->binds[i];
 		if      (res->bind.register_type == skr_register_readwrite_tex && res->texture) {_skr_tex_transition_for_storage    (cmd, res->texture); }
 		else if (res->bind.register_type == skr_register_texture       && res->texture) {_skr_tex_transition_for_shader_read(cmd, res->texture, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT); }
 	}
@@ -348,7 +348,7 @@ void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_
 	uint32_t write_ct  = 0;
 	uint32_t buffer_ct = 0;
 	uint32_t image_ct  = 0;
-	_skr_material_add_writes(compute->binds, compute->bind_count, NULL, 0,
+	_skr_material_add_writes(ref_compute->binds, ref_compute->bind_count, NULL, 0,
 		writes,       sizeof(writes      )/sizeof(writes      [0]),
 		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
@@ -357,7 +357,7 @@ void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_
 	//_skr_log_descriptor_writes(writes, buffer_infos, image_infos, write_ct, buffer_ct, image_ct);
 
 	_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_COMPUTE,
-	                      compute->layout, compute->descriptor_layout, writes, write_ct);
+	                      ref_compute->layout, ref_compute->descriptor_layout, writes, write_ct);
 
 	vkCmdDispatch(cmd, x, y, z);
 
@@ -375,28 +375,28 @@ void skr_compute_execute(skr_compute_t* compute, uint32_t x, uint32_t y, uint32_
 	_skr_cmd_release(cmd);
 }
 
-void skr_compute_execute_indirect(skr_compute_t* compute, skr_buffer_t* indirect_args) {
-	if (!skr_compute_is_valid(compute) || !indirect_args) return;
+void skr_compute_execute_indirect(skr_compute_t* ref_compute, skr_buffer_t* indirect_args) {
+	if (!skr_compute_is_valid(ref_compute) || !indirect_args) return;
 
 	// Upload parameter buffer if it exists and is dirty
-	if (compute->param_buffer && compute->param_dirty) {
-		if (!skr_buffer_is_valid(&compute->param_gpu_buffer)) {
-			skr_buffer_create(compute->param_buffer, 1, compute->param_buffer_size, skr_buffer_type_constant, skr_use_dynamic, &compute->param_gpu_buffer);
+	if (ref_compute->param_buffer && ref_compute->param_dirty) {
+		if (!skr_buffer_is_valid(&ref_compute->param_gpu_buffer)) {
+			skr_buffer_create(ref_compute->param_buffer, 1, ref_compute->param_buffer_size, skr_buffer_type_constant, skr_use_dynamic, &ref_compute->param_gpu_buffer);
 		} else {
-			skr_buffer_set(&compute->param_gpu_buffer, compute->param_buffer, compute->param_buffer_size);
+			skr_buffer_set(&ref_compute->param_gpu_buffer, ref_compute->param_buffer, ref_compute->param_buffer_size);
 		}
-		compute->param_dirty = false;
+		ref_compute->param_dirty = false;
 	}
 
 	// Auto-bind $Global buffer if it exists
-	const sksc_shader_meta_t* meta = compute->shader->meta;
-	if (meta->global_buffer_id >= 0 && skr_buffer_is_valid(&compute->param_gpu_buffer)) {
-		compute->binds[meta->global_buffer_id].buffer = &compute->param_gpu_buffer;
+	const sksc_shader_meta_t* meta = ref_compute->shader->meta;
+	if (meta->global_buffer_id >= 0 && skr_buffer_is_valid(&ref_compute->param_gpu_buffer)) {
+		ref_compute->binds[meta->global_buffer_id].buffer = &ref_compute->param_gpu_buffer;
 	}
 
 	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
 	VkCommandBuffer cmd = ctx.cmd;
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline);
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, ref_compute->pipeline);
 
 	VkWriteDescriptorSet   writes      [32];
 	VkDescriptorBufferInfo buffer_infos[16];
@@ -404,14 +404,14 @@ void skr_compute_execute_indirect(skr_compute_t* compute, skr_buffer_t* indirect
 	uint32_t write_ct = 0;
 	uint32_t buffer_ct = 0;
 	uint32_t image_ct = 0;
-	_skr_material_add_writes(compute->binds, compute->bind_count, NULL, 0,
+	_skr_material_add_writes(ref_compute->binds, ref_compute->bind_count, NULL, 0,
 		writes,       sizeof(writes      )/sizeof(writes      [0]),
 		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 		&write_ct, &buffer_ct, &image_ct);
 
 	_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_COMPUTE,
-	                      compute->layout, compute->descriptor_layout, writes, write_ct);
+	                      ref_compute->layout, ref_compute->descriptor_layout, writes, write_ct);
 
 	vkCmdDispatchIndirect(cmd, indirect_args->buffer, 0);
 	_skr_cmd_release(cmd);

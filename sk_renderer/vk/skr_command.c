@@ -110,7 +110,7 @@ void skr_thread_init() {
 
 	char name[64];
 	snprintf(name, sizeof(name), "CommandPool_thr%d", thread_idx);
-	_skr_set_debug_name(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)thread.cmd_pool, name);
+	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)thread.cmd_pool, name);
 
 	skr_log(skr_log_info, "Thread slot #%d initialized", thread_idx);
 
@@ -165,21 +165,21 @@ void skr_thread_shutdown() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* pool) {
+static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* ref_pool) {
 	// Find available slot in the per-thread command ring
 	_skr_cmd_ring_slot_t* slot      = NULL;
-	uint32_t              start_idx = pool->cmd_ring_index;
+	uint32_t              start_idx = ref_pool->cmd_ring_index;
 
 	uint32_t idx;
 	for (uint32_t i = 0; i < skr_MAX_COMMAND_RING; i++) {
 		idx = (start_idx + i) % skr_MAX_COMMAND_RING;
-		_skr_cmd_ring_slot_t* curr = &pool->cmd_ring[idx];
+		_skr_cmd_ring_slot_t* curr = &ref_pool->cmd_ring[idx];
 
 		// Use this slot if available
 		if (!curr->alive) {
 			slot        = curr;
 			slot->alive = true;
-			pool->cmd_ring_index = (idx + 1) % skr_MAX_COMMAND_RING;
+			ref_pool->cmd_ring_index = (idx + 1) % skr_MAX_COMMAND_RING;
 			break;
 		}
 	}
@@ -187,10 +187,10 @@ static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* pool) {
 	// If no slots available, wait for oldest one
 	if (!slot) {
 		idx         = start_idx;
-		slot        = &pool->cmd_ring[start_idx];
+		slot        = &ref_pool->cmd_ring[start_idx];
 		slot->alive = true;
 		vkWaitForFences(_skr_vk.device, 1, &slot->fence, VK_TRUE, UINT64_MAX);
-		pool->cmd_ring_index = (start_idx + 1) % skr_MAX_COMMAND_RING;
+		ref_pool->cmd_ring_index = (start_idx + 1) % skr_MAX_COMMAND_RING;
 
 		// Fence is done, make sure we free its assets too
 		_skr_destroy_list_execute(&slot->destroy_list);
@@ -205,7 +205,7 @@ static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* pool) {
 		vkAllocateCommandBuffers(_skr_vk.device, &(VkCommandBufferAllocateInfo){
 			.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 			.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-			.commandPool        = pool->cmd_pool,
+			.commandPool        = ref_pool->cmd_pool,
 			.commandBufferCount = 1,
 		}, &slot->cmd);
 		vkCreateFence(_skr_vk.device, &(VkFenceCreateInfo){
@@ -233,15 +233,15 @@ static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* pool) {
 		}
 
 		char name[64];
-		snprintf(name,sizeof(name), "CommandBuffer_thr%d_%d", pool->thread_idx, idx);
-		_skr_set_debug_name(VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)slot->cmd, name);
+		snprintf(name,sizeof(name), "CommandBuffer_thr%d_%d", ref_pool->thread_idx, idx);
+		_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)slot->cmd, name);
 
-		snprintf(name,sizeof(name), "Command_Fence_thr%d_%d", pool->thread_idx, idx);
-		_skr_set_debug_name(VK_OBJECT_TYPE_FENCE, (uint64_t)slot->fence, name);
+		snprintf(name,sizeof(name), "Command_Fence_thr%d_%d", ref_pool->thread_idx, idx);
+		_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_FENCE, (uint64_t)slot->fence, name);
 
 		if (slot->descriptor_pool != VK_NULL_HANDLE) {
-			snprintf(name,sizeof(name), "DescriptorPool_thr%d_%d", pool->thread_idx, idx);
-			_skr_set_debug_name(VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)slot->descriptor_pool, name);
+			snprintf(name,sizeof(name), "DescriptorPool_thr%d_%d", ref_pool->thread_idx, idx);
+			_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)slot->descriptor_pool, name);
 		}
 	} else {
 		vkResetCommandBuffer(slot->cmd, 0);

@@ -152,13 +152,13 @@ sksc_result_ sksc_shader_file_load_memory(const void *data, uint32_t size, sksc_
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void sksc_shader_file_destroy(sksc_shader_file_t *file) {
-	for (uint32_t i = 0; i < file->stage_count; i++) {
-		free(file->stages[i].code);
+void sksc_shader_file_destroy(sksc_shader_file_t *ref_file) {
+	for (uint32_t i = 0; i < ref_file->stage_count; i++) {
+		free(ref_file->stages[i].code);
 	}
-	free(file->stages);
-	sksc_shader_meta_release(file->meta);
-	*file = (sksc_shader_file_t){};
+	free(ref_file->stages);
+	sksc_shader_meta_release(ref_file->meta);
+	*ref_file = (sksc_shader_file_t){};
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -218,23 +218,23 @@ const sksc_shader_var_t *sksc_shader_meta_get_var_info(const sksc_shader_meta_t 
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void sksc_shader_meta_reference(sksc_shader_meta_t *meta) {
-	meta->references += 1;
+void sksc_shader_meta_reference(sksc_shader_meta_t *ref_meta) {
+	ref_meta->references += 1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void sksc_shader_meta_release(sksc_shader_meta_t *meta) {
-	if (!meta) return;
-	meta->references -= 1;
-	if (meta->references == 0) {
-		for (uint32_t i = 0; i < meta->buffer_count; i++) {
-			free(meta->buffers[i].vars);
-			free(meta->buffers[i].defaults);
+void sksc_shader_meta_release(sksc_shader_meta_t *ref_meta) {
+	if (!ref_meta) return;
+	ref_meta->references -= 1;
+	if (ref_meta->references == 0) {
+		for (uint32_t i = 0; i < ref_meta->buffer_count; i++) {
+			free(ref_meta->buffers[i].vars);
+			free(ref_meta->buffers[i].defaults);
 		}
-		free(meta->buffers);
-		free(meta->resources);
-		free(meta->vertex_inputs);
-		*meta = (sksc_shader_meta_t){};
+		free(ref_meta->buffers);
+		free(ref_meta->resources);
+		free(ref_meta->vertex_inputs);
+		*ref_meta = (sksc_shader_meta_t){};
 	}
 }

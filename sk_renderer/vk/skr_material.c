@@ -97,28 +97,28 @@ bool skr_material_is_valid(const skr_material_t* material) {
 	return material && material->pipeline_material_idx >= 0;
 }
 
-void skr_material_destroy(skr_material_t* material) {
-	if (!material) return;
+void skr_material_destroy(skr_material_t* ref_material) {
+	if (!ref_material) return;
 
 	// Unregister from pipeline system
-	if (material->pipeline_material_idx >= 0) {
-		_skr_pipeline_unregister_material(material->pipeline_material_idx);
+	if (ref_material->pipeline_material_idx >= 0) {
+		_skr_pipeline_unregister_material(ref_material->pipeline_material_idx);
 	}
 
 	// Free allocated memory
-	_skr_free(material->param_buffer);
-	_skr_free(material->binds);
+	_skr_free(ref_material->param_buffer);
+	_skr_free(ref_material->binds);
 
-	if (material->info.shader && material->info.shader->meta) {
-		sksc_shader_meta_release(material->info.shader->meta);
+	if (ref_material->info.shader && ref_material->info.shader->meta) {
+		sksc_shader_meta_release(ref_material->info.shader->meta);
 	}
 
-	*material = (skr_material_t){};
-	material->pipeline_material_idx = -1;
+	*ref_material = (skr_material_t){};
+	ref_material->pipeline_material_idx = -1;
 }
 
-void skr_material_set_tex(skr_material_t* material, const char* name, skr_tex_t* texture) {
-	const sksc_shader_meta_t *meta = material->info.shader->meta;
+void skr_material_set_tex(skr_material_t* ref_material, const char* name, skr_tex_t* texture) {
+	const sksc_shader_meta_t *meta = ref_material->info.shader->meta;
 
 	int32_t  idx  = -1;
 	uint64_t hash = skr_hash(name);
@@ -134,11 +134,11 @@ void skr_material_set_tex(skr_material_t* material, const char* name, skr_tex_t*
 		return;
 	}
 
-	material->binds[meta->buffer_count + idx].texture = texture;
+	ref_material->binds[meta->buffer_count + idx].texture = texture;
 }
 
-void skr_material_set_buffer(skr_material_t* material, const char* name, skr_buffer_t* buffer) {
-	const sksc_shader_meta_t *meta = material->info.shader->meta;
+void skr_material_set_buffer(skr_material_t* ref_material, const char* name, skr_buffer_t* buffer) {
+	const sksc_shader_meta_t *meta = ref_material->info.shader->meta;
 
 	int32_t  idx  = -1;
 	uint64_t hash = skr_hash(name);
@@ -150,7 +150,7 @@ void skr_material_set_buffer(skr_material_t* material, const char* name, skr_buf
 	}
 
 	if (idx >= 0) {
-		material->binds[idx].buffer = buffer;
+		ref_material->binds[idx].buffer = buffer;
 		return;
 	}
 
@@ -163,19 +163,19 @@ void skr_material_set_buffer(skr_material_t* material, const char* name, skr_buf
 	}
 
 	if (idx >= 0) {
-		material->binds[meta->buffer_count + idx].buffer = buffer;
+		ref_material->binds[meta->buffer_count + idx].buffer = buffer;
 	} else {
 		skr_log(skr_log_warning, "Buffer name '%s' not found", name);
 	}
 	return;
 }
 
-void skr_material_set_params(skr_material_t* material, void* data, uint32_t size) {
-	if (size != material->param_buffer_size) {
+void skr_material_set_params(skr_material_t* ref_material, const void* data, uint32_t size) {
+	if (size != ref_material->param_buffer_size) {
 		skr_log(skr_log_warning, "material_set_params: incorrect size!");
 		return;
 	}
-	memcpy(material->param_buffer, data, size);
+	memcpy(ref_material->param_buffer, data, size);
 }
 
 

@@ -20,9 +20,9 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // Find memory type index with required properties, returns UINT32_MAX if not found
-static uint32_t _skr_find_memory_type(VkMemoryRequirements mem_requirements, VkMemoryPropertyFlags required_props) {
+static uint32_t _skr_find_memory_type(VkPhysicalDevice phys_device, VkMemoryRequirements mem_requirements, VkMemoryPropertyFlags required_props) {
 	VkPhysicalDeviceMemoryProperties mem_properties;
-	vkGetPhysicalDeviceMemoryProperties(_skr_vk.physical_device, &mem_properties);
+	vkGetPhysicalDeviceMemoryProperties(phys_device, &mem_properties);
 
 	for (uint32_t i = 0; i < mem_properties.memoryTypeCount; i++) {
 		if ((mem_requirements.memoryTypeBits & (1 << i)) &&
@@ -34,20 +34,20 @@ static uint32_t _skr_find_memory_type(VkMemoryRequirements mem_requirements, VkM
 }
 
 // Allocate device memory for an image, trying lazily-allocated first for transient attachments
-static VkDeviceMemory _skr_allocate_image_memory(VkImage image, bool is_transient_attachment, VkDeviceMemory* out_memory) {
+static VkDeviceMemory _skr_allocate_image_memory(VkDevice device, VkPhysicalDevice phys_device, VkImage image, bool is_transient_attachment, VkDeviceMemory* out_memory) {
 	VkMemoryRequirements mem_requirements;
-	vkGetImageMemoryRequirements(_skr_vk.device, image, &mem_requirements);
+	vkGetImageMemoryRequirements(device, image, &mem_requirements);
 
 	uint32_t memory_type_index = UINT32_MAX;
 
 	// For transient MSAA attachments, prefer lazily allocated memory
 	if (is_transient_attachment) {
-		memory_type_index = _skr_find_memory_type(mem_requirements, VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT);
+		memory_type_index = _skr_find_memory_type(phys_device, mem_requirements, VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT);
 	}
 
 	// Fallback to device local memory
 	if (memory_type_index == UINT32_MAX) {
-		memory_type_index = _skr_find_memory_type(mem_requirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		memory_type_index = _skr_find_memory_type(phys_device, mem_requirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	}
 
 	if (memory_type_index == UINT32_MAX) {
@@ -60,7 +60,7 @@ static VkDeviceMemory _skr_allocate_image_memory(VkImage image, bool is_transien
 		.memoryTypeIndex = memory_type_index,
 	};
 
-	VkResult vr = vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, out_memory);
+	VkResult vr = vkAllocateMemory(device, &alloc_info, NULL, out_memory);
 	SKR_VK_CHECK_RET(vr, "vkAllocateMemory", VK_NULL_HANDLE);
 
 	return *out_memory;
@@ -74,7 +74,7 @@ typedef struct {
 	bool           valid;
 } staging_buffer_t;
 
-static staging_buffer_t _skr_create_staging_buffer(VkDeviceSize size) {
+static staging_buffer_t _skr_create_staging_buffer(VkDevice device, VkPhysicalDevice phys_device, VkDeviceSize size) {
 	staging_buffer_t result = {0};
 
 	VkBufferCreateInfo buffer_info = {
@@ -84,17 +84,17 @@ static staging_buffer_t _skr_create_staging_buffer(VkDeviceSize size) {
 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 	};
 
-	VkResult vr = vkCreateBuffer(_skr_vk.device, &buffer_info, NULL, &result.buffer);
+	VkResult vr = vkCreateBuffer(device, &buffer_info, NULL, &result.buffer);
 	SKR_VK_CHECK_RET(vr, "vkCreateBuffer", result);
 
 	VkMemoryRequirements mem_requirements;
-	vkGetBufferMemoryRequirements(_skr_vk.device, result.buffer, &mem_requirements);
+	vkGetBufferMemoryRequirements(device, result.buffer, &mem_requirements);
 
-	uint32_t memory_type_index = _skr_find_memory_type(mem_requirements,
+	uint32_t memory_type_index = _skr_find_memory_type(phys_device, mem_requirements,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
 	if (memory_type_index == UINT32_MAX) {
-		vkDestroyBuffer(_skr_vk.device, result.buffer, NULL);
+		vkDestroyBuffer(device, result.buffer, NULL);
 		return result;
 	}
 
@@ -104,20 +104,20 @@ static staging_buffer_t _skr_create_staging_buffer(VkDeviceSize size) {
 		.memoryTypeIndex = memory_type_index,
 	};
 
-	vr = vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, &result.memory);
+	vr = vkAllocateMemory(device, &alloc_info, NULL, &result.memory);
 	if (vr != VK_SUCCESS) {
 		SKR_VK_CHECK_NRET(vr, "vkAllocateMemory");
-		vkDestroyBuffer(_skr_vk.device, result.buffer, NULL);
+		vkDestroyBuffer(device, result.buffer, NULL);
 		return result;
 	}
 
-	vkBindBufferMemory(_skr_vk.device, result.buffer, result.memory, 0);
+	vkBindBufferMemory(device, result.buffer, result.memory, 0);
 
-	vr = vkMapMemory(_skr_vk.device, result.memory, 0, size, 0, &result.mapped_data);
+	vr = vkMapMemory(device, result.memory, 0, size, 0, &result.mapped_data);
 	if (vr != VK_SUCCESS) {
 		SKR_VK_CHECK_NRET(vr, "vkMapMemory");
-		vkFreeMemory(_skr_vk.device, result.memory, NULL);
-		vkDestroyBuffer(_skr_vk.device, result.buffer, NULL);
+		vkFreeMemory   (device, result.memory, NULL);
+		vkDestroyBuffer(device, result.buffer, NULL);
 		return result;
 	}
 
@@ -244,82 +244,81 @@ bool _skr_tex_needs_transition(const skr_tex_t* tex, uint8_t type) {
 }
 
 // General-purpose automatic transition - tracks state and inserts barrier if needed
-void _skr_tex_transition(VkCommandBuffer cmd, skr_tex_t* tex, VkImageLayout new_layout,
-                          VkPipelineStageFlags dst_stage, VkAccessFlags dst_access) {
-	if (!tex || !tex->image) return;
+void _skr_tex_transition(VkCommandBuffer cmd, skr_tex_t* ref_tex, VkImageLayout new_layout, VkPipelineStageFlags dst_stage, VkAccessFlags dst_access) {
+	if (!ref_tex || !ref_tex->image) return;
 
 	// For transient discard textures (non-readable depth/MSAA), always use UNDEFINED as old layout
-	VkImageLayout old_layout = tex->is_transient_discard ? VK_IMAGE_LAYOUT_UNDEFINED : tex->current_layout;
+	VkImageLayout old_layout = ref_tex->is_transient_discard ? VK_IMAGE_LAYOUT_UNDEFINED : ref_tex->current_layout;
 
 	// Skip if already in target layout (unless it's a transient discard texture)
-	if (!tex->is_transient_discard && tex->current_layout == new_layout) {
+	if (!ref_tex->is_transient_discard && ref_tex->current_layout == new_layout) {
 		return;
 	}
 
 #ifdef SKR_DEBUG
-	if (tex->current_layout != VK_IMAGE_LAYOUT_UNDEFINED && tex->current_layout != old_layout) {
+	if (ref_tex->current_layout != VK_IMAGE_LAYOUT_UNDEFINED && ref_tex->current_layout != old_layout) {
 		skr_log(skr_log_warning, "Texture layout mismatch: tracked=%s, using=%s for transition to %s",
-			_layout_to_string(tex->current_layout), _layout_to_string(old_layout), _layout_to_string(new_layout));
+			_layout_to_string(ref_tex->current_layout), _layout_to_string(old_layout), _layout_to_string(new_layout));
 	}
 #endif
 
 	// Determine source stage and access from old layout
-	VkPipelineStageFlags src_stage  = _layout_to_src_stage(old_layout);
+	VkPipelineStageFlags src_stage  = _layout_to_src_stage   (old_layout);
 	VkAccessFlags        src_access = _layout_to_access_flags(old_layout);
 
 	// Perform transition
-	_skr_transition_image_layout(cmd, tex->image, tex->aspect_mask,
-		0, tex->mip_levels, tex->layer_count,
+	_skr_transition_image_layout(cmd, ref_tex->image, ref_tex->aspect_mask,
+		0, ref_tex->mip_levels, ref_tex->layer_count,
 		old_layout, new_layout,
-		src_stage, dst_stage,
+		src_stage,  dst_stage,
 		src_access, dst_access);
 
 	// Update tracked state (unless it's transient discard - always stays UNDEFINED conceptually)
-	if (!tex->is_transient_discard) {
-		tex->current_layout = new_layout;
+	if (!ref_tex->is_transient_discard) {
+		ref_tex->current_layout = new_layout;
 	}
-	tex->first_use = false;
+	ref_tex->first_use = false;
 }
 
 // Specialized: Transition for shader read (most common case)
-void _skr_tex_transition_for_shader_read(VkCommandBuffer cmd, skr_tex_t* tex, VkPipelineStageFlags dst_stage) {
-	if (!tex) return;
+void _skr_tex_transition_for_shader_read(VkCommandBuffer cmd, skr_tex_t* ref_tex, VkPipelineStageFlags dst_stage) {
+	if (!ref_tex) return;
 
 	// Storage images use GENERAL layout, regular textures use SHADER_READ_ONLY_OPTIMAL
-	VkImageLayout target_layout = (tex->flags & skr_tex_flags_compute)
+	VkImageLayout target_layout = (ref_tex->flags & skr_tex_flags_compute)
 		? VK_IMAGE_LAYOUT_GENERAL
 		: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-	_skr_tex_transition(cmd, tex, target_layout, dst_stage, VK_ACCESS_SHADER_READ_BIT);
+	_skr_tex_transition(cmd, ref_tex, target_layout, dst_stage, VK_ACCESS_SHADER_READ_BIT);
 }
 
 // Specialized: Transition for storage image (compute RWTexture)
-void _skr_tex_transition_for_storage(VkCommandBuffer cmd, skr_tex_t* tex) {
-	if (!tex) return;
-	_skr_tex_transition(cmd, tex, VK_IMAGE_LAYOUT_GENERAL,
+void _skr_tex_transition_for_storage(VkCommandBuffer cmd, skr_tex_t* ref_tex) {
+	if (!ref_tex) return;
+	_skr_tex_transition(cmd, ref_tex, VK_IMAGE_LAYOUT_GENERAL,
 		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 		VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
 }
 
 // Notify the system that a render pass has performed an implicit layout transition
 // This updates tracked state without issuing a barrier
-void _skr_tex_transition_notify_layout(skr_tex_t* tex, VkImageLayout new_layout) {
-	if (!tex) return;
+void _skr_tex_transition_notify_layout(skr_tex_t* ref_tex, VkImageLayout new_layout) {
+	if (!ref_tex) return;
 
 	// Don't update transient discard textures - they conceptually stay in UNDEFINED
-	if (!tex->is_transient_discard) {
-		tex->current_layout = new_layout;
+	if (!ref_tex->is_transient_discard) {
+		ref_tex->current_layout = new_layout;
 	}
-	tex->first_use = false;
+	ref_tex->first_use = false;
 }
 
 // Queue family ownership transfer (for future async upload)
-void _skr_tex_transition_queue_family(VkCommandBuffer cmd, skr_tex_t* tex,
+void _skr_tex_transition_queue_family(VkCommandBuffer cmd, skr_tex_t* ref_tex,
                                      uint32_t src_queue_family, uint32_t dst_queue_family,
                                      VkImageLayout layout) {
-	if (!tex || !tex->image || src_queue_family == dst_queue_family) return;
+	if (!ref_tex || !ref_tex->image || src_queue_family == dst_queue_family) return;
 
-	VkImageLayout old_layout = tex->is_transient_discard ? VK_IMAGE_LAYOUT_UNDEFINED : tex->current_layout;
+	VkImageLayout old_layout = ref_tex->is_transient_discard ? VK_IMAGE_LAYOUT_UNDEFINED : ref_tex->current_layout;
 	VkAccessFlags src_access = _layout_to_access_flags(old_layout);
 	VkAccessFlags dst_access = _layout_to_access_flags(layout);
 
@@ -331,13 +330,13 @@ void _skr_tex_transition_queue_family(VkCommandBuffer cmd, skr_tex_t* tex,
 		.newLayout           = layout,
 		.srcAccessMask       = src_access,
 		.dstAccessMask       = dst_access,
-		.image               = tex->image,
+		.image               = ref_tex->image,
 		.subresourceRange    = {
-			.aspectMask     = tex->aspect_mask,
+			.aspectMask     = ref_tex->aspect_mask,
 			.baseMipLevel   = 0,
-			.levelCount     = tex->mip_levels,
+			.levelCount     = ref_tex->mip_levels,
 			.baseArrayLayer = 0,
-			.layerCount     = tex->layer_count,
+			.layerCount     = ref_tex->layer_count,
 		},
 	};
 
@@ -347,17 +346,17 @@ void _skr_tex_transition_queue_family(VkCommandBuffer cmd, skr_tex_t* tex,
 	vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &barrier);
 
 	// Update tracked state
-	if (!tex->is_transient_discard) {
-		tex->current_layout = layout;
+	if (!ref_tex->is_transient_discard) {
+		ref_tex->current_layout = layout;
 	}
-	tex->current_queue_family = dst_queue_family;
-	tex->first_use = false;
+	ref_tex->current_queue_family = dst_queue_family;
+	ref_tex->first_use = false;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static void _skr_tex_generate_mips_blit  (skr_tex_t* tex, int32_t mip_levels);
-static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, const skr_shader_t* fragment_shader);
+static void _skr_tex_generate_mips_blit  (VkPhysicalDevice phys_device, skr_tex_t* tex, int32_t mip_levels);
+static void _skr_tex_generate_mips_render(VkDevice         device,      skr_tex_t* tex, int32_t mip_levels, const skr_shader_t* fragment_shader);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -569,7 +568,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	}
 
 	// Allocate memory using helper
-	if (_skr_allocate_image_memory(out_tex->image, is_msaa_attachment, &out_tex->memory) == VK_NULL_HANDLE) {
+	if (_skr_allocate_image_memory(_skr_vk.device, _skr_vk.physical_device, out_tex->image, is_msaa_attachment, &out_tex->memory) == VK_NULL_HANDLE) {
 		skr_log(skr_log_critical, "Failed to allocate texture memory - Format: %d, Size: %dx%dx%d, Mips: %d, Layers: %d, Samples: %d, Usage: 0x%x, Flags: 0x%x",
 			format, size.x, size.y, size.z, out_tex->mip_levels, out_tex->layer_count, out_tex->samples, usage, out_tex->flags);
 		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
@@ -584,7 +583,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		// Calculate data size and create staging buffer
 		uint32_t           pixel_size = _skr_tex_fmt_to_size(format);
 		VkDeviceSize       data_size  = size.x * size.y * size.z * pixel_size;
-		staging_buffer_t   staging    = _skr_create_staging_buffer(data_size);
+		staging_buffer_t   staging    = _skr_create_staging_buffer(_skr_vk.device, _skr_vk.physical_device, data_size);
 
 		if (!staging.valid) {
 			skr_log(skr_log_critical, "Failed to create staging buffer for texture upload");
@@ -673,7 +672,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	}
 
 	// Store texture properties
-	out_tex->sampler              = _skr_sampler_create_vk(sampler);
+	out_tex->sampler              = _skr_sampler_create_vk(_skr_vk.device, sampler);
 
 	// Initialize layout tracking
 	out_tex->current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -685,16 +684,16 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	return skr_err_success;
 }
 
-void skr_tex_destroy(skr_tex_t* tex) {
-	if (!tex) return;
+void skr_tex_destroy(skr_tex_t* ref_tex) {
+	if (!ref_tex) return;
 
-	_skr_cmd_destroy_framebuffer(NULL, tex->framebuffer);
-	_skr_cmd_destroy_framebuffer(NULL, tex->framebuffer_depth);
-	_skr_cmd_destroy_sampler    (NULL, tex->sampler);
-	_skr_cmd_destroy_image_view (NULL, tex->view);
-	_skr_cmd_destroy_image      (NULL, tex->image);
-	_skr_cmd_destroy_memory     (NULL, tex->memory);
-	*tex = (skr_tex_t){};
+	_skr_cmd_destroy_framebuffer(NULL, ref_tex->framebuffer);
+	_skr_cmd_destroy_framebuffer(NULL, ref_tex->framebuffer_depth);
+	_skr_cmd_destroy_sampler    (NULL, ref_tex->sampler);
+	_skr_cmd_destroy_image_view (NULL, ref_tex->view);
+	_skr_cmd_destroy_image      (NULL, ref_tex->image);
+	_skr_cmd_destroy_memory     (NULL, ref_tex->memory);
+	*ref_tex = (skr_tex_t){};
 }
 
 bool skr_tex_is_valid(const skr_tex_t* tex) {
@@ -721,27 +720,27 @@ skr_tex_sampler_t skr_tex_get_sampler(const skr_tex_t* tex) {
 	return tex ? tex->sampler_settings : (skr_tex_sampler_t){0};
 }
 
-void skr_tex_set_name(skr_tex_t* tex, const char* name) {
-	if (!tex || tex->image == VK_NULL_HANDLE) return;
+void skr_tex_set_name(skr_tex_t* ref_tex, const char* name) {
+	if (!ref_tex || ref_tex->image == VK_NULL_HANDLE) return;
 
-	_skr_set_debug_name(VK_OBJECT_TYPE_IMAGE, (uint64_t)tex->image, name);
+	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_IMAGE, (uint64_t)ref_tex->image, name);
 
 	// Also name the image view if it exists
-	if (tex->view != VK_NULL_HANDLE) {
+	if (ref_tex->view != VK_NULL_HANDLE) {
 		char view_name[256];
 		snprintf(view_name, sizeof(view_name), "%s_view", name);
-		_skr_set_debug_name(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)tex->view, view_name);
+		_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)ref_tex->view, view_name);
 	}
 }
 
-void skr_tex_generate_mips(skr_tex_t* tex, const skr_shader_t* opt_shader) {
-	if (!skr_tex_is_valid(tex)) {
+void skr_tex_generate_mips(skr_tex_t* ref_tex, const skr_shader_t* opt_shader) {
+	if (!skr_tex_is_valid(ref_tex)) {
 		skr_log(skr_log_warning, "Cannot generate mipmaps for invalid texture");
 		return;
 	}
 
 	// Calculate mip levels
-	int32_t max_dim = tex->size.x > tex->size.y ? tex->size.x : tex->size.y;
+	int32_t max_dim    = ref_tex->size.x > ref_tex->size.y ? ref_tex->size.x : ref_tex->size.y;
 	int32_t mip_levels = (int32_t)floor(log2(max_dim)) + 1;
 
 	if (mip_levels <= 1) {
@@ -753,17 +752,17 @@ void skr_tex_generate_mips(skr_tex_t* tex, const skr_shader_t* opt_shader) {
 	// If a custom shader is provided, use render-based mipmap generation (fragment shader)
 	// Otherwise fall back to simple blit
 	if (opt_shader == NULL) {
-		_skr_tex_generate_mips_blit(tex, mip_levels);
+		_skr_tex_generate_mips_blit  (_skr_vk.physical_device, ref_tex, mip_levels);
 	} else {
-		_skr_tex_generate_mips_render(tex, mip_levels, opt_shader);
+		_skr_tex_generate_mips_render(_skr_vk.device, ref_tex, mip_levels, opt_shader);
 	}
 }
 
-static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
+static void _skr_tex_generate_mips_blit(VkPhysicalDevice phys_device, skr_tex_t* ref_tex, int32_t mip_levels) {
 	// Check format support for blit operations
 	VkFormatProperties format_properties;
-	VkFormat           vk_format = _skr_to_vk_tex_fmt(tex->format);
-	vkGetPhysicalDeviceFormatProperties(_skr_vk.physical_device, vk_format, &format_properties);
+	VkFormat           vk_format = _skr_to_vk_tex_fmt(ref_tex->format);
+	vkGetPhysicalDeviceFormatProperties(phys_device, vk_format, &format_properties);
 
 	if (!(format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) ||
 	    !(format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT)) {
@@ -781,19 +780,19 @@ static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
 	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
 
 	// Transition mip 0 to TRANSFER_SRC_OPTIMAL (automatic system tracks current layout)
-	_skr_tex_transition(ctx.cmd, tex, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	_skr_tex_transition(ctx.cmd, ref_tex, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
 
 	// Generate each mip level by blitting from the previous level
-	int32_t mip_width  = tex->size.x;
-	int32_t mip_height = tex->size.y;
+	int32_t mip_width  = ref_tex->size.x;
+	int32_t mip_height = ref_tex->size.y;
 
 	for (int32_t i = 1; i < mip_levels; i++) {
 		int32_t next_mip_width  = mip_width  > 1 ? mip_width  / 2 : 1;
 		int32_t next_mip_height = mip_height > 1 ? mip_height / 2 : 1;
 
 		// Transition mip i from UNDEFINED to TRANSFER_DST_OPTIMAL
-		_skr_transition_image_layout(ctx.cmd, tex->image, tex->aspect_mask, i, 1, tex->layer_count,
+		_skr_transition_image_layout(ctx.cmd, ref_tex->image, ref_tex->aspect_mask, i, 1, ref_tex->layer_count,
 			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 			0, VK_ACCESS_TRANSFER_WRITE_BIT);
@@ -801,30 +800,30 @@ static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
 		// Blit from mip i-1 to mip i (for all layers)
 		VkImageBlit blit = {
 			.srcSubresource = {
-				.aspectMask     = tex->aspect_mask,
+				.aspectMask     = ref_tex->aspect_mask,
 				.mipLevel       = i - 1,
 				.baseArrayLayer = 0,
-				.layerCount     = tex->layer_count,
+				.layerCount     = ref_tex->layer_count,
 			},
 			.srcOffsets[0] = {0, 0, 0},
 			.srcOffsets[1] = {mip_width, mip_height, 1},
 			.dstSubresource = {
-				.aspectMask     = tex->aspect_mask,
+				.aspectMask     = ref_tex->aspect_mask,
 				.mipLevel       = i,
 				.baseArrayLayer = 0,
-				.layerCount     = tex->layer_count,
+				.layerCount     = ref_tex->layer_count,
 			},
 			.dstOffsets[0] = {0, 0, 0},
 			.dstOffsets[1] = {next_mip_width, next_mip_height, 1},
 		};
 
 		vkCmdBlitImage(ctx.cmd,
-			tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			ref_tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			ref_tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1, &blit, filter_mode);
 
 		// Transition mip i from TRANSFER_DST to TRANSFER_SRC for next iteration
-		_skr_transition_image_layout(ctx.cmd, tex->image, tex->aspect_mask, i, 1, tex->layer_count,
+		_skr_transition_image_layout(ctx.cmd, ref_tex->image, ref_tex->aspect_mask, i, 1, ref_tex->layer_count,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
@@ -834,12 +833,12 @@ static void _skr_tex_generate_mips_blit(skr_tex_t* tex, int32_t mip_levels) {
 	}
 
 	// Transition back to shader read layout (automatic system handles this)
-	_skr_tex_transition_for_shader_read(ctx.cmd, tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+	_skr_tex_transition_for_shader_read(ctx.cmd, ref_tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	_skr_cmd_release(ctx.cmd);
 }
 
-static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, const skr_shader_t* fragment_shader) {
+static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, int32_t mip_levels, const skr_shader_t* fragment_shader) {
 	if (!skr_shader_is_valid(fragment_shader)) {
 		skr_log(skr_log_warning, "Invalid fragment shader provided for mipmap generation");
 		return;
@@ -866,7 +865,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 	}
 
 	// Register render pass format with pipeline system (cached for reuse)
-	VkFormat format = _skr_to_vk_tex_fmt(tex->format);
+	VkFormat format = _skr_to_vk_tex_fmt(ref_tex->format);
 	skr_pipeline_renderpass_key_t rp_key = {
 		.color_format   = format,
 		.depth_format   = VK_FORMAT_UNDEFINED,
@@ -895,9 +894,9 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 
 	// Determine view type for layer rendering
 	VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
-	if (tex->flags & skr_tex_flags_cubemap) {
+	if (ref_tex->flags & skr_tex_flags_cubemap) {
 		view_type = VK_IMAGE_VIEW_TYPE_CUBE;
-	} else if (tex->flags & skr_tex_flags_array) {
+	} else if (ref_tex->flags & skr_tex_flags_array) {
 		view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 	}
 
@@ -920,13 +919,13 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		all_params = _skr_calloc(num_mips, material.param_buffer_size);
 
 		for (int32_t mip = 1; mip < mip_levels; mip++) {
-			uint32_t mip_width  = tex->size.x >> mip;
-			uint32_t mip_height = tex->size.y >> mip;
+			uint32_t mip_width  = ref_tex->size.x >> mip;
+			uint32_t mip_height = ref_tex->size.y >> mip;
 			if (mip_width  == 0) mip_width  = 1;
 			if (mip_height == 0) mip_height = 1;
 
-			uint32_t prev_mip_width  = tex->size.x >> (mip - 1);
-			uint32_t prev_mip_height = tex->size.y >> (mip - 1);
+			uint32_t prev_mip_width  = ref_tex->size.x >> (mip - 1);
+			uint32_t prev_mip_height = ref_tex->size.y >> (mip - 1);
 			if (prev_mip_width  == 0) prev_mip_width  = 1;
 			if (prev_mip_height == 0) prev_mip_height = 1;
 
@@ -952,8 +951,8 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 
 	// Generate each mip level by rendering from previous mip
 	for (int32_t mip = 1; mip < mip_levels; mip++) {
-		uint32_t mip_width  = tex->size.x >> mip;
-		uint32_t mip_height = tex->size.y >> mip;
+		uint32_t mip_width  = ref_tex->size.x >> mip;
+		uint32_t mip_height = ref_tex->size.y >> mip;
 		if (mip_width  == 0) mip_width  = 1;
 		if (mip_height == 0) mip_height = 1;
 
@@ -962,7 +961,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		{
 			VkImageViewCreateInfo view_info = {
 				.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-				.image      = tex->image,
+				.image      = ref_tex->image,
 				.viewType   = view_type,
 				.format     = format,
 				.subresourceRange = {
@@ -970,10 +969,10 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 					.baseMipLevel   = mip,
 					.levelCount     = 1,
 					.baseArrayLayer = 0,
-					.layerCount     = tex->layer_count,
+					.layerCount     = ref_tex->layer_count,
 				},
 			};
-			VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &mip_view);
+			VkResult vr = vkCreateImageView(device, &view_info, NULL, &mip_view);
 			if (vr != VK_SUCCESS) {
 				SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 				continue;
@@ -991,9 +990,9 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 				.pAttachments    = &mip_view,
 				.width           = mip_width,
 				.height          = mip_height,
-				.layers          = tex->layer_count,
+				.layers          = ref_tex->layer_count,
 			};
-			VkResult vr = vkCreateFramebuffer(_skr_vk.device, &fb_info, NULL, &framebuffer);
+			VkResult vr = vkCreateFramebuffer(device, &fb_info, NULL, &framebuffer);
 			if (vr != VK_SUCCESS) {
 				SKR_VK_CHECK_NRET(vr, "vkCreateFramebuffer");
 				continue;
@@ -1006,7 +1005,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		{
 			VkImageViewCreateInfo src_view_info = {
 				.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-				.image      = tex->image,
+				.image      = ref_tex->image,
 				.viewType   = view_type,
 				.format     = format,
 				.subresourceRange = {
@@ -1014,10 +1013,10 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 					.baseMipLevel   = mip - 1,
 					.levelCount     = 1,
 					.baseArrayLayer = 0,
-					.layerCount     = tex->layer_count,
+					.layerCount     = ref_tex->layer_count,
 				},
 			};
-			VkResult vr = vkCreateImageView(_skr_vk.device, &src_view_info, NULL, &src_view);
+			VkResult vr = vkCreateImageView(device, &src_view_info, NULL, &src_view);
 			if (vr != VK_SUCCESS) {
 				SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 				continue;
@@ -1034,13 +1033,13 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 			.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.image               = tex->image,
+			.image               = ref_tex->image,
 			.subresourceRange    = {
 				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 				.baseMipLevel   = mip,
 				.levelCount     = 1,
 				.baseArrayLayer = 0,
-				.layerCount     = tex->layer_count,
+				.layerCount     = ref_tex->layer_count,
 			},
 		};
 		vkCmdPipelineBarrier(ctx.cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -1090,7 +1089,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 
 		// Manually add source texture binding (since we create it per-mip)
 		image_infos[image_ct] = (VkDescriptorImageInfo){
-			.sampler     = tex->sampler,
+			.sampler     = ref_tex->sampler,
 			.imageView   = src_view,
 			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		};
@@ -1117,13 +1116,14 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		);
 
 		// Push descriptors and draw
-		_skr_bind_descriptors(ctx.cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		                      _skr_pipeline_get_layout(material.pipeline_material_idx),
-		                      _skr_pipeline_get_descriptor_layout(material.pipeline_material_idx),
-		                      writes, write_ct);
+		_skr_bind_descriptors(
+			ctx.cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_GRAPHICS,
+			_skr_pipeline_get_layout           (material.pipeline_material_idx),
+			_skr_pipeline_get_descriptor_layout(material.pipeline_material_idx),
+			writes, write_ct);
 
 		// Draw fullscreen triangle (with instances for each layer/face)
-		vkCmdDraw(ctx.cmd, 3, tex->layer_count, 0, 0);
+		vkCmdDraw(ctx.cmd, 3, ref_tex->layer_count, 0, 0);
 
 		// End render pass
 		vkCmdEndRenderPass(ctx.cmd);
@@ -1133,11 +1133,10 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 		barrier.oldLayout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		vkCmdPipelineBarrier(ctx.cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-		                     0, 0, NULL, 0, NULL, 1, &barrier);
+		vkCmdPipelineBarrier( ctx.cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 	}
 
-	skr_buffer_destroy(&params_buffer);
+	skr_buffer_destroy  (&params_buffer);
 	skr_material_destroy(&material);
 
 	_skr_cmd_release(ctx.cmd);
@@ -1147,7 +1146,7 @@ static void _skr_tex_generate_mips_render(skr_tex_t* tex, int32_t mip_levels, co
 // Sampler creation
 ///////////////////////////////////////////////////////////////////////////////
 
-VkSampler _skr_sampler_create_vk(skr_tex_sampler_t settings) {
+VkSampler _skr_sampler_create_vk(VkDevice device, skr_tex_sampler_t settings) {
 	VkFilter             filter      = _skr_to_vk_filter (settings.sample);
 	VkSamplerAddressMode address     = _skr_to_vk_address(settings.address);
 	VkCompareOp          compare_op  = _skr_to_vk_compare(settings.sample_compare);
@@ -1172,23 +1171,26 @@ VkSampler _skr_sampler_create_vk(skr_tex_sampler_t settings) {
 	};
 
 	VkSampler vk_sampler = VK_NULL_HANDLE;
-	VkResult vr = vkCreateSampler(_skr_vk.device, &sampler_info, NULL, &vk_sampler);
+	VkResult  vr         = vkCreateSampler(device, &sampler_info, NULL, &vk_sampler);
 	SKR_VK_CHECK_RET(vr, "vkCreateSampler", VK_NULL_HANDLE);
 
 	// Generate debug name based on sampler settings
-	const char* filter_str = settings.sample  == skr_tex_sample_linear      ? "linear" :
-	                         settings.sample  == skr_tex_sample_point       ? "point" :
-	                         settings.sample  == skr_tex_sample_anisotropic ? "aniso" : "unk";
-	const char* address_str = settings.address == skr_tex_address_wrap   ? "wrap" :
-	                          settings.address == skr_tex_address_clamp  ? "clamp" :
-	                          settings.address == skr_tex_address_mirror ? "mirror" : "unk";
-	const char* compare_str = settings.sample_compare == skr_compare_none       ? "" :
-	                          settings.sample_compare == skr_compare_less       ? "_less" :
-	                          settings.sample_compare == skr_compare_less_or_eq ? "_lesseq" : "_cmp";
+	const char* filter_str = 
+		settings.sample         == skr_tex_sample_linear      ? "linear" :
+		settings.sample         == skr_tex_sample_point       ? "point" :
+		settings.sample         == skr_tex_sample_anisotropic ? "aniso" : "unk";
+	const char* address_str = 
+		settings.address        == skr_tex_address_wrap       ? "wrap" :
+		settings.address        == skr_tex_address_clamp      ? "clamp" :
+		settings.address        == skr_tex_address_mirror     ? "mirror" : "unk";
+	const char* compare_str = 
+		settings.sample_compare == skr_compare_none           ? "" :
+		settings.sample_compare == skr_compare_less           ? "_less" :
+		settings.sample_compare == skr_compare_less_or_eq     ? "_lesseq" : "_cmp";
 
 	char name[128];
 	snprintf(name, sizeof(name), "sampler_%s_%s_%s", filter_str, address_str, compare_str);
-	_skr_set_debug_name(VK_OBJECT_TYPE_SAMPLER, (uint64_t)vk_sampler, name);
+	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_SAMPLER, (uint64_t)vk_sampler, name);
 
 	return vk_sampler;
 }

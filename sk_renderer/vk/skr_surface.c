@@ -15,16 +15,16 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // Helper to create/recreate swapchain and allocate resources
-static bool _skr_surface_create_swapchain(skr_surface_t* surface, VkSwapchainKHR old_swapchain) {
+static bool _skr_surface_create_swapchain(VkDevice device, VkPhysicalDevice phys_device, uint32_t graphics_queue_family, skr_surface_t* ref_surface, VkSwapchainKHR old_swapchain) {
 	// Get surface capabilities
 	VkSurfaceCapabilitiesKHR capabilities;
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(_skr_vk.physical_device, surface->surface, &capabilities);
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys_device, ref_surface->surface, &capabilities);
 
 	// Get surface formats
 	uint32_t            format_count;
 	VkSurfaceFormatKHR  formats[64];
-	vkGetPhysicalDeviceSurfaceFormatsKHR(_skr_vk.physical_device, surface->surface, &format_count, NULL);
-	vkGetPhysicalDeviceSurfaceFormatsKHR(_skr_vk.physical_device, surface->surface, &format_count, formats);
+	vkGetPhysicalDeviceSurfaceFormatsKHR(phys_device, ref_surface->surface, &format_count, NULL);
+	vkGetPhysicalDeviceSurfaceFormatsKHR(phys_device, ref_surface->surface, &format_count, formats);
 
 	// Choose format based on platform preference
 	// Android/mobile: prefer RGBA for native GPU ordering
@@ -61,11 +61,12 @@ format_found:
 	// Get present modes
 	uint32_t         present_mode_count;
 	VkPresentModeKHR present_modes[16];
-	vkGetPhysicalDeviceSurfacePresentModesKHR(_skr_vk.physical_device, surface->surface, &present_mode_count, NULL);
-	vkGetPhysicalDeviceSurfacePresentModesKHR(_skr_vk.physical_device, surface->surface, &present_mode_count, present_modes);
+	vkGetPhysicalDeviceSurfacePresentModesKHR(phys_device, ref_surface->surface, &present_mode_count, NULL);
+	vkGetPhysicalDeviceSurfacePresentModesKHR(phys_device, ref_surface->surface, &present_mode_count, present_modes);
 
-	// Choose present mode (FIFO guaranteed, FIFO_LATEST_READY if available)
-	VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+	// Choose present mode: IMMEDIATE for lowest latency (allows tearing), FIFO for vsync
+	//VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
+	VkPresentModeKHR present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
 	for (uint32_t i = 0; i < present_mode_count; i++) {
 		if (present_modes[i] == 1000361000) { // VK_PRESENT_MODE_FIFO_LATEST_READY_EXT
 			present_mode = present_modes[i];
@@ -95,7 +96,7 @@ format_found:
 	// Create swapchain
 	VkSwapchainCreateInfoKHR swapchain_info = {
 		.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-		.surface          = surface->surface,
+		.surface          = ref_surface->surface,
 		.minImageCount    = image_count,
 		.imageFormat      = surface_format.format,
 		.imageColorSpace  = surface_format.colorSpace,
@@ -111,72 +112,72 @@ format_found:
 	};
 
 	VkSwapchainKHR swapchain;
-	VkResult vr = vkCreateSwapchainKHR(_skr_vk.device, &swapchain_info, NULL, &swapchain);
+	VkResult vr = vkCreateSwapchainKHR(device, &swapchain_info, NULL, &swapchain);
 	SKR_VK_CHECK_RET(vr, "vkCreateSwapchainKHR", false);
 
 	// Destroy old swapchain if provided
 	if (old_swapchain != VK_NULL_HANDLE) {
-		vkDestroySwapchainKHR(_skr_vk.device, old_swapchain, NULL);
+		vkDestroySwapchainKHR(device, old_swapchain, NULL);
 	}
-	surface->swapchain = swapchain;
+	ref_surface->swapchain = swapchain;
 
 	// Get swapchain images
 	VkImage vk_images[16];
 	uint32_t requested_count = image_count;
-	vkGetSwapchainImagesKHR(_skr_vk.device, swapchain, &image_count, NULL);
-	vkGetSwapchainImagesKHR(_skr_vk.device, swapchain, &image_count, vk_images);
+	vkGetSwapchainImagesKHR(device, swapchain, &image_count, NULL);
+	vkGetSwapchainImagesKHR(device, swapchain, &image_count, vk_images);
 
 	skr_log(skr_log_info, "Swapchain created: requested %d, actual %d images", requested_count, image_count);
 
 	// Reallocate images array and per-image semaphores if count changed
-	if (image_count != surface->image_count) {
+	if (image_count != ref_surface->image_count) {
 		// Destroy old per-image submit semaphores
-		if (surface->semaphore_submit) {
-			for (uint32_t i = 0; i < surface->image_count; i++) {
-				if (surface->semaphore_submit[i]) vkDestroySemaphore(_skr_vk.device, surface->semaphore_submit[i], NULL);
+		if (ref_surface->semaphore_submit) {
+			for (uint32_t i = 0; i < ref_surface->image_count; i++) {
+				if (ref_surface->semaphore_submit[i]) vkDestroySemaphore(device, ref_surface->semaphore_submit[i], NULL);
 			}
-			_skr_free(surface->semaphore_submit);
+			_skr_free(ref_surface->semaphore_submit);
 		}
 
 		// Allocate new per-image submit semaphores for new image count
-		surface->semaphore_submit = (VkSemaphore*)_skr_calloc(image_count, sizeof(VkSemaphore));
+		ref_surface->semaphore_submit = (VkSemaphore*)_skr_calloc(image_count, sizeof(VkSemaphore));
 
 		VkSemaphoreCreateInfo semaphore_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 		for (uint32_t i = 0; i < image_count; i++) {
-			vkCreateSemaphore(_skr_vk.device, &semaphore_info, NULL, &surface->semaphore_submit[i]);
+			vkCreateSemaphore(device, &semaphore_info, NULL, &ref_surface->semaphore_submit[i]);
 		}
 
 		// Reallocate images array
-		if (surface->images) _skr_free(surface->images);
-		surface->images      = (skr_tex_t*)_skr_calloc(image_count, sizeof(skr_tex_t));
-		surface->image_count = image_count;
+		if (ref_surface->images) _skr_free(ref_surface->images);
+		ref_surface->images      = (skr_tex_t*)_skr_calloc(image_count, sizeof(skr_tex_t));
+		ref_surface->image_count = image_count;
 	}
 
 	// Update size
-	surface->size = (skr_vec2i_t){extent.width, extent.height};
+	ref_surface->size = (skr_vec2i_t){extent.width, extent.height};
 
 	// Create image views and initialize layout tracking
 	for (uint32_t i = 0; i < image_count; i++) {
 		// Basic properties
-		surface->images[i].image             = vk_images[i];
-		surface->images[i].size              = (skr_vec3i_t){extent.width, extent.height, 1};
-		surface->images[i].format            = _skr_from_vk_tex_fmt(surface_format.format);
-		surface->images[i].samples           = VK_SAMPLE_COUNT_1_BIT;
-		surface->images[i].mip_levels        = 1;
-		surface->images[i].layer_count       = 1;
-		surface->images[i].aspect_mask       = VK_IMAGE_ASPECT_COLOR_BIT;  // CRITICAL: Must be set!
-		surface->images[i].framebuffer       = VK_NULL_HANDLE;
-		surface->images[i].framebuffer_depth = VK_NULL_HANDLE;
-		surface->images[i].framebuffer_pass  = VK_NULL_HANDLE;
-		surface->images[i].sampler           = VK_NULL_HANDLE;
-		surface->images[i].memory            = VK_NULL_HANDLE;  // Swapchain owns memory
+		ref_surface->images[i].image             = vk_images[i];
+		ref_surface->images[i].size              = (skr_vec3i_t){extent.width, extent.height, 1};
+		ref_surface->images[i].format            = _skr_from_vk_tex_fmt(surface_format.format);
+		ref_surface->images[i].samples           = VK_SAMPLE_COUNT_1_BIT;
+		ref_surface->images[i].mip_levels        = 1;
+		ref_surface->images[i].layer_count       = 1;
+		ref_surface->images[i].aspect_mask       = VK_IMAGE_ASPECT_COLOR_BIT;  // CRITICAL: Must be set!
+		ref_surface->images[i].framebuffer       = VK_NULL_HANDLE;
+		ref_surface->images[i].framebuffer_depth = VK_NULL_HANDLE;
+		ref_surface->images[i].framebuffer_pass  = VK_NULL_HANDLE;
+		ref_surface->images[i].sampler           = VK_NULL_HANDLE;
+		ref_surface->images[i].memory            = VK_NULL_HANDLE;  // Swapchain owns memory
 
 		// Initialize layout tracking for swapchain images
 		// Swapchain images start in UNDEFINED, render pass will transition them
-		surface->images[i].current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
-		surface->images[i].current_queue_family = _skr_vk.graphics_queue_family;
-		surface->images[i].first_use            = true;
-		surface->images[i].is_transient_discard = false;  // Swapchain images are not transient
+		ref_surface->images[i].current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
+		ref_surface->images[i].current_queue_family = graphics_queue_family;
+		ref_surface->images[i].first_use            = true;
+		ref_surface->images[i].is_transient_discard = false;  // Swapchain images are not transient
 
 		VkImageViewCreateInfo view_info = {
 			.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -193,7 +194,7 @@ format_found:
 			},
 		};
 
-		vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &surface->images[i].view);
+		vr = vkCreateImageView(device, &view_info, NULL, &ref_surface->images[i].view);
 		SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 	}
 
@@ -221,7 +222,7 @@ skr_err_ skr_surface_create(void* vk_surface_khr, skr_surface_t* out_surface) {
 	out_surface->surface = vk_surface;
 
 	// Create swapchain using helper
-	if (!_skr_surface_create_swapchain(out_surface, VK_NULL_HANDLE)) {
+	if (!_skr_surface_create_swapchain(_skr_vk.device, _skr_vk.physical_device, _skr_vk.graphics_queue_family, out_surface, VK_NULL_HANDLE)) {
 		vkDestroySurfaceKHR(_skr_vk.instance, vk_surface, NULL);
 		*out_surface = (skr_surface_t){};
 		return skr_err_device_error;
@@ -236,67 +237,67 @@ skr_err_ skr_surface_create(void* vk_surface_khr, skr_surface_t* out_surface) {
 	return skr_err_success;
 }
 
-void skr_surface_destroy(skr_surface_t* surface) {
-	if (!surface) return;
+void skr_surface_destroy(skr_surface_t* ref_surface) {
+	if (!ref_surface) return;
 
 	//vkDeviceWaitIdle(_skr_vk.device);
 
 	// Destroy per-frame synchronization objects
 	for (uint32_t i = 0; i < SKR_MAX_FRAMES_IN_FLIGHT; i++)
-		_skr_cmd_destroy_semaphore(NULL, surface->semaphore_acquire[i]);
+		_skr_cmd_destroy_semaphore(NULL, ref_surface->semaphore_acquire[i]);
 
 	// Destroy per-image synchronization objects
-	if (surface->semaphore_submit) {
-		for (uint32_t i = 0; i < surface->image_count; i++)
-			_skr_cmd_destroy_semaphore(NULL, surface->semaphore_submit[i]);
-		_skr_free(surface->semaphore_submit);
+	if (ref_surface->semaphore_submit) {
+		for (uint32_t i = 0; i < ref_surface->image_count; i++)
+			_skr_cmd_destroy_semaphore(NULL, ref_surface->semaphore_submit[i]);
+		_skr_free(ref_surface->semaphore_submit);
 	}
 
 	// Destroy image views and cached framebuffers
-	if (surface->images) {
-		for (uint32_t i = 0; i < surface->image_count; i++) {
-			_skr_cmd_destroy_framebuffer(NULL, surface->images[i].framebuffer);
-			_skr_cmd_destroy_framebuffer(NULL, surface->images[i].framebuffer_depth);
-			_skr_cmd_destroy_image_view (NULL, surface->images[i].view);
+	if (ref_surface->images) {
+		for (uint32_t i = 0; i < ref_surface->image_count; i++) {
+			_skr_cmd_destroy_framebuffer(NULL, ref_surface->images[i].framebuffer);
+			_skr_cmd_destroy_framebuffer(NULL, ref_surface->images[i].framebuffer_depth);
+			_skr_cmd_destroy_image_view (NULL, ref_surface->images[i].view);
 		}
-		_skr_free(surface->images);
+		_skr_free(ref_surface->images);
 	}
 
-	_skr_cmd_destroy_surface  (NULL, surface->surface  );
-	_skr_cmd_destroy_swapchain(NULL, surface->swapchain);
+	_skr_cmd_destroy_surface  (NULL, ref_surface->surface  );
+	_skr_cmd_destroy_swapchain(NULL, ref_surface->swapchain);
 }
 
-void skr_surface_resize(skr_surface_t* surface) {
-	if (!surface) return;
+void skr_surface_resize(skr_surface_t* ref_surface) {
+	if (!ref_surface) return;
 
 	vkDeviceWaitIdle(_skr_vk.device);
 
 	// Destroy old image views and framebuffers
-	for (uint32_t i = 0; i < surface->image_count; i++) {
-		skr_tex_t* tex = &surface->images[i];
+	for (uint32_t i = 0; i < ref_surface->image_count; i++) {
+		skr_tex_t* tex = &ref_surface->images[i];
 		if (tex->framebuffer      ) { vkDestroyFramebuffer(_skr_vk.device, tex->framebuffer,       NULL); }
 		if (tex->framebuffer_depth) { vkDestroyFramebuffer(_skr_vk.device, tex->framebuffer_depth, NULL); }
 		if (tex->view             ) { vkDestroyImageView  (_skr_vk.device, tex->view,              NULL); }
 	}
 
 	// Recreate swapchain using helper (old swapchain will be destroyed by helper)
-	_skr_surface_create_swapchain(surface, surface->swapchain);
+	_skr_surface_create_swapchain(_skr_vk.device, _skr_vk.physical_device, _skr_vk.graphics_queue_family, ref_surface, ref_surface->swapchain);
 }
 
-skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
-	if (!surface || !out_tex) return skr_acquire_error;
+skr_acquire_ skr_surface_next_tex(skr_surface_t* ref_surface, skr_tex_t** out_tex) {
+	if (!ref_surface || !out_tex) return skr_acquire_error;
 
 	*out_tex = NULL;
 
 	// Wait on the future from N-frames-ago to ensure this frame slot is available
-	skr_future_wait(&surface->frame_future[surface->frame_idx]);
+	skr_future_wait(&ref_surface->frame_future[ref_surface->frame_idx]);
 
 	// Acquire next image using per-frame acquire semaphore
 	// Frame fence ensures this semaphore is not in use from previous frames
 	VkResult result = vkAcquireNextImageKHR(
-		_skr_vk.device, surface->swapchain, UINT64_MAX,
-		surface->semaphore_acquire[surface->frame_idx],
-		VK_NULL_HANDLE, &surface->current_image
+		_skr_vk.device, ref_surface->swapchain, UINT64_MAX,
+		ref_surface->semaphore_acquire[ref_surface->frame_idx],
+		VK_NULL_HANDLE, &ref_surface->current_image
 	);
 
 	// Handle surface lost - cannot recover here, caller must recreate surface
@@ -320,7 +321,7 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
 			vkQueueSubmit(_skr_vk.graphics_queue, 1, &(VkSubmitInfo){
 				.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 				.waitSemaphoreCount   = 1,
-				.pWaitSemaphores      = &surface->semaphore_acquire[surface->frame_idx],
+				.pWaitSemaphores      = &ref_surface->semaphore_acquire[ref_surface->frame_idx],
 				.pWaitDstStageMask    = &wait_stage,
 				.commandBufferCount   = 0,  // No commands, just consume the semaphore
 			}, VK_NULL_HANDLE);
@@ -340,26 +341,26 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* surface, skr_tex_t** out_tex) {
 		return skr_acquire_error;
 	}
 
-	*out_tex = &surface->images[surface->current_image];
+	*out_tex = &ref_surface->images[ref_surface->current_image];
 	return skr_acquire_success;
 }
 
-void skr_surface_present(skr_surface_t* surface) {
-	if (!surface) return;
+void skr_surface_present(skr_surface_t* ref_surface) {
+	if (!ref_surface) return;
 
 	// Just present - all command buffer work happened before frame_end!
 	mtx_lock(_skr_vk.present_queue_mutex);
 	vkQueuePresentKHR(_skr_vk.present_queue, &(VkPresentInfoKHR){
 		.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.waitSemaphoreCount = 1,
-		.pWaitSemaphores    = &surface->semaphore_submit[surface->current_image],
+		.pWaitSemaphores    = &ref_surface->semaphore_submit[ref_surface->current_image],
 		.swapchainCount     = 1,
-		.pSwapchains        = &surface->swapchain,
-		.pImageIndices      = &surface->current_image,
+		.pSwapchains        = &ref_surface->swapchain,
+		.pImageIndices      = &ref_surface->current_image,
 	});
 	mtx_unlock(_skr_vk.present_queue_mutex);
 
-	surface->frame_idx = (surface->frame_idx + 1) % SKR_MAX_FRAMES_IN_FLIGHT;
+	ref_surface->frame_idx = (ref_surface->frame_idx + 1) % SKR_MAX_FRAMES_IN_FLIGHT;
 }
 
 skr_vec2i_t skr_surface_get_size(const skr_surface_t* surface) {

@@ -56,37 +56,37 @@ skr_destroy_list_t _skr_destroy_list_create(void) {
 	return (skr_destroy_list_t){ .items = NULL, .count = 0, .capacity = 0 };
 }
 
-void _skr_destroy_list_free(skr_destroy_list_t* list) {
-	if (!list) return;
-	_skr_free(list->items);
-	list->items    = NULL;
-	list->count    = 0;
-	list->capacity = 0;
+void _skr_destroy_list_free(skr_destroy_list_t* ref_list) {
+	if (!ref_list) return;
+	_skr_free(ref_list->items);
+	ref_list->items    = NULL;
+	ref_list->count    = 0;
+	ref_list->capacity = 0;
 }
 
-static void _skr_destroy_list_ensure_capacity(skr_destroy_list_t* list, uint32_t required) {
-	if (list->capacity >= required) return;
+static void _skr_destroy_list_ensure_capacity(skr_destroy_list_t* ref_list, uint32_t required) {
+	if (ref_list->capacity >= required) return;
 
-	uint32_t new_capacity = list->capacity == 0 ? 8 : list->capacity * 2;
+	uint32_t new_capacity = ref_list->capacity == 0 ? 8 : ref_list->capacity * 2;
 	while (new_capacity < required) {
 		new_capacity *= 2;
 	}
 
-	skr_destroy_item_t* new_items = _skr_realloc(list->items, new_capacity * sizeof(skr_destroy_item_t));
+	skr_destroy_item_t* new_items = _skr_realloc(ref_list->items, new_capacity * sizeof(skr_destroy_item_t));
 	if (!new_items) {
 		skr_log(skr_log_critical, "Failed to resize destroy list");
 		return;
 	}
 
-	list->items    = new_items;
-	list->capacity = new_capacity;
+	ref_list->items    = new_items;
+	ref_list->capacity = new_capacity;
 }
 
-static void _skr_destroy_list_add(skr_destroy_list_t* list, uint64_t handle, skr_destroy_type_ type){
-	_skr_destroy_list_ensure_capacity(list, list->count + 1);
+static void _skr_destroy_list_add(skr_destroy_list_t* ref_list, uint64_t handle, skr_destroy_type_ type){
+	_skr_destroy_list_ensure_capacity(ref_list, ref_list->count + 1);
 
-	skr_destroy_item_t* items = (skr_destroy_item_t*)list->items;
-	items[list->count++] = (skr_destroy_item_t){
+	skr_destroy_item_t* items = (skr_destroy_item_t*)ref_list->items;
+	items[ref_list->count++] = (skr_destroy_item_t){
 		.type   = type,
 		.handle = handle,
 	};
@@ -101,23 +101,23 @@ static void _skr_destroy_list_destroy(uint64_t handle, skr_destroy_type_ type) {
 }
 
 #define MAKE_ADD_FUNCTION(name, vk_type, func, owner) \
-void _skr_cmd_destroy_##name(skr_destroy_list_t* opt_list, vk_type handle) { \
+void _skr_cmd_destroy_##name(skr_destroy_list_t* opt_ref_list, vk_type handle) { \
 	if (handle == VK_NULL_HANDLE) return; \
-	if (opt_list == NULL) { _skr_cmd_ring_slot_t* active = _skr_cmd_get_thread()->active_cmd; opt_list = active ? &active->destroy_list : NULL; } \
-	if (opt_list == NULL) { _skr_destroy_list_destroy(          (uint64_t)handle, skr_destroy_type_##name); } \
-	else                  { _skr_destroy_list_add    (opt_list, (uint64_t)handle, skr_destroy_type_##name); } \
+	if (opt_ref_list == NULL) { _skr_cmd_ring_slot_t* active = _skr_cmd_get_thread()->active_cmd; opt_ref_list = active ? &active->destroy_list : NULL; } \
+	if (opt_ref_list == NULL) { _skr_destroy_list_destroy(              (uint64_t)handle, skr_destroy_type_##name); } \
+	else                      { _skr_destroy_list_add    (opt_ref_list, (uint64_t)handle, skr_destroy_type_##name); } \
 }
 FOREACH_DESTROY_TYPE(MAKE_ADD_FUNCTION)
 #undef MAKE_ADD_FUNCTION
 
-void _skr_destroy_list_execute(skr_destroy_list_t* list) {
+void _skr_destroy_list_execute(skr_destroy_list_t* ref_list) {
 	// Execute in reverse order (LIFO - last in, first out)
-	skr_destroy_item_t* items = (skr_destroy_item_t*)list->items;
-	for (int32_t i = list->count - 1; i >= 0; i--)
+	skr_destroy_item_t* items = (skr_destroy_item_t*)ref_list->items;
+	for (int32_t i = ref_list->count - 1; i >= 0; i--)
 		_skr_destroy_list_destroy(items[i].handle, items[i].type);
 }
 
-void _skr_destroy_list_clear(skr_destroy_list_t* list) {
-	if (!list) return;
-	list->count = 0;
+void _skr_destroy_list_clear(skr_destroy_list_t* ref_list) {
+	if (!ref_list) return;
+	ref_list->count = 0;
 }

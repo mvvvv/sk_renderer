@@ -186,15 +186,15 @@ typedef struct {
 
 SKSC_API bool                     sksc_shader_file_verify         (const void *file_memory, uint32_t file_size, uint16_t *out_version, char *out_name, uint32_t out_name_size);
 SKSC_API sksc_result_             sksc_shader_file_load_memory    (const void *file_memory, uint32_t file_size, sksc_shader_file_t *out_file);
-SKSC_API void                     sksc_shader_file_destroy        (sksc_shader_file_t *file);
+SKSC_API void                     sksc_shader_file_destroy        (sksc_shader_file_t *ref_file);
 
-SKSC_API skr_bind_t               sksc_shader_meta_get_bind       (const sksc_shader_meta_t *meta, const char *name);
-SKSC_API int32_t                  sksc_shader_meta_get_var_count  (const sksc_shader_meta_t *meta);
-SKSC_API int32_t                  sksc_shader_meta_get_var_index  (const sksc_shader_meta_t *meta, const char *name);
-SKSC_API int32_t                  sksc_shader_meta_get_var_index_h(const sksc_shader_meta_t *meta, uint64_t name_hash);
-SKSC_API const sksc_shader_var_t* sksc_shader_meta_get_var_info   (const sksc_shader_meta_t *meta, int32_t var_index);
-SKSC_API void                     sksc_shader_meta_reference      (      sksc_shader_meta_t *meta);
-SKSC_API void                     sksc_shader_meta_release        (      sksc_shader_meta_t *meta);
+SKSC_API skr_bind_t               sksc_shader_meta_get_bind       (const sksc_shader_meta_t*     meta, const char *name);
+SKSC_API int32_t                  sksc_shader_meta_get_var_count  (const sksc_shader_meta_t*     meta);
+SKSC_API int32_t                  sksc_shader_meta_get_var_index  (const sksc_shader_meta_t*     meta, const char *name);
+SKSC_API int32_t                  sksc_shader_meta_get_var_index_h(const sksc_shader_meta_t*     meta, uint64_t name_hash);
+SKSC_API const sksc_shader_var_t* sksc_shader_meta_get_var_info   (const sksc_shader_meta_t*     meta, int32_t  var_index);
+SKSC_API void                     sksc_shader_meta_reference      (      sksc_shader_meta_t* ref_meta);
+SKSC_API void                     sksc_shader_meta_release        (      sksc_shader_meta_t* ref_meta);
 
 #ifdef __cplusplus
 }

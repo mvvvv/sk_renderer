@@ -17,21 +17,21 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
-	skr_material_info_t   info;
-	VkPipelineLayout      layout;
-	VkDescriptorSetLayout descriptor_layout;
-	bool                  active;
+	skr_material_info_t              info;
+	VkPipelineLayout                 layout;
+	VkDescriptorSetLayout            descriptor_layout;
+	bool                             active;
 } _skr_pipeline_material_slot_t;
 
 typedef struct {
-	skr_pipeline_renderpass_key_t key;
-	VkRenderPass                  render_pass;
-	bool                          active;
+	skr_pipeline_renderpass_key_t    key;
+	VkRenderPass                     render_pass;
+	bool                             active;
 } _skr_pipeline_renderpass_slot_t;
 
 typedef struct {
-	skr_vert_type_t vert_type;
-	bool            active;
+	skr_vert_type_t                  vert_type;
+	bool                             active;
 } _skr_pipeline_vertformat_slot_t;
 
 typedef struct {
@@ -65,14 +65,14 @@ static VkPipeline       _skr_pipeline_create           (int32_t material_idx, in
 // Helper functions
 ///////////////////////////////////////////////////////////////////////////////
 
-static inline int32_t _skr_pipeline_index_3d(int32_t m, int32_t r, int32_t v) {
-	return (m * _skr_pipeline_cache.renderpass_capacity * _skr_pipeline_cache.vertformat_capacity) +
-	       (r * _skr_pipeline_cache.vertformat_capacity) +
+static inline int32_t _skr_pipeline_index_3d(int32_t m, int32_t r, int32_t v, int32_t renderpass_cap, int32_t vertfmt_cap) {
+	return (m * renderpass_cap * vertfmt_cap) +
+	       (r * vertfmt_cap) +
 	       v;
 }
 
 // Shared pipeline 3D array grow logic
-static void _skr_pipeline_grow_pipelines_array(int32_t old_m, int32_t new_m, int32_t old_r, int32_t new_r, int32_t old_v, int32_t new_v) {
+static void _skr_pipeline_grow_pipelines_array(VkPipeline** ref_pipelines, int32_t old_m, int32_t new_m, int32_t old_r, int32_t new_r, int32_t old_v, int32_t new_v) {
 	int32_t old_size = old_m * old_r * old_v;
 	int32_t new_size = new_m * new_r * new_v;
 
@@ -81,28 +81,28 @@ static void _skr_pipeline_grow_pipelines_array(int32_t old_m, int32_t new_m, int
 	VkPipeline* new_pipelines = _skr_calloc(new_size, sizeof(VkPipeline));
 
 	// Copy existing pipelines to new layout
-	if (_skr_pipeline_cache.pipelines && old_size > 0) {
+	if (*ref_pipelines && old_size > 0) {
 		for (int32_t m = 0; m < old_m; m++) {
 			for (int32_t r = 0; r < old_r; r++) {
 				for (int32_t v = 0; v < old_v; v++) {
 					int32_t old_idx = (m * old_r * old_v) + (r * old_v) + v;
 					int32_t new_idx = (m * new_r * new_v) + (r * new_v) + v;
-					new_pipelines[new_idx] = _skr_pipeline_cache.pipelines[old_idx];
+					new_pipelines[new_idx] = (*ref_pipelines)[old_idx];
 				}
 			}
 		}
-		_skr_free(_skr_pipeline_cache.pipelines);
+		_skr_free(*ref_pipelines);
 	}
-	_skr_pipeline_cache.pipelines = new_pipelines;
+	*ref_pipelines = new_pipelines;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void _skr_pipeline_init() {
+void _skr_pipeline_init(void) {
 	_skr_pipeline_cache = (_skr_pipeline_cache_t){};
 }
 
-void _skr_pipeline_shutdown() {
+void _skr_pipeline_shutdown(void) {
 	// This happens during shutdown, so it's safe, and preferable to directly
 	// destroy Vulkan asssets, instead of using the deferred asset destroy
 	// system.
@@ -112,7 +112,7 @@ void _skr_pipeline_shutdown() {
 		for (int32_t m = 0; m < _skr_pipeline_cache.material_capacity; m++) {
 			for (int32_t r = 0; r < _skr_pipeline_cache.renderpass_capacity; r++) {
 				for (int32_t v = 0; v < _skr_pipeline_cache.vertformat_capacity; v++) {
-					int32_t idx = _skr_pipeline_index_3d(m, r, v);
+					int32_t idx = _skr_pipeline_index_3d(m, r, v, _skr_pipeline_cache.renderpass_capacity, _skr_pipeline_cache.vertformat_capacity);
 					if (_skr_pipeline_cache.pipelines[idx] != VK_NULL_HANDLE) {
 						vkDestroyPipeline(_skr_vk.device, _skr_pipeline_cache.pipelines[idx], NULL);
 					}
@@ -156,27 +156,28 @@ void _skr_pipeline_shutdown() {
 	_skr_pipeline_cache = (_skr_pipeline_cache_t){};
 }
 
-static void _skr_pipeline_grow_materials(int32_t min_capacity) {
-	if (min_capacity <= _skr_pipeline_cache.material_capacity) return;
+static void _skr_pipeline_grow_materials(_skr_pipeline_cache_t* ref_cache, int32_t min_capacity) {
+	if (min_capacity <= ref_cache->material_capacity) return;
 
-	int32_t old_capacity = _skr_pipeline_cache.material_capacity;
+	int32_t old_capacity = ref_cache->material_capacity;
 	int32_t new_capacity = old_capacity == 0 ? 8 : old_capacity * 2;
 	while (new_capacity < min_capacity) {
 		new_capacity *= 2;
 	}
 
 	// Grow materials array
-	_skr_pipeline_cache.materials = _skr_realloc(_skr_pipeline_cache.materials, new_capacity * sizeof(_skr_pipeline_material_slot_t));
-	memset(&_skr_pipeline_cache.materials[old_capacity], 0, (new_capacity - old_capacity) * sizeof(_skr_pipeline_material_slot_t));
+	ref_cache->materials = _skr_realloc(ref_cache->materials, new_capacity * sizeof(_skr_pipeline_material_slot_t));
+	memset(&ref_cache->materials[old_capacity], 0, (new_capacity - old_capacity) * sizeof(_skr_pipeline_material_slot_t));
 
 	// Grow pipelines 3D array
 	_skr_pipeline_grow_pipelines_array(
+		&ref_cache->pipelines,
 		old_capacity, new_capacity,
-		_skr_pipeline_cache.renderpass_capacity, _skr_pipeline_cache.renderpass_capacity,
-		_skr_pipeline_cache.vertformat_capacity, _skr_pipeline_cache.vertformat_capacity
+		ref_cache->renderpass_capacity, ref_cache->renderpass_capacity,
+		ref_cache->vertformat_capacity, ref_cache->vertformat_capacity
 	);
 
-	_skr_pipeline_cache.material_capacity = new_capacity;
+	ref_cache->material_capacity = new_capacity;
 }
 
 int32_t _skr_pipeline_register_material(const skr_material_info_t* info) {
@@ -197,12 +198,12 @@ int32_t _skr_pipeline_register_material(const skr_material_info_t* info) {
 	// If no free slot, grow the array
 	if (free_slot == -1) {
 		free_slot = _skr_pipeline_cache.material_capacity;
-		_skr_pipeline_grow_materials(free_slot + 1);
+		_skr_pipeline_grow_materials(&_skr_pipeline_cache, free_slot + 1);
 	}
 
 	// Register new material
 	_skr_pipeline_cache.materials[free_slot].info              = *info;
-	_skr_pipeline_cache.materials[free_slot].descriptor_layout = _skr_shader_make_layout    (info->shader->meta, skr_stage_vertex | skr_stage_pixel | skr_stage_compute);
+	_skr_pipeline_cache.materials[free_slot].descriptor_layout = _skr_shader_make_layout    (_skr_vk.device, _skr_vk.has_push_descriptors, info->shader->meta, skr_stage_vertex | skr_stage_pixel | skr_stage_compute);
 	_skr_pipeline_cache.materials[free_slot].layout            = _skr_pipeline_create_layout(_skr_pipeline_cache.materials[free_slot].descriptor_layout);
 	_skr_pipeline_cache.materials[free_slot].active            = true;
 
@@ -215,37 +216,38 @@ int32_t _skr_pipeline_register_material(const skr_material_info_t* info) {
 	const char* shader_name = (info->shader->meta && info->shader->meta->name[0]) ? info->shader->meta->name : "unknown";
 	snprintf(name, sizeof(name), "layout_%s_", shader_name);
 	_skr_append_material_config(name, sizeof(name), info);
-	_skr_set_debug_name(VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)_skr_pipeline_cache.materials[free_slot].layout, name);
+	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)_skr_pipeline_cache.materials[free_slot].layout, name);
 
 	// Generate debug name based on shader
 	snprintf(name, sizeof(name), "layoutdesc_%s_", info->shader->meta->name[0] ? info->shader->meta->name : "unknown");
 	_skr_append_material_config(name, sizeof(name), info);
-	_skr_set_debug_name(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, (uint64_t)_skr_pipeline_cache.materials[free_slot].descriptor_layout, name);
+	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, (uint64_t)_skr_pipeline_cache.materials[free_slot].descriptor_layout, name);
 
 	return free_slot;
 }
 
-static void _skr_pipeline_grow_renderpasses(int32_t min_capacity) {
-	if (min_capacity <= _skr_pipeline_cache.renderpass_capacity) return;
+static void _skr_pipeline_grow_renderpasses(_skr_pipeline_cache_t* ref_cache, int32_t min_capacity) {
+	if (min_capacity <= ref_cache->renderpass_capacity) return;
 
-	int32_t old_capacity = _skr_pipeline_cache.renderpass_capacity;
+	int32_t old_capacity = ref_cache->renderpass_capacity;
 	int32_t new_capacity = old_capacity == 0 ? 4 : old_capacity * 2;
 	while (new_capacity < min_capacity) {
 		new_capacity *= 2;
 	}
 
 	// Grow renderpasses array
-	_skr_pipeline_cache.renderpasses = _skr_realloc(_skr_pipeline_cache.renderpasses, new_capacity * sizeof(_skr_pipeline_renderpass_slot_t));
-	memset(&_skr_pipeline_cache.renderpasses[old_capacity], 0, (new_capacity - old_capacity) * sizeof(_skr_pipeline_renderpass_slot_t));
+	ref_cache->renderpasses = _skr_realloc(ref_cache->renderpasses, new_capacity * sizeof(_skr_pipeline_renderpass_slot_t));
+	memset(&ref_cache->renderpasses[old_capacity], 0, (new_capacity - old_capacity) * sizeof(_skr_pipeline_renderpass_slot_t));
 
 	// Grow pipelines 3D array
 	_skr_pipeline_grow_pipelines_array(
-		_skr_pipeline_cache.material_capacity, _skr_pipeline_cache.material_capacity,
+		&ref_cache->pipelines,
+		ref_cache->material_capacity, ref_cache->material_capacity,
 		old_capacity, new_capacity,
-		_skr_pipeline_cache.vertformat_capacity, _skr_pipeline_cache.vertformat_capacity
+		ref_cache->vertformat_capacity, ref_cache->vertformat_capacity
 	);
 
-	_skr_pipeline_cache.renderpass_capacity = new_capacity;
+	ref_cache->renderpass_capacity = new_capacity;
 }
 
 int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* key) {
@@ -266,7 +268,7 @@ int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* k
 	// If no free slot, grow the array
 	if (free_slot == -1) {
 		free_slot = _skr_pipeline_cache.renderpass_capacity;
-		_skr_pipeline_grow_renderpasses(free_slot + 1);
+		_skr_pipeline_grow_renderpasses(&_skr_pipeline_cache, free_slot + 1);
 	}
 
 	// Register new render pass - create and own it
@@ -288,7 +290,7 @@ void _skr_pipeline_unregister_material(int32_t material_idx) {
 	// Destroy all pipelines using this material
 	for (int32_t r = 0; r < _skr_pipeline_cache.renderpass_capacity; r++) {
 		for (int32_t v = 0; v < _skr_pipeline_cache.vertformat_capacity; v++) {
-			int32_t idx = _skr_pipeline_index_3d(material_idx, r, v);
+			int32_t idx = _skr_pipeline_index_3d(material_idx, r, v, _skr_pipeline_cache.renderpass_capacity, _skr_pipeline_cache.vertformat_capacity);
 			_skr_cmd_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[idx]);
 			_skr_pipeline_cache.pipelines[idx] = VK_NULL_HANDLE;
 		}
@@ -308,7 +310,7 @@ void _skr_pipeline_unregister_renderpass(int32_t renderpass_idx) {
 	// Destroy all pipelines using this render pass
 	for (int32_t m = 0; m < _skr_pipeline_cache.material_capacity; m++) {
 		for (int32_t v = 0; v < _skr_pipeline_cache.vertformat_capacity; v++) {
-			int32_t idx = _skr_pipeline_index_3d(m, renderpass_idx, v);
+			int32_t idx = _skr_pipeline_index_3d(m, renderpass_idx, v, _skr_pipeline_cache.renderpass_capacity, _skr_pipeline_cache.vertformat_capacity);
 			_skr_cmd_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[idx]);
 			_skr_pipeline_cache.pipelines[idx] = VK_NULL_HANDLE;
 		}
@@ -318,31 +320,32 @@ void _skr_pipeline_unregister_renderpass(int32_t renderpass_idx) {
 	_skr_pipeline_cache.renderpasses[renderpass_idx].active = false;
 }
 
-static void _skr_pipeline_grow_vertformats(int32_t min_capacity) {
-	if (min_capacity <= _skr_pipeline_cache.vertformat_capacity) return;
+static void _skr_pipeline_grow_vertformats(_skr_pipeline_cache_t* ref_cache, int32_t min_capacity) {
+	if (min_capacity <= ref_cache->vertformat_capacity) return;
 
-	int32_t old_capacity = _skr_pipeline_cache.vertformat_capacity;
+	int32_t old_capacity = ref_cache->vertformat_capacity;
 	int32_t new_capacity = old_capacity == 0 ? 4 : old_capacity * 2;
 	while (new_capacity < min_capacity) {
 		new_capacity *= 2;
 	}
 
 	// Grow vertformats array
-	_skr_pipeline_cache.vertformats = _skr_realloc(_skr_pipeline_cache.vertformats, new_capacity * sizeof(_skr_pipeline_vertformat_slot_t));
-	memset(&_skr_pipeline_cache.vertformats[old_capacity], 0, (new_capacity - old_capacity) * sizeof(_skr_pipeline_vertformat_slot_t));
+	ref_cache->vertformats = _skr_realloc(ref_cache->vertformats, new_capacity * sizeof(_skr_pipeline_vertformat_slot_t));
+	memset(&ref_cache->vertformats[old_capacity], 0, (new_capacity - old_capacity) * sizeof(_skr_pipeline_vertformat_slot_t));
 
 	// Grow pipelines 3D array
 	_skr_pipeline_grow_pipelines_array(
-		_skr_pipeline_cache.material_capacity, _skr_pipeline_cache.material_capacity,
-		_skr_pipeline_cache.renderpass_capacity, _skr_pipeline_cache.renderpass_capacity,
+		&ref_cache->pipelines,
+		ref_cache->material_capacity, ref_cache->material_capacity,
+		ref_cache->renderpass_capacity, ref_cache->renderpass_capacity,
 		old_capacity, new_capacity
 	);
 
-	_skr_pipeline_cache.vertformat_capacity = new_capacity;
+	ref_cache->vertformat_capacity = new_capacity;
 }
 
 static bool _skr_vert_type_equals(const skr_vert_type_t* a, const skr_vert_type_t* b) {
-	if (a->binding_count != b->binding_count) return false;
+	if (a->binding_count   != b->binding_count  ) return false;
 	if (a->component_count != b->component_count) return false;
 
 	// Compare bindings (deep comparison)
@@ -374,7 +377,7 @@ int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
 	// If no free slot, grow the array
 	if (free_slot == -1) {
 		free_slot = _skr_pipeline_cache.vertformat_capacity;
-		_skr_pipeline_grow_vertformats(free_slot + 1);
+		_skr_pipeline_grow_vertformats(&_skr_pipeline_cache, free_slot + 1);
 	}
 
 	// Register new vertex format (just store copy)
@@ -395,7 +398,7 @@ void _skr_pipeline_unregister_vertformat(int32_t vertformat_idx) {
 	// Destroy all pipelines using this vertex format
 	for (int32_t m = 0; m < _skr_pipeline_cache.material_capacity; m++) {
 		for (int32_t r = 0; r < _skr_pipeline_cache.renderpass_capacity; r++) {
-			int32_t idx = _skr_pipeline_index_3d(m, r, vertformat_idx);
+			int32_t idx = _skr_pipeline_index_3d(m, r, vertformat_idx, _skr_pipeline_cache.renderpass_capacity, _skr_pipeline_cache.vertformat_capacity);
 			_skr_cmd_destroy_pipeline(NULL, _skr_pipeline_cache.pipelines[idx]);
 			_skr_pipeline_cache.pipelines[idx] = VK_NULL_HANDLE;
 		}
@@ -413,7 +416,7 @@ VkPipeline _skr_pipeline_get(int32_t material_idx, int32_t renderpass_idx, int32
 	if (!_skr_pipeline_cache.vertformats [vertformat_idx].active)                        return VK_NULL_HANDLE;
 
 	// Check if pipeline already exists
-	int32_t idx = _skr_pipeline_index_3d(material_idx, renderpass_idx, vertformat_idx);
+	int32_t idx = _skr_pipeline_index_3d(material_idx, renderpass_idx, vertformat_idx, _skr_pipeline_cache.renderpass_capacity, _skr_pipeline_cache.vertformat_capacity);
 	if (_skr_pipeline_cache.pipelines[idx] != VK_NULL_HANDLE) {
 		return _skr_pipeline_cache.pipelines[idx];
 	}
@@ -581,7 +584,7 @@ static VkRenderPass _skr_pipeline_create_renderpass(const skr_pipeline_renderpas
 	char name[256];
 	snprintf(name, sizeof(name), "rpass_");
 	_skr_append_renderpass_config(name, sizeof(name), key);
-	_skr_set_debug_name(VK_OBJECT_TYPE_RENDER_PASS, (uint64_t)render_pass, name);
+	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_RENDER_PASS, (uint64_t)render_pass, name);
 
 	return render_pass;
 }
@@ -598,7 +601,7 @@ static VkPipelineLayout _skr_pipeline_create_layout(VkDescriptorSetLayout descri
 	SKR_VK_CHECK_RET(vr, "vkCreatePipelineLayout", VK_NULL_HANDLE);
 
 	// Pipeline layouts are created per-material, name will be set during material registration
-	_skr_set_debug_name(VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)layout, "pipeline_layout");
+	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)layout, "pipeline_layout");
 
 	return layout;
 }
@@ -800,7 +803,7 @@ static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_
 	strcat(name, ")_(");
 	_skr_append_vertex_format    (name, sizeof(name), vert_type->components, vert_type->component_count);
 	strcat(name, ")");
-	_skr_set_debug_name(VK_OBJECT_TYPE_PIPELINE, (uint64_t)pipeline, name);
+	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_PIPELINE, (uint64_t)pipeline, name);
 
 	return pipeline;
 }
@@ -809,7 +812,7 @@ static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_
 // Framebuffer creation
 ///////////////////////////////////////////////////////////////////////////////
 
-VkFramebuffer _skr_create_framebuffer(VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve) {
+VkFramebuffer _skr_create_framebuffer(VkDevice device, VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve) {
 	VkImageView attachments[3];
 	uint32_t    attachment_count = 0;
 	uint32_t    width            = 1;
@@ -854,7 +857,7 @@ VkFramebuffer _skr_create_framebuffer(VkRenderPass render_pass, skr_tex_t* color
 	};
 
 	VkFramebuffer framebuffer;
-	VkResult vr = vkCreateFramebuffer(_skr_vk.device, &framebuffer_info, NULL, &framebuffer);
+	VkResult vr = vkCreateFramebuffer(device, &framebuffer_info, NULL, &framebuffer);
 	SKR_VK_CHECK_RET(vr, "vkCreateFramebuffer", VK_NULL_HANDLE);
 
 	return framebuffer;

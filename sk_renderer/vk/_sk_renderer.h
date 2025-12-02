@@ -157,73 +157,73 @@ extern _skr_vk_t _skr_vk;
 // Internal helpers
 ///////////////////////////////////////////////////////////////////////////////
 
-VkFramebuffer         _skr_create_framebuffer            (VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve);
-VkSampler             _skr_sampler_create_vk             (skr_tex_sampler_t settings);
-VkDescriptorSetLayout _skr_shader_make_layout            (const sksc_shader_meta_t* meta, skr_stage_ stage_mask);
+VkFramebuffer         _skr_create_framebuffer               (VkDevice device, VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve);
+VkSampler             _skr_sampler_create_vk                (VkDevice device, skr_tex_sampler_t settings);
+VkDescriptorSetLayout _skr_shader_make_layout               (VkDevice device, bool has_push_descriptors, const sksc_shader_meta_t* meta, skr_stage_ stage_mask);
 
 // Format helpers
-bool                  _skr_format_has_stencil            (VkFormat format);
+bool                  _skr_format_has_stencil               (VkFormat format);
 
 // Material descriptor caching
-void                  _skr_material_add_writes           (const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);
+void                  _skr_material_add_writes              (const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);
 
 // Render list sorting
-void                  _skr_render_list_sort              (skr_render_list_t* list);
+void                  _skr_render_list_sort                 (skr_render_list_t* ref_list);
 
 // Debug
-void                  _skr_set_debug_name                (VkObjectType type, uint64_t handle, const char* name);
-void                  _skr_append_vertex_format          (char* str, size_t str_size, const skr_vert_component_t* components, uint32_t component_count);
-void                  _skr_append_material_config        (char* str, size_t str_size, const skr_material_info_t* mat_info);
-void                  _skr_append_renderpass_config      (char* str, size_t str_size, const skr_pipeline_renderpass_key_t* rp_key);
-void                  _skr_log_descriptor_writes         (const VkWriteDescriptorSet* writes, const VkDescriptorBufferInfo* buffer_infos, const VkDescriptorImageInfo* image_infos, uint32_t write_ct, uint32_t buffer_ct, uint32_t image_ct);
+void                  _skr_set_debug_name                   (VkDevice device, VkObjectType type, uint64_t handle, const char* name);
+void                  _skr_append_vertex_format             (char* ref_str, size_t str_size, const skr_vert_component_t* components, uint32_t component_count);
+void                  _skr_append_material_config           (char* ref_str, size_t str_size, const skr_material_info_t* mat_info);
+void                  _skr_append_renderpass_config         (char* ref_str, size_t str_size, const skr_pipeline_renderpass_key_t* rp_key);
+void                  _skr_log_descriptor_writes            (const VkWriteDescriptorSet* writes, const VkDescriptorBufferInfo* buffer_infos, const VkDescriptorImageInfo* image_infos, uint32_t write_ct, uint32_t buffer_ct, uint32_t image_ct);
 
 // Automatic layout transition system
-void                  _skr_tex_transition                (VkCommandBuffer cmd, skr_tex_t* tex, VkImageLayout new_layout, VkPipelineStageFlags dst_stage, VkAccessFlags dst_access);
-void                  _skr_tex_transition_for_shader_read(VkCommandBuffer cmd, skr_tex_t* tex, VkPipelineStageFlags dst_stage);
-void                  _skr_tex_transition_for_storage    (VkCommandBuffer cmd, skr_tex_t* tex);
-void                  _skr_tex_transition_queue_family   (VkCommandBuffer cmd, skr_tex_t* tex, uint32_t src_queue_family, uint32_t dst_queue_family, VkImageLayout layout);
-void                  _skr_tex_transition_notify_layout  (skr_tex_t* tex, VkImageLayout new_layout);  // Called after render pass implicit transitions
-bool                  _skr_tex_needs_transition          (const skr_tex_t* tex, uint8_t type); // Check if texture needs transition for given type (0=shader_read, 1=storage)
-void                  _skr_tex_transition_enqueue        (skr_tex_t* tex, uint8_t type); // Deferred texture transition queue (to avoid in-renderpass barriers) type: 0=shader_read, 1=storage
+void                  _skr_tex_transition                   (VkCommandBuffer cmd, skr_tex_t* ref_tex, VkImageLayout new_layout, VkPipelineStageFlags dst_stage, VkAccessFlags dst_access);
+void                  _skr_tex_transition_for_shader_read   (VkCommandBuffer cmd, skr_tex_t* ref_tex, VkPipelineStageFlags dst_stage);
+void                  _skr_tex_transition_for_storage       (VkCommandBuffer cmd, skr_tex_t* ref_tex);
+void                  _skr_tex_transition_queue_family      (VkCommandBuffer cmd, skr_tex_t* ref_tex, uint32_t src_queue_family, uint32_t dst_queue_family, VkImageLayout layout);
+void                  _skr_tex_transition_notify_layout     (      skr_tex_t* ref_tex, VkImageLayout new_layout);  // Called after render pass implicit transitions
+bool                  _skr_tex_needs_transition             (const skr_tex_t*     tex, uint8_t type); // Check if texture needs transition for given type (0=shader_read, 1=storage)
+void                  _skr_tex_transition_enqueue           (      skr_tex_t* ref_tex, uint8_t type); // Deferred texture transition queue (to avoid in-renderpass barriers) type: 0=shader_read, 1=storage
 
 // Command buffer management
-bool                  _skr_cmd_init                      (void);
-void                  _skr_cmd_shutdown                  (void);
-_skr_vk_thread_t*     _skr_cmd_get_thread                (void);
-_skr_cmd_ctx_t        _skr_cmd_begin                     (void);
-bool                  _skr_cmd_try_get_active            (_skr_cmd_ctx_t* out_ctx);
-VkCommandBuffer       _skr_cmd_end                       (void);  // Ends and returns command buffer (caller must submit)
-skr_future_t          _skr_cmd_end_submit                (const VkSemaphore* wait_semaphores, uint32_t wait_count, const VkSemaphore* signal_semaphores, uint32_t signal_count);  // Ends and submits, returns future
-_skr_cmd_ctx_t        _skr_cmd_acquire                   (void);
-void                  _skr_cmd_release                   (VkCommandBuffer buffer);
+bool                  _skr_cmd_init                         (void);
+void                  _skr_cmd_shutdown                     (void);
+_skr_vk_thread_t*     _skr_cmd_get_thread                   (void);
+_skr_cmd_ctx_t        _skr_cmd_begin                        (void);
+bool                  _skr_cmd_try_get_active               (_skr_cmd_ctx_t* out_ctx);
+VkCommandBuffer       _skr_cmd_end                          (void);  // Ends and returns command buffer (caller must submit)
+skr_future_t          _skr_cmd_end_submit                   (const VkSemaphore* wait_semaphores, uint32_t wait_count, const VkSemaphore* signal_semaphores, uint32_t signal_count);  // Ends and submits, returns future
+_skr_cmd_ctx_t        _skr_cmd_acquire                      (void);
+void                  _skr_cmd_release                      (VkCommandBuffer buffer);
 
 // Deferred destruction API
-skr_destroy_list_t    _skr_destroy_list_create           (void);
-void                  _skr_destroy_list_free             (skr_destroy_list_t* list);
-void                  _skr_destroy_list_execute          (skr_destroy_list_t* list);
-void                  _skr_destroy_list_clear            (skr_destroy_list_t* list);
+skr_destroy_list_t    _skr_destroy_list_create              (void);
+void                  _skr_destroy_list_free                (skr_destroy_list_t* ref_list);
+void                  _skr_destroy_list_execute             (skr_destroy_list_t* ref_list);
+void                  _skr_destroy_list_clear               (skr_destroy_list_t* ref_list);
 
 // Add functions for each Vulkan resource type
-void                  _skr_cmd_destroy_buffer               (skr_destroy_list_t* opt_list, VkBuffer                 handle);
-void                  _skr_cmd_destroy_image                (skr_destroy_list_t* opt_list, VkImage                  handle);
-void                  _skr_cmd_destroy_image_view           (skr_destroy_list_t* opt_list, VkImageView              handle);
-void                  _skr_cmd_destroy_sampler              (skr_destroy_list_t* opt_list, VkSampler                handle);
-void                  _skr_cmd_destroy_framebuffer          (skr_destroy_list_t* opt_list, VkFramebuffer            handle);
-void                  _skr_cmd_destroy_render_pass          (skr_destroy_list_t* opt_list, VkRenderPass             handle);
-void                  _skr_cmd_destroy_pipeline             (skr_destroy_list_t* opt_list, VkPipeline               handle);
-void                  _skr_cmd_destroy_pipeline_layout      (skr_destroy_list_t* opt_list, VkPipelineLayout         handle);
-void                  _skr_cmd_destroy_pipeline_cache       (skr_destroy_list_t* opt_list, VkPipelineCache          handle);
-void                  _skr_cmd_destroy_descriptor_set_layout(skr_destroy_list_t* opt_list, VkDescriptorSetLayout    handle);
-void                  _skr_cmd_destroy_descriptor_pool      (skr_destroy_list_t* opt_list, VkDescriptorPool         handle);
-void                  _skr_cmd_destroy_shader_module        (skr_destroy_list_t* opt_list, VkShaderModule           handle);
-void                  _skr_cmd_destroy_command_pool         (skr_destroy_list_t* opt_list, VkCommandPool            handle);
-void                  _skr_cmd_destroy_fence                (skr_destroy_list_t* opt_list, VkFence                  handle);
-void                  _skr_cmd_destroy_semaphore            (skr_destroy_list_t* opt_list, VkSemaphore              handle);
-void                  _skr_cmd_destroy_query_pool           (skr_destroy_list_t* opt_list, VkQueryPool              handle);
-void                  _skr_cmd_destroy_swapchain            (skr_destroy_list_t* opt_list, VkSwapchainKHR           handle);
-void                  _skr_cmd_destroy_surface              (skr_destroy_list_t* opt_list, VkSurfaceKHR             handle);
-void                  _skr_cmd_destroy_debug_messenger      (skr_destroy_list_t* opt_list, VkDebugUtilsMessengerEXT handle);
-void                  _skr_cmd_destroy_memory               (skr_destroy_list_t* opt_list, VkDeviceMemory           handle);
+void                  _skr_cmd_destroy_buffer               (skr_destroy_list_t* opt_ref_list, VkBuffer                 handle);
+void                  _skr_cmd_destroy_image                (skr_destroy_list_t* opt_ref_list, VkImage                  handle);
+void                  _skr_cmd_destroy_image_view           (skr_destroy_list_t* opt_ref_list, VkImageView              handle);
+void                  _skr_cmd_destroy_sampler              (skr_destroy_list_t* opt_ref_list, VkSampler                handle);
+void                  _skr_cmd_destroy_framebuffer          (skr_destroy_list_t* opt_ref_list, VkFramebuffer            handle);
+void                  _skr_cmd_destroy_render_pass          (skr_destroy_list_t* opt_ref_list, VkRenderPass             handle);
+void                  _skr_cmd_destroy_pipeline             (skr_destroy_list_t* opt_ref_list, VkPipeline               handle);
+void                  _skr_cmd_destroy_pipeline_layout      (skr_destroy_list_t* opt_ref_list, VkPipelineLayout         handle);
+void                  _skr_cmd_destroy_pipeline_cache       (skr_destroy_list_t* opt_ref_list, VkPipelineCache          handle);
+void                  _skr_cmd_destroy_descriptor_set_layout(skr_destroy_list_t* opt_ref_list, VkDescriptorSetLayout    handle);
+void                  _skr_cmd_destroy_descriptor_pool      (skr_destroy_list_t* opt_ref_list, VkDescriptorPool         handle);
+void                  _skr_cmd_destroy_shader_module        (skr_destroy_list_t* opt_ref_list, VkShaderModule           handle);
+void                  _skr_cmd_destroy_command_pool         (skr_destroy_list_t* opt_ref_list, VkCommandPool            handle);
+void                  _skr_cmd_destroy_fence                (skr_destroy_list_t* opt_ref_list, VkFence                  handle);
+void                  _skr_cmd_destroy_semaphore            (skr_destroy_list_t* opt_ref_list, VkSemaphore              handle);
+void                  _skr_cmd_destroy_query_pool           (skr_destroy_list_t* opt_ref_list, VkQueryPool              handle);
+void                  _skr_cmd_destroy_swapchain            (skr_destroy_list_t* opt_ref_list, VkSwapchainKHR           handle);
+void                  _skr_cmd_destroy_surface              (skr_destroy_list_t* opt_ref_list, VkSurfaceKHR             handle);
+void                  _skr_cmd_destroy_debug_messenger      (skr_destroy_list_t* opt_ref_list, VkDebugUtilsMessengerEXT handle);
+void                  _skr_cmd_destroy_memory               (skr_destroy_list_t* opt_ref_list, VkDeviceMemory           handle);
 
 // Descriptor helper (allocates and binds descriptor set, handles push descriptors vs fallback)
 void                  _skr_bind_descriptors                 (VkCommandBuffer cmd, VkDescriptorPool pool, VkPipelineBindPoint bind_point, VkPipelineLayout layout, VkDescriptorSetLayout desc_layout, VkWriteDescriptorSet* writes, uint32_t write_count);

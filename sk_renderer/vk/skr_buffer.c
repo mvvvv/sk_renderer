@@ -13,9 +13,9 @@
 // Helper functions
 ///////////////////////////////////////////////////////////////////////////////
 
-static uint32_t _skr_find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) {
+static uint32_t _skr_find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags properties) {
 	VkPhysicalDeviceMemoryProperties mem_properties;
-	vkGetPhysicalDeviceMemoryProperties(_skr_vk.physical_device, &mem_properties);
+	vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
 
 	for (uint32_t i = 0; i < mem_properties.memoryTypeCount; i++) {
 		if ((type_filter & (1 << i)) &&
@@ -32,7 +32,7 @@ static uint32_t _skr_find_memory_type(uint32_t type_filter, VkMemoryPropertyFlag
 // Buffer creation and destruction
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_stride,
+skr_err_ skr_buffer_create(const void* opt_data, uint32_t size_count, uint32_t size_stride,
                             skr_buffer_type_ type, skr_use_ use, skr_buffer_t* out_buffer) {
 	if (!out_buffer) return skr_err_invalid_parameter;
 
@@ -51,7 +51,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 	VkBufferUsageFlags usage = _skr_to_vk_buffer_usage(type);
 
 	// Add transfer dst for initial data upload (unless dynamic)
-	if (data != NULL && !(use & skr_use_dynamic)) {
+	if (opt_data != NULL && !(use & skr_use_dynamic)) {
 		usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	}
 
@@ -75,7 +75,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 	vr = vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
 		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.allocationSize  = mem_requirements.size,
-		.memoryTypeIndex = _skr_find_memory_type(mem_requirements.memoryTypeBits, mem_properties),
+		.memoryTypeIndex = _skr_find_memory_type(_skr_vk.physical_device, mem_requirements.memoryTypeBits, mem_properties),
 	}, NULL, &out_buffer->memory);
 	if (vr != VK_SUCCESS) {
 		SKR_VK_CHECK_NRET(vr, "vkAllocateMemory");
@@ -87,12 +87,12 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 	vkBindBufferMemory(_skr_vk.device, out_buffer->buffer, out_buffer->memory, 0);
 
 	// Upload initial data
-	if (data != NULL) {
+	if (opt_data != NULL) {
 		if (use & skr_use_dynamic) {
 			// Direct map and copy for dynamic buffers
 			void* mapped;
 			vkMapMemory(_skr_vk.device, out_buffer->memory, 0, out_buffer->size, 0, &mapped);
-			memcpy(mapped, data, out_buffer->size);
+			memcpy(mapped, opt_data, out_buffer->size);
 			vkUnmapMemory(_skr_vk.device, out_buffer->memory);
 		} else {
 			// Use staging buffer for static buffers
@@ -118,7 +118,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 			vr = vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
 				.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 				.allocationSize  = staging_mem_req.size,
-				.memoryTypeIndex = _skr_find_memory_type(staging_mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
+				.memoryTypeIndex = _skr_find_memory_type(_skr_vk.physical_device, staging_mem_req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
 			}, NULL, &staging_memory);
 			if (vr != VK_SUCCESS) {
 				SKR_VK_CHECK_NRET(vr, "vkAllocateMemory");
@@ -133,7 +133,7 @@ skr_err_ skr_buffer_create(const void* data, uint32_t size_count, uint32_t size_
 			// Copy data to staging buffer
 			void* mapped;
 			vkMapMemory(_skr_vk.device, staging_memory, 0, out_buffer->size, 0, &mapped);
-			memcpy(mapped, data, out_buffer->size);
+			memcpy(mapped, opt_data, out_buffer->size);
 			vkUnmapMemory(_skr_vk.device, staging_memory);
 
 			_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
@@ -160,11 +160,11 @@ bool skr_buffer_is_valid(const skr_buffer_t* buffer) {
 	return buffer && buffer->buffer != VK_NULL_HANDLE;
 }
 
-void skr_buffer_set(skr_buffer_t* buffer, const void* data, uint32_t size_bytes) {
-	if (!buffer || !data) return;
+void skr_buffer_set(skr_buffer_t* ref_buffer, const void* data, uint32_t size_bytes) {
+	if (!ref_buffer || !data) return;
 
-	if (buffer->use == skr_use_dynamic && buffer->mapped) {
-		memcpy(buffer->mapped, data, size_bytes < buffer->size ? size_bytes : buffer->size);
+	if (ref_buffer->use == skr_use_dynamic && ref_buffer->mapped) {
+		memcpy(ref_buffer->mapped, data, size_bytes < ref_buffer->size ? size_bytes : ref_buffer->size);
 	} else {
 		skr_log(skr_log_critical, "skr_buffer_set only supports dynamic buffers");
 	}
@@ -192,21 +192,21 @@ uint32_t skr_buffer_get_size(const skr_buffer_t* buffer) {
 	return buffer ? buffer->size : 0;
 }
 
-void skr_buffer_set_name(skr_buffer_t* buffer, const char* name) {
-	if (!buffer || buffer->buffer == VK_NULL_HANDLE) return;
-	_skr_set_debug_name(VK_OBJECT_TYPE_BUFFER, (uint64_t)buffer->buffer, name);
+void skr_buffer_set_name(skr_buffer_t* ref_buffer, const char* name) {
+	if (!ref_buffer || ref_buffer->buffer == VK_NULL_HANDLE) return;
+	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_BUFFER, (uint64_t)ref_buffer->buffer, name);
 }
 
-void skr_buffer_destroy(skr_buffer_t* buffer) {
-	if (!buffer || buffer->buffer == VK_NULL_HANDLE) return;
+void skr_buffer_destroy(skr_buffer_t* ref_buffer) {
+	if (!ref_buffer || ref_buffer->buffer == VK_NULL_HANDLE) return;
 
-	if (buffer->mapped) {
-		vkUnmapMemory(_skr_vk.device, buffer->memory);
-		buffer->mapped = NULL;
+	if (ref_buffer->mapped) {
+		vkUnmapMemory(_skr_vk.device, ref_buffer->memory);
+		ref_buffer->mapped = NULL;
 	}
 
-	_skr_cmd_destroy_buffer(NULL, buffer->buffer);
-	_skr_cmd_destroy_memory(NULL, buffer->memory);
+	_skr_cmd_destroy_buffer(NULL, ref_buffer->buffer);
+	_skr_cmd_destroy_memory(NULL, ref_buffer->memory);
 
-	*buffer = (skr_buffer_t){};
+	*ref_buffer = (skr_buffer_t){};
 }
