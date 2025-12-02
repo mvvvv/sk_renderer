@@ -9,6 +9,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#ifndef __ANDROID__
+#include <unistd.h>  // chdir
+#endif
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
 
@@ -23,6 +26,24 @@ bool ImGui_ImplSDL2_ProcessEvent_C(const SDL_Event* event);
 
 
 int main(int argc, char* argv[]) {
+	// Parse command line arguments
+	int test_frames = 0;  // 0 = run normally, >0 = exit after N frames
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-test") == 0) {
+			test_frames = 10;  // Default test mode: 10 frames
+		} else if (strcmp(argv[i], "-frames") == 0 && i + 1 < argc) {
+			test_frames = atoi(argv[++i]);
+		}
+	}
+
+	// Set working directory to executable's path for asset loading
+#ifndef __ANDROID__
+	char* base_path = SDL_GetBasePath();
+	if (base_path) {
+		chdir(base_path);
+		SDL_free(base_path);
+	}
+#endif
 
 	// Configuration
 	const bool enable_validation = true;
@@ -148,6 +169,12 @@ int main(int argc, char* argv[]) {
 
 	while (running) {
 		frame_count++;
+
+		// Exit after N frames in test mode
+		if (test_frames > 0 && frame_count >= test_frames) {
+			running = false;
+			break;
+		}
 
 		// Handle events
 		SDL_Event event;
