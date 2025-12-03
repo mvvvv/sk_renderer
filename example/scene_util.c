@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
 #include <stdio.h>
 
 #include <SDL.h>
@@ -435,7 +436,7 @@ skr_shader_t su_shader_load(const char* filename, const char* opt_name) {
 // Image Loading
 ///////////////////////////////////////////////////////////////////////////////
 
-unsigned char* su_image_load(const char* filename, int32_t* opt_out_width, int32_t* opt_out_height, int32_t* opt_out_channels, int32_t force_channels) {
+void* su_image_load(const char* filename, int32_t* opt_out_width, int32_t* opt_out_height, skr_tex_fmt_* opt_out_format, int32_t force_channels) {
 	void*  file_data = NULL;
 	size_t file_size = 0;
 
@@ -443,27 +444,86 @@ unsigned char* su_image_load(const char* filename, int32_t* opt_out_width, int32
 		return NULL;
 	}
 
-	unsigned char* pixels = su_image_load_from_memory(file_data, file_size, opt_out_width, opt_out_height, opt_out_channels, force_channels);
+	void* pixels = su_image_load_from_memory(file_data, file_size, opt_out_width, opt_out_height, opt_out_format, force_channels);
 	free(file_data);
 
 	return pixels;
 }
 
-unsigned char* su_image_load_from_memory(const void* data, size_t size, int32_t* opt_out_width, int32_t* opt_out_height, int32_t* opt_out_channels, int32_t force_channels) {
-	int width, height, channels;
-	unsigned char* pixels = stbi_load_from_memory((const unsigned char*)data, (int)size, &width, &height, &channels, force_channels);
+// Convert RGB floats to RGB9E5 shared exponent format
+// Format: 9 bits each for R,G,B mantissa, 5 bits shared exponent
+static uint32_t _float3_to_rgb9e5(float r, float g, float b) {
+	// Clamp to valid range [0, MAX_RGB9E5]
+	const float MAX_RGB9E5 = 65408.0f;  // (2^9 - 1) / 512 * 2^15
+	r = fmaxf(0.0f, fminf(r, MAX_RGB9E5));
+	g = fmaxf(0.0f, fminf(g, MAX_RGB9E5));
+	b = fmaxf(0.0f, fminf(b, MAX_RGB9E5));
+
+	// Find the maximum component to determine shared exponent
+	float max_val = fmaxf(fmaxf(r, g), b);
+
+	int32_t exp_shared;
+	if (max_val < 1e-10f) {
+		exp_shared = 0;
+	} else {
+		// Calculate exponent: floor(log2(max)) + 1 + bias(15)
+		exp_shared = (int32_t)floorf(log2f(max_val)) + 1 + 15;
+		exp_shared = exp_shared < 0 ? 0 : (exp_shared > 31 ? 31 : exp_shared);
+	}
+
+	// Calculate the divisor for this exponent
+	float divisor = exp2f((float)(exp_shared - 15 - 9));
+
+	// Convert to 9-bit mantissas
+	uint32_t r_m = (uint32_t)(r / divisor + 0.5f);
+	uint32_t g_m = (uint32_t)(g / divisor + 0.5f);
+	uint32_t b_m = (uint32_t)(b / divisor + 0.5f);
+
+	// Clamp mantissas to 9 bits
+	r_m = r_m > 511 ? 511 : r_m;
+	g_m = g_m > 511 ? 511 : g_m;
+	b_m = b_m > 511 ? 511 : b_m;
+
+	// Pack: R[8:0] | G[17:9] | B[26:18] | E[31:27]
+	return r_m | (g_m << 9) | (b_m << 18) | ((uint32_t)exp_shared << 27);
+}
+
+void* su_image_load_from_memory(const void* data, size_t size, int32_t* opt_out_width, int32_t* opt_out_height, skr_tex_fmt_* opt_out_format, int32_t force_channels) {
+	int   width, height, channels;
+	void* pixels = NULL;
+	bool  is_hdr = stbi_is_hdr_from_memory((const unsigned char*)data, (int)size);
+
+	if (is_hdr) {
+		// Load as float, then convert to RGB9E5
+		float* hdr_pixels = stbi_loadf_from_memory((const unsigned char*)data, (int)size, &width, &height, &channels, 3);
+		if (hdr_pixels) {
+			int32_t   pixel_count = width * height;
+			uint32_t* rgb9e5      = malloc(pixel_count * sizeof(uint32_t));
+
+			for (int32_t i = 0; i < pixel_count; i++) {
+				rgb9e5[i] = _float3_to_rgb9e5(hdr_pixels[i * 3], hdr_pixels[i * 3 + 1], hdr_pixels[i * 3 + 2]);
+			}
+
+			stbi_image_free(hdr_pixels);
+			pixels = rgb9e5;
+			if (opt_out_format) *opt_out_format = skr_tex_fmt_rgb9e5;
+		}
+	} else {
+		pixels = stbi_load_from_memory((const unsigned char*)data, (int)size, &width, &height, &channels, force_channels);
+		if (pixels && opt_out_format) *opt_out_format = skr_tex_fmt_rgba32_srgb;
+	}
 
 	if (pixels) {
-		if (opt_out_width)    *opt_out_width    = width;
-		if (opt_out_height)   *opt_out_height   = height;
-		if (opt_out_channels) *opt_out_channels = channels;
+		if (opt_out_width)  *opt_out_width  = width;
+		if (opt_out_height) *opt_out_height = height;
 	}
 
 	return pixels;
 }
 
-void su_image_free(unsigned char* pixels) {
-	stbi_image_free(pixels);
+void su_image_free(void* pixels) {
+	// Both stbi and malloc use free() on most platforms
+	free(pixels);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -620,6 +680,7 @@ typedef struct {
 	float      roughness_factor;
 	skr_vec4_t base_color_factor;
 	skr_vec3_t emissive_factor;
+	skr_vec4_t tex_trans;  // Texture transform: {offset.x, offset.y, scale.x, scale.y}
 } _su_gltf_material_data_t;
 
 struct su_gltf_t {
@@ -631,6 +692,8 @@ struct su_gltf_t {
 	skr_mesh_t      meshes   [SU_GLTF_MAX_MESHES];
 	skr_material_t  materials[SU_GLTF_MAX_MESHES];
 	float4x4        transforms[SU_GLTF_MAX_MESHES];
+	su_bounds_t     mesh_bounds[SU_GLTF_MAX_MESHES];  // Per-mesh bounds (world space)
+	su_bounds_t     bounds;                           // Overall model bounds
 	int32_t         mesh_count;
 
 	skr_tex_t       textures[SU_GLTF_MAX_TEXTURES];
@@ -708,6 +771,7 @@ static void _su_gltf_extract_node(
 			mat_data->roughness_factor  = 1.0f;
 			mat_data->base_color_factor = (skr_vec4_t){1.0f, 1.0f, 1.0f, 1.0f};
 			mat_data->emissive_factor   = (skr_vec3_t){0.0f, 0.0f, 0.0f};
+			mat_data->tex_trans         = (skr_vec4_t){0.0f, 0.0f, 1.0f, 1.0f};  // Default: no offset, scale 1
 
 			// Find accessors
 			cgltf_accessor* pos_accessor   = NULL;
@@ -725,9 +789,15 @@ static void _su_gltf_extract_node(
 
 			if (!pos_accessor) goto recurse;
 
-			// Build vertex data
+			// Build vertex data and compute bounds
 			int32_t           vertex_count = (int32_t)pos_accessor->count;
 			su_vertex_pnuc_t* vertices     = calloc(vertex_count, sizeof(su_vertex_pnuc_t));
+
+			// Initialize mesh bounds to first vertex (will expand)
+			su_bounds_t local_bounds = {
+				.min = { FLT_MAX,  FLT_MAX,  FLT_MAX},
+				.max = {-FLT_MAX, -FLT_MAX, -FLT_MAX}
+			};
 
 			for (int32_t v = 0; v < vertex_count; v++) {
 				su_vertex_pnuc_t* vert = &vertices[v];
@@ -735,6 +805,14 @@ static void _su_gltf_extract_node(
 
 				_su_gltf_read_attribute(pos_accessor,   v, d, 3, (float[]){0, 0, 0});
 				vert->position = (skr_vec3_t){d[0], d[1], d[2]};
+
+				// Expand local bounds
+				if (d[0] < local_bounds.min.x) local_bounds.min.x = d[0];
+				if (d[1] < local_bounds.min.y) local_bounds.min.y = d[1];
+				if (d[2] < local_bounds.min.z) local_bounds.min.z = d[2];
+				if (d[0] > local_bounds.max.x) local_bounds.max.x = d[0];
+				if (d[1] > local_bounds.max.y) local_bounds.max.y = d[1];
+				if (d[2] > local_bounds.max.z) local_bounds.max.z = d[2];
 
 				_su_gltf_read_attribute(norm_accessor,  v, d, 3, (float[]){0, 1, 0});
 				vert->normal = (skr_vec3_t){d[0], d[1], d[2]};
@@ -750,18 +828,51 @@ static void _su_gltf_extract_node(
 				vert->color = (a << 24) | (b << 16) | (g << 8) | r;
 			}
 
-			// Build index data
-			int32_t   index_count = prim->indices ? (int32_t)prim->indices->count : 0;
-			uint16_t* indices     = NULL;
+			// Transform bounds to world space (transform all 8 corners and find new AABB)
+			su_bounds_t world_bounds = {
+				.min = { FLT_MAX,  FLT_MAX,  FLT_MAX},
+				.max = {-FLT_MAX, -FLT_MAX, -FLT_MAX}
+			};
+			for (int32_t corner = 0; corner < 8; corner++) {
+				float3 local_corner = {
+					(corner & 1) ? local_bounds.max.x : local_bounds.min.x,
+					(corner & 2) ? local_bounds.max.y : local_bounds.min.y,
+					(corner & 4) ? local_bounds.max.z : local_bounds.min.z,
+				};
+				float3 world_corner = float4x4_transform_pt(world_transform, local_corner);
+				if (world_corner.x < world_bounds.min.x) world_bounds.min.x = world_corner.x;
+				if (world_corner.y < world_bounds.min.y) world_bounds.min.y = world_corner.y;
+				if (world_corner.z < world_bounds.min.z) world_bounds.min.z = world_corner.z;
+				if (world_corner.x > world_bounds.max.x) world_bounds.max.x = world_corner.x;
+				if (world_corner.y > world_bounds.max.y) world_bounds.max.y = world_corner.y;
+				if (world_corner.z > world_bounds.max.z) world_bounds.max.z = world_corner.z;
+			}
+			gltf->mesh_bounds[mesh_idx] = world_bounds;
+
+			// Build index data - use 32-bit indices if vertex count exceeds 16-bit range
+			int32_t index_count  = prim->indices ? (int32_t)prim->indices->count : 0;
+			bool    use_32bit    = vertex_count > 65535;
+			void*   indices      = NULL;
+
 			if (index_count > 0) {
-				indices = malloc(index_count * sizeof(uint16_t));
-				for (int32_t i = 0; i < index_count; i++) {
-					indices[i] = (uint16_t)cgltf_accessor_read_index(prim->indices, i);
+				if (use_32bit) {
+					uint32_t* idx32 = malloc(index_count * sizeof(uint32_t));
+					for (int32_t i = 0; i < index_count; i++) {
+						idx32[i] = (uint32_t)cgltf_accessor_read_index(prim->indices, i);
+					}
+					indices = idx32;
+				} else {
+					uint16_t* idx16 = malloc(index_count * sizeof(uint16_t));
+					for (int32_t i = 0; i < index_count; i++) {
+						idx16[i] = (uint16_t)cgltf_accessor_read_index(prim->indices, i);
+					}
+					indices = idx16;
 				}
 			}
 
 			// Create GPU mesh
-			skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, vertices, vertex_count, indices, index_count, &gltf->meshes[mesh_idx]);
+			skr_index_fmt_ idx_fmt = use_32bit ? skr_index_fmt_u32 : skr_index_fmt_u16;
+			skr_mesh_create(&su_vertex_type_pnuc, idx_fmt, vertices, vertex_count, indices, index_count, &gltf->meshes[mesh_idx]);
 			char mesh_name[64];
 			snprintf(mesh_name, sizeof(mesh_name), "gltf_mesh_%d", mesh_idx);
 			skr_mesh_set_name(&gltf->meshes[mesh_idx], mesh_name);
@@ -778,6 +889,12 @@ static void _su_gltf_extract_node(
 				mat_data->roughness_factor  = pbr->roughness_factor;
 				mat_data->base_color_factor = (skr_vec4_t){pbr->base_color_factor[0], pbr->base_color_factor[1], pbr->base_color_factor[2], pbr->base_color_factor[3]};
 				mat_data->emissive_factor   = (skr_vec3_t){mat->emissive_factor[0], mat->emissive_factor[1], mat->emissive_factor[2]};
+
+				// Extract texture transform from base color texture (KHR_texture_transform)
+				if (pbr->base_color_texture.has_transform) {
+					cgltf_texture_transform* t = &pbr->base_color_texture.transform;
+					mat_data->tex_trans = (skr_vec4_t){t->offset[0], t->offset[1], t->scale[0], t->scale[1]};
+				}
 
 				// Texture indices
 				if (pbr->base_color_texture.texture)         mat_data->texture_indices[_su_gltf_tex_albedo]             = _su_gltf_find_texture_index(data, pbr->base_color_texture.texture->image);
@@ -797,7 +914,7 @@ recurse:
 	}
 }
 
-// Load texture from various GLTF sources
+// Load texture from various GLTF sources (GLTF textures are always LDR 8-bit)
 static bool _su_gltf_load_texture_data(cgltf_data* data, cgltf_options* options, const char* base_path, int32_t tex_idx, unsigned char** out_pixels, int32_t* out_width, int32_t* out_height) {
 	if (tex_idx < 0 || tex_idx >= (int32_t)data->images_count) return false;
 
@@ -807,7 +924,7 @@ static bool _su_gltf_load_texture_data(cgltf_data* data, cgltf_options* options,
 	if (img->buffer_view) {
 		cgltf_buffer_view* view     = img->buffer_view;
 		unsigned char*     img_data = (unsigned char*)view->buffer->data + view->offset;
-		*out_pixels = su_image_load_from_memory(img_data, view->size, out_width, out_height, NULL, 4);
+		*out_pixels = (unsigned char*)su_image_load_from_memory(img_data, view->size, out_width, out_height, NULL, 4);
 		return *out_pixels != NULL;
 	}
 
@@ -823,7 +940,7 @@ static bool _su_gltf_load_texture_data(cgltf_data* data, cgltf_options* options,
 
 			void* buffer = NULL;
 			if (cgltf_load_buffer_base64(options, base64_size, base64_start, &buffer) == cgltf_result_success && buffer) {
-				*out_pixels = su_image_load_from_memory((unsigned char*)buffer, base64_size, out_width, out_height, NULL, 4);
+				*out_pixels = (unsigned char*)su_image_load_from_memory((unsigned char*)buffer, base64_size, out_width, out_height, NULL, 4);
 				free(buffer);
 				return *out_pixels != NULL;
 			}
@@ -839,7 +956,7 @@ static bool _su_gltf_load_texture_data(cgltf_data* data, cgltf_options* options,
 		} else {
 			snprintf(texture_path, sizeof(texture_path), "%s", img->uri);
 		}
-		*out_pixels = su_image_load(texture_path, out_width, out_height, NULL, 4);
+		*out_pixels = (unsigned char*)su_image_load(texture_path, out_width, out_height, NULL, 4);
 		return *out_pixels != NULL;
 	}
 
@@ -903,6 +1020,19 @@ static void _su_gltf_load_sync(su_gltf_t* gltf) {
 		}
 	}
 
+	// Compute overall model bounds from all mesh bounds
+	gltf->bounds.min = (float3){ FLT_MAX,  FLT_MAX,  FLT_MAX};
+	gltf->bounds.max = (float3){-FLT_MAX, -FLT_MAX, -FLT_MAX};
+	for (int32_t i = 0; i < gltf->mesh_count; i++) {
+		su_bounds_t* mb = &gltf->mesh_bounds[i];
+		if (mb->min.x < gltf->bounds.min.x) gltf->bounds.min.x = mb->min.x;
+		if (mb->min.y < gltf->bounds.min.y) gltf->bounds.min.y = mb->min.y;
+		if (mb->min.z < gltf->bounds.min.z) gltf->bounds.min.z = mb->min.z;
+		if (mb->max.x > gltf->bounds.max.x) gltf->bounds.max.x = mb->max.x;
+		if (mb->max.y > gltf->bounds.max.y) gltf->bounds.max.y = mb->max.y;
+		if (mb->max.z > gltf->bounds.max.z) gltf->bounds.max.z = mb->max.z;
+	}
+
 	// Create materials with default textures
 	for (int32_t i = 0; i < gltf->mesh_count; i++) {
 		_su_gltf_material_data_t* md = &mat_data[i];
@@ -924,8 +1054,7 @@ static void _su_gltf_load_sync(su_gltf_t* gltf) {
 		skr_material_set_param(&gltf->materials[i], "color",           sksc_shader_var_float, 4, &md->base_color_factor);
 		skr_vec4_t emission = {md->emissive_factor.x, md->emissive_factor.y, md->emissive_factor.z, 1.0f};
 		skr_material_set_param(&gltf->materials[i], "emission_factor", sksc_shader_var_float, 4, &emission);
-		skr_vec4_t tex_trans = {0.0f, 0.0f, 1.0f, 1.0f};
-		skr_material_set_param(&gltf->materials[i], "tex_trans",       sksc_shader_var_float, 4, &tex_trans);
+		skr_material_set_param(&gltf->materials[i], "tex_trans",       sksc_shader_var_float, 4, &md->tex_trans);
 		skr_material_set_param(&gltf->materials[i], "metallic",        sksc_shader_var_float, 1, &md->metallic_factor);
 		skr_material_set_param(&gltf->materials[i], "roughness",       sksc_shader_var_float, 1, &md->roughness_factor);
 	}
@@ -1022,6 +1151,16 @@ void su_gltf_destroy(su_gltf_t* gltf) {
 
 su_gltf_state_ su_gltf_get_state(su_gltf_t* gltf) {
 	return gltf ? gltf->state : su_gltf_state_failed;
+}
+
+su_bounds_t su_gltf_get_bounds(su_gltf_t* gltf) {
+	if (!gltf || gltf->state != su_gltf_state_ready) {
+		return (su_bounds_t){
+			.min = {0, 0, 0},
+			.max = {0, 0, 0}
+		};
+	}
+	return gltf->bounds;
 }
 
 void su_gltf_add_to_render_list(su_gltf_t* gltf, skr_render_list_t* list, const float4x4* opt_transform) {

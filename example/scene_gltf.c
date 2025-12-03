@@ -29,14 +29,33 @@
 
 #if HAS_FILE_DIALOG
 // Opens a file dialog and returns the selected path, or NULL if cancelled.
+// filter_exts: semicolon-separated extensions (e.g., "jpg;png;hdr")
 // Caller must free the returned string.
-static char* _open_file_dialog(const char* title, const char* filter_desc, const char* filter_ext) {
+static char* _open_file_dialog(const char* title, const char* filter_desc, const char* filter_exts) {
 #if defined(_WIN32)
 	char filename[MAX_PATH] = {0};
 
-	// Build filter string: "Description\0*.ext\0\0"
-	char filter[256];
-	snprintf(filter, sizeof(filter), "%s%c*.%s%c", filter_desc, '\0', filter_ext, '\0');
+	// Build filter string: "Description\0*.ext1;*.ext2\0\0"
+	char filter[512];
+	char pattern[256] = {0};
+
+	// Convert "jpg;png;hdr" to "*.jpg;*.png;*.hdr"
+	const char* src = filter_exts;
+	char* dst = pattern;
+	char* dst_end = pattern + sizeof(pattern) - 3;
+	while (*src && dst < dst_end) {
+		if (dst != pattern) *dst++ = ';';
+		*dst++ = '*';
+		*dst++ = '.';
+		while (*src && *src != ';' && dst < dst_end) {
+			*dst++ = *src++;
+		}
+		if (*src == ';') src++;
+	}
+	*dst = '\0';
+
+	int32_t len = snprintf(filter, sizeof(filter) - 1, "%s (%s)%c%s%c", filter_desc, pattern, '\0', pattern, '\0');
+	filter[len + 1] = '\0';  // Double null terminator
 
 	OPENFILENAMEA ofn = {0};
 	ofn.lStructSize  = sizeof(ofn);
@@ -53,12 +72,28 @@ static char* _open_file_dialog(const char* title, const char* filter_desc, const
 	return NULL;
 
 #elif defined(__linux__)
+	// Build pattern for zenity: "*.jpg *.png *.hdr" and kdialog: "*.jpg *.png *.hdr"
+	char pattern[256] = {0};
+	const char* src = filter_exts;
+	char* dst = pattern;
+	char* dst_end = pattern + sizeof(pattern) - 3;
+	while (*src && dst < dst_end) {
+		if (dst != pattern) *dst++ = ' ';
+		*dst++ = '*';
+		*dst++ = '.';
+		while (*src && *src != ';' && dst < dst_end) {
+			*dst++ = *src++;
+		}
+		if (*src == ';') src++;
+	}
+	*dst = '\0';
+
 	// Try zenity first (GTK), then kdialog (KDE)
 	char command[512];
 	snprintf(command, sizeof(command),
-		"zenity --file-selection --title=\"%s\" --file-filter=\"%s | *.%s\" 2>/dev/null || "
-		"kdialog --getopenfilename . \"*.%s\" --title \"%s\" 2>/dev/null",
-		title, filter_desc, filter_ext, filter_ext, title);
+		"zenity --file-selection --title=\"%s\" --file-filter=\"%s | %s\" 2>/dev/null || "
+		"kdialog --getopenfilename . \"%s\" --title \"%s\" 2>/dev/null",
+		title, filter_desc, pattern, pattern, title);
 
 	FILE* pipe = popen(command, "r");
 	if (!pipe) return NULL;
@@ -130,18 +165,24 @@ static void _load_skybox(scene_gltf_t* scene, const char* path) {
 	// Destroy existing skybox first
 	_destroy_skybox(scene);
 
-	int32_t        equirect_width  = 0;
-	int32_t        equirect_height = 0;
-	unsigned char* equirect_data   = su_image_load(path, &equirect_width, &equirect_height, NULL, 4);
+	int32_t       equirect_width  = 0;
+	int32_t       equirect_height = 0;
+	skr_tex_fmt_  equirect_format = skr_tex_fmt_rgba32_srgb;
+	void*         equirect_data   = su_image_load(path, &equirect_width, &equirect_height, &equirect_format, 4);
 
 	if (!equirect_data || equirect_width <= 0 || equirect_height <= 0) {
 		su_log(su_log_warning, "Failed to load skybox: %s", path);
 		return;
 	}
 
+	// For HDR (rgb9e5), use same format for cubemap to preserve HDR values
+	skr_tex_fmt_ cubemap_format = (equirect_format == skr_tex_fmt_rgb9e5)
+		? skr_tex_fmt_rgb9e5
+		: skr_tex_fmt_rgba32_srgb;
+
 	// Create equirectangular texture
 	skr_tex_create(
-		skr_tex_fmt_rgba32_srgb,
+		equirect_format,
 		skr_tex_flags_readable,
 		su_sampler_linear_wrap,
 		(skr_vec3i_t){equirect_width, equirect_height, 1},
@@ -150,10 +191,10 @@ static void _load_skybox(scene_gltf_t* scene, const char* path) {
 	skr_tex_set_name(&scene->equirect_texture, "equirect_source");
 	su_image_free(equirect_data);
 
-	// Create empty cubemap texture
+	// Create empty cubemap texture (matches source format for HDR preservation)
 	const int32_t cube_size = equirect_height / 2;
 	skr_tex_create(
-		skr_tex_fmt_rgba32_srgb,
+		cubemap_format,
 		skr_tex_flags_readable | skr_tex_flags_writeable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
 		su_sampler_linear_clamp,
 		(skr_vec3i_t){cube_size, cube_size, 6},
@@ -204,7 +245,7 @@ static void _load_skybox(scene_gltf_t* scene, const char* path) {
 static void _load_model(scene_gltf_t* scene, const char* path) {
 	// Destroy existing model
 	if (scene->model) {
-		su_gltf_destroy(scene->model);
+		//su_gltf_destroy(scene->model);
 	}
 	free(scene->model_path);
 
@@ -327,9 +368,30 @@ static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, flo
 		return;
 	}
 
-	// Render loaded model with rotation
-	float4x4 rotation = float4x4_r(float4_quat_from_euler((float3){0.0f, scene->rotation, 0.0f}));
-	su_gltf_add_to_render_list(scene->model, ref_render_list, &rotation);
+	// Compute normalization transform: center the model and scale to fit in a unit sphere
+	su_bounds_t bounds = su_gltf_get_bounds(scene->model);
+	float3 center = {
+		(bounds.min.x + bounds.max.x) * 0.5f,
+		(bounds.min.y + bounds.max.y) * 0.5f,
+		(bounds.min.z + bounds.max.z) * 0.5f,
+	};
+	float3 extents = {
+		bounds.max.x - bounds.min.x,
+		bounds.max.y - bounds.min.y,
+		bounds.max.z - bounds.min.z,
+	};
+	float max_extent = fmaxf(fmaxf(extents.x, extents.y), extents.z);
+	float scale = (max_extent > 0.0001f) ? (4.0f / max_extent) : 1.0f;
+
+	// Build transform: rotate, then scale, then translate to center at origin
+	float4x4 rotation     = float4x4_r(float4_quat_from_euler((float3){0.0f, scene->rotation, 0.0f}));
+	float4x4 scale_matrix = float4x4_s((float3){scale, scale, scale});
+	float4x4 offset       = float4x4_t((float3){-center.x, -center.y, -center.z});
+
+	// Order: offset (move center to origin) -> scale -> rotate
+	float4x4 transform = float4x4_mul(rotation, float4x4_mul(scale_matrix, offset));
+
+	su_gltf_add_to_render_list(scene->model, ref_render_list, &transform);
 }
 
 static bool _scene_gltf_get_camera(scene_t* base, scene_camera_t* out_camera) {
@@ -371,11 +433,7 @@ static void _scene_gltf_render_ui(scene_t* base) {
 
 #if HAS_FILE_DIALOG
 	if (igButton("Load GLTF...", (ImVec2){-1, 0})) {
-		char* path = _open_file_dialog("Select GLTF Model", "GLTF/GLB Files", "glb");
-		if (!path) {
-			// Try .gltf extension
-			path = _open_file_dialog("Select GLTF Model", "GLTF Files", "gltf");
-		}
+		char* path = _open_file_dialog("Select GLTF Model", "GLTF Files", "glb;gltf");
 		if (path) {
 			_load_model(scene, path);
 			free(path);
@@ -396,13 +454,7 @@ static void _scene_gltf_render_ui(scene_t* base) {
 
 #if HAS_FILE_DIALOG
 	if (igButton("Load Skybox...", (ImVec2){-1, 0})) {
-		char* path = _open_file_dialog("Select Skybox Image", "Image Files", "jpg");
-		if (!path) {
-			path = _open_file_dialog("Select Skybox Image", "Image Files", "png");
-		}
-		if (!path) {
-			path = _open_file_dialog("Select Skybox Image", "Image Files", "hdr");
-		}
+		char* path = _open_file_dialog("Select Skybox Image", "Image Files", "hdr;jpg;png");
 		if (path) {
 			_load_skybox(scene, path);
 			free(path);

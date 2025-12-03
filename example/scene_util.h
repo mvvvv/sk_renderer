@@ -179,38 +179,40 @@ skr_tex_t su_tex_create_solid_color(uint32_t color);
 
 // Loads an image from file using stb_image
 // filename: Path to image file (png, jpg, etc.)
-// opt_out_width: Optional output for image width
+// opt_out_width:  Optional output for image width
 // opt_out_height: Optional output for image height
-// opt_out_channels: Optional output for original channel count
+// opt_out_format: Optional output for recommended texture format (rgba32_srgb for LDR, rgba128 for HDR)
 // force_channels: Number of channels to force (4 for RGBA), or 0 for original
 // Returns: Pixel data (must be freed with su_image_free), or NULL on failure
-unsigned char* su_image_load(
-	const char* filename,
-	int32_t*    opt_out_width,
-	int32_t*    opt_out_height,
-	int32_t*    opt_out_channels,
-	int32_t     force_channels
+//          For LDR: returns 8-bit per channel data
+//          For HDR: returns 32-bit float per channel data (cast to void*)
+void* su_image_load(
+	const char*    filename,
+	int32_t*       opt_out_width,
+	int32_t*       opt_out_height,
+	skr_tex_fmt_*  opt_out_format,
+	int32_t        force_channels
 );
 
 // Loads an image from memory using stb_image
 // data: Pointer to image file data in memory
 // size: Size of image data in bytes
-// opt_out_width: Optional output for image width
+// opt_out_width:  Optional output for image width
 // opt_out_height: Optional output for image height
-// opt_out_channels: Optional output for original channel count
+// opt_out_format: Optional output for recommended texture format (rgba32_srgb for LDR, rgba128 for HDR)
 // force_channels: Number of channels to force (4 for RGBA), or 0 for original
 // Returns: Pixel data (must be freed with su_image_free), or NULL on failure
-unsigned char* su_image_load_from_memory(
-	const void* data,
-	size_t      size,
-	int32_t*    opt_out_width,
-	int32_t*    opt_out_height,
-	int32_t*    opt_out_channels,
-	int32_t     force_channels
+void* su_image_load_from_memory(
+	const void*    data,
+	size_t         size,
+	int32_t*       opt_out_width,
+	int32_t*       opt_out_height,
+	skr_tex_fmt_*  opt_out_format,
+	int32_t        force_channels
 );
 
 // Frees image data allocated by su_image_load or su_image_load_from_memory
-void su_image_free(unsigned char* pixels);
+void su_image_free(void* pixels);
 
 ///////////////////////////////////////////////////////////////////////////////
 // File I/O
@@ -255,6 +257,12 @@ typedef enum {
 	su_gltf_state_failed,   // Loading failed
 } su_gltf_state_;
 
+// Axis-aligned bounding box
+typedef struct {
+	float3 min;
+	float3 max;
+} su_bounds_t;
+
 // Load a GLTF model asynchronously
 // Returns immediately with a valid handle that will be populated over time
 // filename: Path to .gltf or .glb file
@@ -266,6 +274,9 @@ void su_gltf_destroy(su_gltf_t* gltf);
 
 // Get the current loading state
 su_gltf_state_ su_gltf_get_state(su_gltf_t* gltf);
+
+// Get the overall bounding box of the model (only valid when state is ready)
+su_bounds_t su_gltf_get_bounds(su_gltf_t* gltf);
 
 // Add GLTF model meshes to a render list for drawing
 // transform: Optional additional transform to apply (can be NULL for identity)
