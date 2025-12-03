@@ -27,12 +27,15 @@ bool ImGui_ImplSDL2_ProcessEvent_C(const SDL_Event* event);
 
 int main(int argc, char* argv[]) {
 	// Parse command line arguments
-	int test_frames = 0;  // 0 = run normally, >0 = exit after N frames
+	int test_frames   = 0;   // 0 = run normally, >0 = exit after N frames
+	int start_scene   = -1;  // -1 = use default, >= 0 = start with this scene
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-test") == 0) {
 			test_frames = 10;  // Default test mode: 10 frames
 		} else if (strcmp(argv[i], "-frames") == 0 && i + 1 < argc) {
 			test_frames = atoi(argv[++i]);
+		} else if (strcmp(argv[i], "-scene") == 0 && i + 1 < argc) {
+			start_scene = atoi(argv[++i]);
 		}
 	}
 
@@ -148,7 +151,7 @@ int main(int argc, char* argv[]) {
 	su_log(su_log_info, "ImGui initialized successfully!");
 
 	// Create application
-	app_t* app = app_create();
+	app_t* app = app_create(start_scene);
 	if (!app) {
 		su_log(su_log_critical, "Failed to create application!");
 		ImGui_ImplSkRenderer_Shutdown();

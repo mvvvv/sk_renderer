@@ -9,6 +9,11 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#define CGLTF_IMPLEMENTATION
+#include "cgltf.h"
+
+#include <threads.h>
+
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -41,7 +46,7 @@ const skr_tex_sampler_t su_sampler_point_clamp = {
 
 skr_vert_type_t su_vertex_type_pnuc = {0};
 
-void su_vertex_types_init(void) {
+static void _su_vertex_types_init(void) {
 	skr_vert_type_create(
 		(skr_vert_component_t[]){
 			{ .format = skr_vertex_fmt_f32,            .count = 3, .semantic = skr_semantic_position, .semantic_slot = 0 },
@@ -481,5 +486,553 @@ float su_hash_f(int32_t position, uint32_t seed) {
 	mangled ^= (mangled >> 8);
 
 	return (float)mangled / 4294967296.0f;  // Normalize to [0.0, 1.0]
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Asset Loading Thread
+///////////////////////////////////////////////////////////////////////////////
+
+#define SU_MAX_PENDING_LOADS 32
+
+typedef enum {
+	_su_load_type_gltf,
+} _su_load_type_;
+
+typedef struct _su_load_request_t {
+	_su_load_type_ type;
+	void*          asset;  // Pointer to su_gltf_t or other asset type
+} _su_load_request_t;
+
+typedef struct {
+	thrd_t thread;
+	mtx_t  queue_mutex;
+	bool   running;
+
+	_su_load_request_t requests[SU_MAX_PENDING_LOADS];
+	int32_t            request_head;  // Next slot to write
+	int32_t            request_tail;  // Next slot to read
+} _su_asset_loader_t;
+
+static _su_asset_loader_t _su_loader = {0};
+
+// Forward declarations
+static void _su_gltf_load_sync(su_gltf_t* gltf);
+
+static int32_t _su_loader_thread(void* arg) {
+	(void)arg;
+
+	// Initialize this thread for sk_renderer
+	skr_thread_init();
+
+	su_log(su_log_info, "Asset loader thread started");
+
+	while (_su_loader.running) {
+		_su_load_request_t request = {0};
+		bool               has_request = false;
+
+		// Check for pending requests
+		mtx_lock(&_su_loader.queue_mutex);
+		if (_su_loader.request_head != _su_loader.request_tail) {
+			request     = _su_loader.requests[_su_loader.request_tail];
+			_su_loader.request_tail = (_su_loader.request_tail + 1) % SU_MAX_PENDING_LOADS;
+			has_request = true;
+		}
+		mtx_unlock(&_su_loader.queue_mutex);
+
+		if (has_request) {
+			switch (request.type) {
+			case _su_load_type_gltf:
+				_su_gltf_load_sync((su_gltf_t*)request.asset);
+				break;
+			}
+		} else {
+			// Sleep briefly to avoid busy-waiting
+			thrd_sleep(&(struct timespec){.tv_nsec = 10000000}, NULL);  // 10ms
+		}
+	}
+
+	su_log(su_log_info, "Asset loader thread stopped");
+	skr_thread_shutdown();
+	return 0;
+}
+
+static void _su_loader_enqueue(_su_load_type_ type, void* asset) {
+	mtx_lock(&_su_loader.queue_mutex);
+
+	int32_t next_head = (_su_loader.request_head + 1) % SU_MAX_PENDING_LOADS;
+	if (next_head != _su_loader.request_tail) {
+		_su_loader.requests[_su_loader.request_head] = (_su_load_request_t){
+			.type  = type,
+			.asset = asset,
+		};
+		_su_loader.request_head = next_head;
+	} else {
+		su_log(su_log_warning, "Asset loader queue full, request dropped");
+	}
+
+	mtx_unlock(&_su_loader.queue_mutex);
+}
+
+void su_initialize(void) {
+	// Initialize vertex types
+	_su_vertex_types_init();
+
+	// Start asset loading thread
+	mtx_init(&_su_loader.queue_mutex, mtx_plain);
+	_su_loader.running      = true;
+	_su_loader.request_head = 0;
+	_su_loader.request_tail = 0;
+	thrd_create(&_su_loader.thread, _su_loader_thread, NULL);
+
+	su_log(su_log_info, "Scene utilities initialized");
+}
+
+void su_shutdown(void) {
+	// Stop loading thread
+	_su_loader.running = false;
+	thrd_join(_su_loader.thread, NULL);
+	mtx_destroy(&_su_loader.queue_mutex);
+
+	su_log(su_log_info, "Scene utilities shut down");
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// GLTF Loading
+///////////////////////////////////////////////////////////////////////////////
+
+#define SU_GLTF_MAX_MESHES   64
+#define SU_GLTF_MAX_TEXTURES 32
+
+// Texture types for PBR materials
+typedef enum {
+	_su_gltf_tex_albedo = 0,
+	_su_gltf_tex_metallic_roughness,
+	_su_gltf_tex_normal,
+	_su_gltf_tex_occlusion,
+	_su_gltf_tex_emissive,
+	_su_gltf_tex_count
+} _su_gltf_tex_type_;
+
+// Per-mesh material data extracted from GLTF
+typedef struct {
+	int32_t    texture_indices[_su_gltf_tex_count];  // Indices per texture type, -1 if none
+	float      metallic_factor;
+	float      roughness_factor;
+	skr_vec4_t base_color_factor;
+	skr_vec3_t emissive_factor;
+} _su_gltf_material_data_t;
+
+struct su_gltf_t {
+	su_gltf_state_  state;
+	char            filepath[256];
+	skr_shader_t*   shader;  // Borrowed reference
+
+	// GPU resources (created on loader thread)
+	skr_mesh_t      meshes   [SU_GLTF_MAX_MESHES];
+	skr_material_t  materials[SU_GLTF_MAX_MESHES];
+	float4x4        transforms[SU_GLTF_MAX_MESHES];
+	int32_t         mesh_count;
+
+	skr_tex_t       textures[SU_GLTF_MAX_TEXTURES];
+	int32_t         texture_count;
+
+	// Fallback textures (created on loader thread)
+	skr_tex_t       white_texture;
+	skr_tex_t       black_texture;
+	skr_tex_t       default_metal_texture;
+};
+
+// Helper to read vertex attribute with default value
+static void _su_gltf_read_attribute(cgltf_accessor* accessor, int32_t index, float* out_data, int32_t component_count, const float* default_value) {
+	if (accessor && cgltf_accessor_read_float(accessor, index, out_data, component_count)) {
+		return;
+	}
+	for (int32_t i = 0; i < component_count; i++) {
+		out_data[i] = default_value[i];
+	}
+}
+
+// Helper to calculate node transform from GLTF node
+static float4x4 _su_gltf_node_transform(cgltf_node* node) {
+	if (node->has_matrix) {
+		// cgltf uses column-major, float_math uses row-major, so transpose
+		float4x4 m;
+		memcpy(&m, node->matrix, sizeof(float) * 16);
+		return float4x4_transpose(m);
+	}
+
+	// Build from TRS
+	float3 pos   = node->has_translation ? (float3){node->translation[0], node->translation[1], node->translation[2]} : (float3){0,0,0};
+	float4 rot   = node->has_rotation    ? (float4){node->rotation[0], node->rotation[1], node->rotation[2], node->rotation[3]} : (float4){0,0,0,1};
+	float3 scale = node->has_scale       ? (float3){node->scale[0], node->scale[1], node->scale[2]} : (float3){1,1,1};
+	return float4x4_trs(pos, rot, scale);
+}
+
+// Helper to find texture index from image pointer
+static int32_t _su_gltf_find_texture_index(cgltf_data* data, cgltf_image* img) {
+	if (!img) return -1;
+	for (size_t t = 0; t < data->images_count; t++) {
+		if ((void*)img == (void*)&data->images[t]) {
+			return (int32_t)t;
+		}
+	}
+	return -1;
+}
+
+// Extract mesh primitives from a GLTF node
+static void _su_gltf_extract_node(
+	cgltf_data*               data,
+	cgltf_node*               node,
+	float4x4                  parent_transform,
+	su_gltf_t*                gltf,
+	_su_gltf_material_data_t* out_mat_data
+) {
+	float4x4 local_transform = _su_gltf_node_transform(node);
+	float4x4 world_transform = float4x4_mul(parent_transform, local_transform);
+
+	if (node->mesh && gltf->mesh_count < SU_GLTF_MAX_MESHES) {
+		cgltf_mesh* mesh = node->mesh;
+
+		// Process first primitive only (for simplicity)
+		if (mesh->primitives_count > 0) {
+			cgltf_primitive* prim = &mesh->primitives[0];
+			if (prim->type != cgltf_primitive_type_triangles) goto recurse;
+
+			int32_t mesh_idx = gltf->mesh_count;
+			gltf->transforms[mesh_idx] = world_transform;
+
+			// Initialize material data
+			_su_gltf_material_data_t* mat_data = &out_mat_data[mesh_idx];
+			for (int32_t i = 0; i < _su_gltf_tex_count; i++) mat_data->texture_indices[i] = -1;
+			mat_data->metallic_factor   = 1.0f;
+			mat_data->roughness_factor  = 1.0f;
+			mat_data->base_color_factor = (skr_vec4_t){1.0f, 1.0f, 1.0f, 1.0f};
+			mat_data->emissive_factor   = (skr_vec3_t){0.0f, 0.0f, 0.0f};
+
+			// Find accessors
+			cgltf_accessor* pos_accessor   = NULL;
+			cgltf_accessor* norm_accessor  = NULL;
+			cgltf_accessor* uv_accessor    = NULL;
+			cgltf_accessor* color_accessor = NULL;
+
+			for (size_t i = 0; i < prim->attributes_count; i++) {
+				cgltf_attribute* attr = &prim->attributes[i];
+				if      (attr->type == cgltf_attribute_type_position)                     pos_accessor   = attr->data;
+				else if (attr->type == cgltf_attribute_type_normal)                       norm_accessor  = attr->data;
+				else if (attr->type == cgltf_attribute_type_texcoord && attr->index == 0) uv_accessor    = attr->data;
+				else if (attr->type == cgltf_attribute_type_color    && attr->index == 0) color_accessor = attr->data;
+			}
+
+			if (!pos_accessor) goto recurse;
+
+			// Build vertex data
+			int32_t           vertex_count = (int32_t)pos_accessor->count;
+			su_vertex_pnuc_t* vertices     = calloc(vertex_count, sizeof(su_vertex_pnuc_t));
+
+			for (int32_t v = 0; v < vertex_count; v++) {
+				su_vertex_pnuc_t* vert = &vertices[v];
+				float d[4];
+
+				_su_gltf_read_attribute(pos_accessor,   v, d, 3, (float[]){0, 0, 0});
+				vert->position = (skr_vec3_t){d[0], d[1], d[2]};
+
+				_su_gltf_read_attribute(norm_accessor,  v, d, 3, (float[]){0, 1, 0});
+				vert->normal = (skr_vec3_t){d[0], d[1], d[2]};
+
+				_su_gltf_read_attribute(uv_accessor,    v, d, 2, (float[]){0, 0});
+				vert->uv = (skr_vec2_t){d[0], d[1]};
+
+				_su_gltf_read_attribute(color_accessor, v, d, 4, (float[]){1, 1, 1, 1});
+				uint8_t r = (uint8_t)(d[0] * 255.0f);
+				uint8_t g = (uint8_t)(d[1] * 255.0f);
+				uint8_t b = (uint8_t)(d[2] * 255.0f);
+				uint8_t a = (uint8_t)(d[3] * 255.0f);
+				vert->color = (a << 24) | (b << 16) | (g << 8) | r;
+			}
+
+			// Build index data
+			int32_t   index_count = prim->indices ? (int32_t)prim->indices->count : 0;
+			uint16_t* indices     = NULL;
+			if (index_count > 0) {
+				indices = malloc(index_count * sizeof(uint16_t));
+				for (int32_t i = 0; i < index_count; i++) {
+					indices[i] = (uint16_t)cgltf_accessor_read_index(prim->indices, i);
+				}
+			}
+
+			// Create GPU mesh
+			skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, vertices, vertex_count, indices, index_count, &gltf->meshes[mesh_idx]);
+			char mesh_name[64];
+			snprintf(mesh_name, sizeof(mesh_name), "gltf_mesh_%d", mesh_idx);
+			skr_mesh_set_name(&gltf->meshes[mesh_idx], mesh_name);
+
+			free(vertices);
+			free(indices);
+
+			// Extract material properties
+			if (prim->material) {
+				cgltf_material*              mat = prim->material;
+				cgltf_pbr_metallic_roughness* pbr = &mat->pbr_metallic_roughness;
+
+				mat_data->metallic_factor   = pbr->metallic_factor;
+				mat_data->roughness_factor  = pbr->roughness_factor;
+				mat_data->base_color_factor = (skr_vec4_t){pbr->base_color_factor[0], pbr->base_color_factor[1], pbr->base_color_factor[2], pbr->base_color_factor[3]};
+				mat_data->emissive_factor   = (skr_vec3_t){mat->emissive_factor[0], mat->emissive_factor[1], mat->emissive_factor[2]};
+
+				// Texture indices
+				if (pbr->base_color_texture.texture)         mat_data->texture_indices[_su_gltf_tex_albedo]             = _su_gltf_find_texture_index(data, pbr->base_color_texture.texture->image);
+				if (pbr->metallic_roughness_texture.texture) mat_data->texture_indices[_su_gltf_tex_metallic_roughness] = _su_gltf_find_texture_index(data, pbr->metallic_roughness_texture.texture->image);
+				if (mat->normal_texture.texture)             mat_data->texture_indices[_su_gltf_tex_normal]             = _su_gltf_find_texture_index(data, mat->normal_texture.texture->image);
+				if (mat->occlusion_texture.texture)          mat_data->texture_indices[_su_gltf_tex_occlusion]          = _su_gltf_find_texture_index(data, mat->occlusion_texture.texture->image);
+				if (mat->emissive_texture.texture)           mat_data->texture_indices[_su_gltf_tex_emissive]           = _su_gltf_find_texture_index(data, mat->emissive_texture.texture->image);
+			}
+
+			gltf->mesh_count++;
+		}
+	}
+
+recurse:
+	for (size_t i = 0; i < node->children_count; i++) {
+		_su_gltf_extract_node(data, node->children[i], world_transform, gltf, out_mat_data);
+	}
+}
+
+// Load texture from various GLTF sources
+static bool _su_gltf_load_texture_data(cgltf_data* data, cgltf_options* options, const char* base_path, int32_t tex_idx, unsigned char** out_pixels, int32_t* out_width, int32_t* out_height) {
+	if (tex_idx < 0 || tex_idx >= (int32_t)data->images_count) return false;
+
+	cgltf_image* img = &data->images[tex_idx];
+
+	// Try buffer view (embedded)
+	if (img->buffer_view) {
+		cgltf_buffer_view* view     = img->buffer_view;
+		unsigned char*     img_data = (unsigned char*)view->buffer->data + view->offset;
+		*out_pixels = su_image_load_from_memory(img_data, view->size, out_width, out_height, NULL, 4);
+		return *out_pixels != NULL;
+	}
+
+	// Try data URI
+	if (img->uri && strncmp(img->uri, "data:", 5) == 0) {
+		char* comma = strchr(img->uri, ',');
+		if (comma && comma - img->uri >= 7 && strncmp(comma - 7, ";base64", 7) == 0) {
+			char*  base64_start = comma + 1;
+			size_t base64_len   = strlen(base64_start);
+			size_t base64_size  = 3 * (base64_len / 4);
+			if (base64_len >= 1 && base64_start[base64_len - 1] == '=') base64_size -= 1;
+			if (base64_len >= 2 && base64_start[base64_len - 2] == '=') base64_size -= 1;
+
+			void* buffer = NULL;
+			if (cgltf_load_buffer_base64(options, base64_size, base64_start, &buffer) == cgltf_result_success && buffer) {
+				*out_pixels = su_image_load_from_memory((unsigned char*)buffer, base64_size, out_width, out_height, NULL, 4);
+				free(buffer);
+				return *out_pixels != NULL;
+			}
+		}
+		return false;
+	}
+
+	// Try external file
+	if (img->uri) {
+		char texture_path[512];
+		if (base_path[0] != '\0') {
+			snprintf(texture_path, sizeof(texture_path), "%s%s", base_path, img->uri);
+		} else {
+			snprintf(texture_path, sizeof(texture_path), "%s", img->uri);
+		}
+		*out_pixels = su_image_load(texture_path, out_width, out_height, NULL, 4);
+		return *out_pixels != NULL;
+	}
+
+	return false;
+}
+
+// Synchronous GLTF loading (runs on loader thread)
+static void _su_gltf_load_sync(su_gltf_t* gltf) {
+	su_log(su_log_info, "GLTF: Loading %s", gltf->filepath);
+
+	// Extract directory path
+	char base_path[256] = "";
+	const char* last_slash = strrchr(gltf->filepath, '/');
+	if (last_slash) {
+		size_t dir_len = last_slash - gltf->filepath + 1;
+		if (dir_len < sizeof(base_path)) {
+			strncpy(base_path, gltf->filepath, dir_len);
+			base_path[dir_len] = '\0';
+		}
+	}
+
+	// Load and parse file
+	void*  file_data = NULL;
+	size_t file_size = 0;
+	if (!su_file_read(gltf->filepath, &file_data, &file_size)) {
+		su_log(su_log_critical, "GLTF: Failed to read file");
+		gltf->state = su_gltf_state_failed;
+		return;
+	}
+
+	cgltf_options options = {0};
+	cgltf_data*   data    = NULL;
+	if (cgltf_parse(&options, file_data, file_size, &data) != cgltf_result_success) {
+		su_log(su_log_critical, "GLTF: Failed to parse");
+		free(file_data);
+		gltf->state = su_gltf_state_failed;
+		return;
+	}
+
+	if (cgltf_load_buffers(&options, data, gltf->filepath) != cgltf_result_success) {
+		su_log(su_log_critical, "GLTF: Failed to load buffers");
+		cgltf_free(data);
+		free(file_data);
+		gltf->state = su_gltf_state_failed;
+		return;
+	}
+
+	// Create fallback textures
+	gltf->white_texture         = su_tex_create_solid_color(0xFFFFFFFF);
+	gltf->black_texture         = su_tex_create_solid_color(0xFF000000);
+	gltf->default_metal_texture = su_tex_create_solid_color(0xFFFFFFFF);
+	skr_tex_set_name(&gltf->white_texture,         "gltf_white_fallback");
+	skr_tex_set_name(&gltf->black_texture,         "gltf_black_fallback");
+	skr_tex_set_name(&gltf->default_metal_texture, "gltf_metal_fallback");
+
+	// Extract meshes
+	_su_gltf_material_data_t mat_data[SU_GLTF_MAX_MESHES] = {0};
+	if (data->scene && data->scene->nodes_count > 0) {
+		for (size_t i = 0; i < data->scene->nodes_count; i++) {
+			_su_gltf_extract_node(data, data->scene->nodes[i], float4x4_identity(), gltf, mat_data);
+		}
+	}
+
+	// Create materials with default textures
+	for (int32_t i = 0; i < gltf->mesh_count; i++) {
+		_su_gltf_material_data_t* md = &mat_data[i];
+
+		skr_material_create((skr_material_info_t){
+			.shader     = gltf->shader,
+			.cull       = skr_cull_back,
+			.write_mask = skr_write_default,
+			.depth_test = skr_compare_less,
+		}, &gltf->materials[i]);
+
+		// Set default fallback textures
+		skr_material_set_tex(&gltf->materials[i], "albedo_tex",    &gltf->white_texture);
+		skr_material_set_tex(&gltf->materials[i], "emission_tex",  &gltf->black_texture);
+		skr_material_set_tex(&gltf->materials[i], "metal_tex",     &gltf->default_metal_texture);
+		skr_material_set_tex(&gltf->materials[i], "occlusion_tex", &gltf->white_texture);
+
+		// Set material parameters
+		skr_material_set_param(&gltf->materials[i], "color",           sksc_shader_var_float, 4, &md->base_color_factor);
+		skr_vec4_t emission = {md->emissive_factor.x, md->emissive_factor.y, md->emissive_factor.z, 1.0f};
+		skr_material_set_param(&gltf->materials[i], "emission_factor", sksc_shader_var_float, 4, &emission);
+		skr_vec4_t tex_trans = {0.0f, 0.0f, 1.0f, 1.0f};
+		skr_material_set_param(&gltf->materials[i], "tex_trans",       sksc_shader_var_float, 4, &tex_trans);
+		skr_material_set_param(&gltf->materials[i], "metallic",        sksc_shader_var_float, 1, &md->metallic_factor);
+		skr_material_set_param(&gltf->materials[i], "roughness",       sksc_shader_var_float, 1, &md->roughness_factor);
+	}
+
+	// Meshes ready - can start rendering with default materials
+	gltf->state = su_gltf_state_ready;
+
+	// Load textures and bind to materials
+	bool texture_loaded[SU_GLTF_MAX_TEXTURES] = {0};
+	for (int32_t m = 0; m < gltf->mesh_count; m++) {
+		_su_gltf_material_data_t* md = &mat_data[m];
+
+		for (int32_t tex_type = 0; tex_type < _su_gltf_tex_count; tex_type++) {
+			int32_t tex_idx = md->texture_indices[tex_type];
+			if (tex_idx < 0) continue;
+
+			// Load texture if not already loaded
+			if (!texture_loaded[tex_idx]) {
+				unsigned char* pixels = NULL;
+				int32_t        width  = 0, height = 0;
+
+				if (_su_gltf_load_texture_data(data, &options, base_path, tex_idx, &pixels, &width, &height)) {
+					skr_tex_create(
+						skr_tex_fmt_rgba32_srgb,
+						skr_tex_flags_readable | skr_tex_flags_gen_mips,
+						su_sampler_linear_wrap,
+						(skr_vec3i_t){width, height, 1},
+						1, 0, pixels, &gltf->textures[tex_idx]
+					);
+
+					char tex_name[64];
+					snprintf(tex_name, sizeof(tex_name), "gltf_tex_%d", tex_idx);
+					skr_tex_set_name(&gltf->textures[tex_idx], tex_name);
+					skr_tex_generate_mips(&gltf->textures[tex_idx], NULL);
+
+					su_image_free(pixels);
+					texture_loaded[tex_idx] = true;
+					gltf->texture_count++;
+				}
+			}
+
+			// Bind texture to material if loaded
+			if (texture_loaded[tex_idx]) {
+				const char* bind_names[] = {"albedo_tex", "metal_tex", NULL, "occlusion_tex", "emission_tex"};
+				const char* bind_name    = bind_names[tex_type];
+				if (bind_name) {
+					skr_material_set_tex(&gltf->materials[m], bind_name, &gltf->textures[tex_idx]);
+				}
+			}
+		}
+	}
+
+	cgltf_free(data);
+	free(file_data);
+
+	su_log(su_log_info, "GLTF: Ready (%d meshes, %d textures)", gltf->mesh_count, gltf->texture_count);
+}
+
+su_gltf_t* su_gltf_load(const char* filename, skr_shader_t* shader) {
+	su_gltf_t* gltf = calloc(1, sizeof(su_gltf_t));
+	if (!gltf) return NULL;
+
+	gltf->state  = su_gltf_state_loading;
+	gltf->shader = shader;
+	snprintf(gltf->filepath, sizeof(gltf->filepath), "%s", filename);
+
+	// Enqueue for async loading
+	_su_loader_enqueue(_su_load_type_gltf, gltf);
+
+	return gltf;
+}
+
+void su_gltf_destroy(su_gltf_t* gltf) {
+	if (!gltf) return;
+
+	// TODO: If still loading, need to wait for loader thread to finish with this asset
+	// For now, sk_renderer's deferred destruction handles in-flight resources
+
+	for (int32_t i = 0; i < gltf->mesh_count; i++) {
+		skr_mesh_destroy    (&gltf->meshes[i]);
+		skr_material_destroy(&gltf->materials[i]);
+	}
+
+	for (int32_t i = 0; i < SU_GLTF_MAX_TEXTURES; i++) {
+		skr_tex_destroy(&gltf->textures[i]);
+	}
+
+	skr_tex_destroy(&gltf->white_texture);
+	skr_tex_destroy(&gltf->black_texture);
+	skr_tex_destroy(&gltf->default_metal_texture);
+
+	free(gltf);
+}
+
+su_gltf_state_ su_gltf_get_state(su_gltf_t* gltf) {
+	return gltf ? gltf->state : su_gltf_state_failed;
+}
+
+void su_gltf_add_to_render_list(su_gltf_t* gltf, skr_render_list_t* list, const float4x4* opt_transform) {
+	if (!gltf || gltf->state != su_gltf_state_ready) return;
+
+	for (int32_t i = 0; i < gltf->mesh_count; i++) {
+		float4x4 world = gltf->transforms[i];
+		if (opt_transform) {
+			world = float4x4_mul(*opt_transform, world);
+		}
+		skr_render_list_add(list, &gltf->meshes[i], &gltf->materials[i], &world, sizeof(float4x4), 1);
+	}
 }
 

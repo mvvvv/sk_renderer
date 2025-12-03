@@ -39,8 +39,12 @@ typedef enum {
 } app_key_;
 
 // Lifecycle functions
-app_t* app_create (void);
+app_t* app_create (int32_t start_scene);  // start_scene: scene index to start with (-1 for default)
 void   app_destroy(app_t* app);
+
+// Scene management
+void    app_set_scene  (app_t* app, int32_t scene_index);
+int32_t app_scene_count(app_t* app);
 
 // Input handling
 void app_key_press(app_t* app, app_key_ key);

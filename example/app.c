@@ -124,7 +124,7 @@ static void _switch_scene(app_t* app, int32_t new_index) {
 	su_log(su_log_info, "Switched to scene: %s", scene_get_name(app->scene_types[new_index]));
 }
 
-app_t* app_create() {
+app_t* app_create(int32_t start_scene) {
 	app_t* app = calloc(1, sizeof(app_t));
 	if (!app) return NULL;
 
@@ -148,8 +148,8 @@ app_t* app_create() {
 		return NULL;
 	}
 
-	// Initialize standard vertex types
-	su_vertex_types_init();
+	// Initialize scene utilities (vertex types, asset loading thread)
+	su_initialize();
 
 	// Create shared render list
 	skr_render_list_create(&app->render_list);
@@ -170,9 +170,10 @@ app_t* app_create() {
 	su_log(su_log_info, "Application created successfully!");
 	su_log(su_log_info, "Available scenes: %d (use arrow keys to switch)", app->scene_count);
 
-	// Start with the first scene
+	// Start with the requested scene (default to 0 if out of range or -1)
 	app->scene_index = -1;
-	_switch_scene(app, 9);
+	int32_t initial_scene = (start_scene >= 0 && start_scene < app->scene_count) ? start_scene : 0;
+	_switch_scene(app, initial_scene);
 
 	return app;
 }
@@ -196,9 +197,22 @@ void app_destroy(app_t* app) {
 		bloom_destroy();
 	}
 
+	// Shutdown scene utilities (stops asset loading thread)
+	su_shutdown();
+
 	free(app);
 
 	su_log(su_log_info, "Application destroyed");
+}
+
+void app_set_scene(app_t* app, int32_t scene_index) {
+	if (!app) return;
+	if (scene_index < 0 || scene_index >= app->scene_count) return;
+	_switch_scene(app, scene_index);
+}
+
+int32_t app_scene_count(app_t* app) {
+	return app ? app->scene_count : 0;
 }
 
 void app_key_press(app_t* app, app_key_ key) {
@@ -338,16 +352,15 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 	igBegin("sk_renderer", NULL, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
 
 	// Show scene info with navigation buttons
-	const scene_vtable_t* vtable = app->scene_types[app->scene_index];
-	igText("%s", scene_get_name(vtable));
+	igText("%s", scene_get_name(app->scene_types[app->scene_index]));
 	if (igArrowButton("##left",  ImGuiDir_Left )) { _switch_scene(app, (app->scene_index - 1 + app->scene_count) % app->scene_count);}
 	igSameLine(0.0f, 5.0f);
 	if (igArrowButton("##right", ImGuiDir_Right)) { _switch_scene(app, (app->scene_index + 1) % app->scene_count); }
 
 	igSeparator();
 
-	// Scene-specific UI controls
-	scene_render_ui(vtable, app->scene_current);
+	// Scene-specific UI controls (re-fetch vtable in case scene changed above)
+	scene_render_ui(app->scene_types[app->scene_index], app->scene_current);
 
 	igSeparator();
 

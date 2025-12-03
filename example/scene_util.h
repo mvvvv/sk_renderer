@@ -66,11 +66,20 @@ typedef struct {
 	uint32_t   color;
 } su_vertex_pnuc_t;
 
-// Standard vertex type for PNUC format (must call su_vertex_type_init first)
+// Standard vertex type for PNUC format (available after su_initialize)
 extern skr_vert_type_t su_vertex_type_pnuc;
 
-// Initialize standard vertex types (call once at startup)
-void su_vertex_types_init(void);
+///////////////////////////////////////////////////////////////////////////////
+// Initialization
+///////////////////////////////////////////////////////////////////////////////
+
+// Initialize scene utilities (call once at startup, after sk_renderer init)
+// Starts the asset loading thread and initializes standard vertex types
+void su_initialize(void);
+
+// Shutdown scene utilities (call before sk_renderer shutdown)
+// Waits for pending loads and stops the asset loading thread
+void su_shutdown(void);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common Instance Data
@@ -231,6 +240,37 @@ skr_shader_t su_shader_load(const char* filename, const char* opt_name);
 // Generates a pseudo-random float [0.0, 1.0] from integer position and seed
 // Useful for procedural generation with consistent results
 float su_hash_f(int32_t position, uint32_t seed);
+
+///////////////////////////////////////////////////////////////////////////////
+// GLTF Loading
+///////////////////////////////////////////////////////////////////////////////
+
+// Opaque GLTF model handle
+typedef struct su_gltf_t su_gltf_t;
+
+// GLTF loading state
+typedef enum {
+	su_gltf_state_loading,  // Still loading in background
+	su_gltf_state_ready,    // Fully loaded and ready to render
+	su_gltf_state_failed,   // Loading failed
+} su_gltf_state_;
+
+// Load a GLTF model asynchronously
+// Returns immediately with a valid handle that will be populated over time
+// filename: Path to .gltf or .glb file
+// shader: PBR shader to use for materials (caller retains ownership)
+su_gltf_t* su_gltf_load(const char* filename, skr_shader_t* shader);
+
+// Destroy a GLTF model and free all resources
+void su_gltf_destroy(su_gltf_t* gltf);
+
+// Get the current loading state
+su_gltf_state_ su_gltf_get_state(su_gltf_t* gltf);
+
+// Add GLTF model meshes to a render list for drawing
+// transform: Optional additional transform to apply (can be NULL for identity)
+// Does nothing if model is not ready yet
+void su_gltf_add_to_render_list(su_gltf_t* gltf, skr_render_list_t* list, const float4x4* opt_transform);
 
 #ifdef __cplusplus
 }
