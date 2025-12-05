@@ -694,6 +694,14 @@ static inline float4x4 float4x4_invert(float4x4 m) {
 extern "C" {
 #endif
 
+#if defined(_MSC_VER)
+	#define FM_ALIGN_PREFIX(x) __declspec(align(x))
+	#define FM_ALIGN_SUFFIX(x)
+#else
+	#define FM_ALIGN_PREFIX(x)
+	#define FM_ALIGN_SUFFIX(x) __attribute__((aligned(x)))
+#endif
+
 // ============================================================================
 // Vector types (SSE optimized)
 // ============================================================================
@@ -704,25 +712,25 @@ typedef struct { float x, y; } float2;
 typedef struct { float x, y, z; } float3;
 
 // float3s: 16 bytes, SIMD-aligned for SSE operations
-typedef union {
+typedef FM_ALIGN_PREFIX(16) union {
 	struct { float x, y, z, _pad; };
 	float v[4];
 	__m128 simd;
-} __attribute__((aligned(16))) float3s;
+} FM_ALIGN_SUFFIX(16) float3s;
 
 // float4: 16 bytes, SIMD-aligned
-typedef union {
+typedef FM_ALIGN_PREFIX(16) union {
 	struct { float x, y, z, w; };
 	struct { float r, g, b, a; };
 	float v[4];
 	__m128 simd;
-} __attribute__((aligned(16))) float4;
+} FM_ALIGN_SUFFIX(16) float4;
 
 // Matrix type (row-major for direct shader compatibility)
-typedef union {
+typedef FM_ALIGN_PREFIX(16) union {
 	float m[16]; // Row-major: [m00, m01, m02, m03, m10, m11, ...]
 	__m128 rows[4];
-} __attribute__((aligned(16))) float4x4;
+} FM_ALIGN_SUFFIX(16) float4x4;
 
 // ============================================================================
 // Conversions between float3 and float3s

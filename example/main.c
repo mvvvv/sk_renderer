@@ -10,7 +10,12 @@
 #include <stdlib.h>
 #include <string.h>
 #ifndef __ANDROID__
+#ifdef _WIN32
+#include <direct.h>
+#define chdir _chdir
+#else
 #include <unistd.h>  // chdir
+#endif
 #endif
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
@@ -41,11 +46,11 @@ int main(int argc, char* argv[]) {
 
 	// Set working directory to executable's path for asset loading
 #ifndef __ANDROID__
-	char* base_path = SDL_GetBasePath();
-	if (base_path) {
-		chdir(base_path);
-		SDL_free(base_path);
-	}
+	// char* base_path = SDL_GetBasePath();
+	// if (base_path) {
+	// 	chdir(base_path);
+	// 	SDL_free(base_path);
+	// }
 #endif
 
 	// Configuration

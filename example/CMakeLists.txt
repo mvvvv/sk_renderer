@@ -192,7 +192,7 @@ endif()
 if(ANDROID)
 	# Android run target is defined in AndroidBuild.cmake
 else()
-	add_custom_target(run DEPENDS sk_renderer_test COMMAND $<TARGET_FILE:sk_renderer_test>)
+	add_custom_target(run DEPENDS sk_renderer_test COMMAND $<TARGET_FILE:sk_renderer_test> WORKING_DIRECTORY ${ASSET_PATH})
 endif()
 
 ###############################################################################
