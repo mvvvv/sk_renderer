@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 
 	// thread_local support
 #ifndef thread_local
@@ -118,4 +119,12 @@ static inline int mtx_trylock(mtx_t* mtx) {
 static inline int mtx_unlock(mtx_t* mtx) {
 	int result = pthread_mutex_unlock(mtx);
 	return (result == 0) ? thrd_success : thrd_error;
+}
+
+// Sleep function (C11 thrd_sleep compatibility)
+static inline int thrd_sleep(const struct timespec* duration, struct timespec* remaining) {
+	int result = nanosleep(duration, remaining);
+	if (result == 0) return 0;  // Success
+	if (errno == EINTR) return -1;  // Interrupted
+	return -2;  // Error
 }
