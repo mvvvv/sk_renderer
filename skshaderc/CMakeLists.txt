@@ -142,7 +142,7 @@ if (NOT MSVC AND NOT APPLE)
 	)
 endif()
 
-set(SKSHADERC_EXE_PATH $<TARGET_FILE:skshaderc> PARENT_SCOPE)
+set(SKSHADERC_EXE_PATH $<TARGET_FILE:skshaderc> CACHE INTERNAL "Path to skshaderc executable")
 
 # Detect cross-compilation to Windows from Unix - use Wine to run skshaderc.exe
 if(CMAKE_HOST_UNIX AND CMAKE_SYSTEM_NAME MATCHES "Windows")

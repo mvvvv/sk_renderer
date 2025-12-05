@@ -38,6 +38,12 @@ set_target_properties(sk_renderer PROPERTIES
 	C_STANDARD 11
 	C_STANDARD_REQUIRED ON)
 
+# If we are building skshaderc, then sk_renderer should make skshaderc build
+# first. This allows consuming projects to use skshaderc's compile functions.
+if(SKR_BUILD_SKSHADERC)
+	add_dependencies(sk_renderer skshaderc)
+endif()
+
 # Grab Vulkan headers first before Volk goes looking for its own. Good for a
 # few reasons, but notably avoids a problem when cross-compiling with mingw.
 message(STATUS "Fetching Vulkan-Headers...")
