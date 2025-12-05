@@ -489,6 +489,11 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		usage |= VK_IMAGE_USAGE_STORAGE_BIT;
 	}
 
+	// For dynamic textures (updated via skr_tex_set_data)
+	if (out_tex->flags & skr_tex_flags_dynamic) {
+		usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	}
+
 	// For mipmap generation
 	if (out_tex->flags & skr_tex_flags_gen_mips) {
 		usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -691,8 +696,12 @@ void skr_tex_destroy(skr_tex_t* ref_tex) {
 	_skr_cmd_destroy_framebuffer(NULL, ref_tex->framebuffer_depth);
 	_skr_cmd_destroy_sampler    (NULL, ref_tex->sampler);
 	_skr_cmd_destroy_image_view (NULL, ref_tex->view);
-	_skr_cmd_destroy_image      (NULL, ref_tex->image);
-	_skr_cmd_destroy_memory     (NULL, ref_tex->memory);
+
+	// Only destroy image/memory if we own them (not external)
+	if (!ref_tex->is_external) {
+		_skr_cmd_destroy_image (NULL, ref_tex->image);
+		_skr_cmd_destroy_memory(NULL, ref_tex->memory);
+	}
 	*ref_tex = (skr_tex_t){};
 }
 
@@ -718,6 +727,80 @@ int32_t skr_tex_get_multisample(const skr_tex_t* tex) {
 
 skr_tex_sampler_t skr_tex_get_sampler(const skr_tex_t* tex) {
 	return tex ? tex->sampler_settings : (skr_tex_sampler_t){0};
+}
+
+skr_err_ skr_tex_set_data(skr_tex_t* ref_tex, const void* data, int32_t row_pitch) {
+	if (!ref_tex || !data) return skr_err_invalid_parameter;
+	if (ref_tex->image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
+
+	// Calculate sizes
+	uint32_t     pixel_size  = _skr_tex_fmt_to_size(ref_tex->format);
+	int32_t      tex_width   = ref_tex->size.x;
+	int32_t      tex_height  = ref_tex->size.y;
+	int32_t      tex_depth   = (ref_tex->flags & skr_tex_flags_3d) ? ref_tex->size.z : 1;
+	int32_t      src_pitch   = (row_pitch > 0) ? row_pitch : (tex_width * pixel_size);
+	int32_t      dst_pitch   = tex_width * pixel_size;
+	// Staging buffer always holds tightly packed data
+	VkDeviceSize staging_size = (VkDeviceSize)dst_pitch * tex_height * tex_depth;
+
+	// Create staging buffer
+	staging_buffer_t staging = _skr_create_staging_buffer(_skr_vk.device, _skr_vk.physical_device, staging_size);
+	if (!staging.valid) {
+		skr_log(skr_log_critical, "Failed to create staging buffer for texture update");
+		return skr_err_out_of_memory;
+	}
+
+	// Copy data to staging buffer (always tightly packed)
+	if (src_pitch == dst_pitch) {
+		// Tightly packed - single memcpy
+		memcpy(staging.mapped_data, data, staging_size);
+	} else {
+		// Row-by-row copy for non-tightly packed data -> makes it tightly packed
+		const uint8_t* src = (const uint8_t*)data;
+		uint8_t*       dst = (uint8_t*)staging.mapped_data;
+		for (int32_t y = 0; y < tex_height * tex_depth; y++) {
+			memcpy(dst, src, dst_pitch);
+			src += src_pitch;
+			dst += dst_pitch;
+		}
+	}
+
+	// Create command buffer and upload
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+
+	// Transition: current -> TRANSFER_DST
+	_skr_tex_transition(ctx.cmd, ref_tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+
+	// Copy buffer to image
+	// bufferRowLength=0 means tightly packed (which our staging buffer always is after the copy above)
+	vkCmdCopyBufferToImage(ctx.cmd, staging.buffer, ref_tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy){
+		.bufferOffset      = 0,
+		.bufferRowLength   = 0,  // Always tightly packed in staging buffer
+		.bufferImageHeight = 0,
+		.imageSubresource  = {
+			.aspectMask     = ref_tex->aspect_mask,
+			.mipLevel       = 0,
+			.baseArrayLayer = 0,
+			.layerCount     = ref_tex->layer_count,
+		},
+		.imageOffset = {0, 0, 0},
+		.imageExtent = {tex_width, tex_height, tex_depth},
+	});
+
+	// Transition: TRANSFER_DST -> SHADER_READ_ONLY
+	VkPipelineStageFlags shader_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	if (ref_tex->flags & skr_tex_flags_compute) {
+		shader_stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+	}
+	_skr_tex_transition_for_shader_read(ctx.cmd, ref_tex, shader_stages);
+
+	// Defer destruction of staging resources
+	_skr_cmd_destroy_buffer(ctx.destroy_list, staging.buffer);
+	_skr_cmd_destroy_memory(ctx.destroy_list, staging.memory);
+	_skr_cmd_release(ctx.cmd);
+
+	return skr_err_success;
 }
 
 void skr_tex_set_name(skr_tex_t* ref_tex, const char* name) {
@@ -1208,4 +1291,119 @@ bool skr_tex_fmt_is_supported(skr_tex_fmt_ format) {
 
 	// Check if format supports either optimal tiling (for sampling/rendering) or linear tiling
 	return (props.optimalTilingFeatures != 0) || (props.linearTilingFeatures != 0);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// External texture support (for wrapping VkImages from FFmpeg, etc.)
+///////////////////////////////////////////////////////////////////////////////
+
+skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_tex) {
+	if (!out_tex) return skr_err_invalid_parameter;
+	if (info.image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
+
+	*out_tex = (skr_tex_t){};
+
+	VkFormat vk_format = _skr_to_vk_tex_fmt(info.format);
+	if (vk_format == VK_FORMAT_UNDEFINED) {
+		skr_log(skr_log_warning, "skr_tex_create_external: unsupported format");
+		return skr_err_unsupported;
+	}
+
+	// Store external image reference
+	out_tex->image       = info.image;
+	out_tex->memory      = info.memory;  // May be VK_NULL_HANDLE for truly external memory
+	out_tex->size        = info.size;
+	out_tex->format      = info.format;
+	out_tex->flags       = 0;
+	out_tex->samples     = VK_SAMPLE_COUNT_1_BIT;
+	out_tex->mip_levels  = 1;
+	out_tex->layer_count = 1;
+	out_tex->aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+	out_tex->is_external = !info.owns_image;  // If we don't own it, it's external
+
+	// Layout tracking
+	out_tex->current_layout       = info.current_layout;
+	out_tex->current_queue_family = _skr_vk.graphics_queue_family;
+	out_tex->first_use            = false;
+	out_tex->is_transient_discard = false;
+
+	// Create or use provided image view
+	if (info.view != VK_NULL_HANDLE) {
+		out_tex->view = info.view;
+	} else {
+		VkImageViewCreateInfo view_info = {
+			.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.image    = info.image,
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.format   = vk_format,
+			.subresourceRange = {
+				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel   = 0,
+				.levelCount     = 1,
+				.baseArrayLayer = 0,
+				.layerCount     = 1,
+			},
+		};
+
+		VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &out_tex->view);
+		if (vr != VK_SUCCESS) {
+			skr_log(skr_log_critical, "skr_tex_create_external: vkCreateImageView failed");
+			*out_tex = (skr_tex_t){};
+			return skr_err_device_error;
+		}
+	}
+
+	// Create sampler
+	out_tex->sampler_settings = info.sampler;
+	out_tex->sampler          = _skr_sampler_create_vk(_skr_vk.device, info.sampler);
+
+	return skr_err_success;
+}
+
+skr_err_ skr_tex_update_external(skr_tex_t* ref_tex, skr_tex_external_update_t update) {
+	if (!ref_tex) return skr_err_invalid_parameter;
+	if (update.image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
+
+	// Destroy old view if we created it (not provided externally)
+	// We always recreate the view for simplicity
+	if (ref_tex->view != VK_NULL_HANDLE) {
+		_skr_cmd_destroy_image_view(NULL, ref_tex->view);
+		ref_tex->view = VK_NULL_HANDLE;
+	}
+
+	// Update image reference
+	ref_tex->image = update.image;
+
+	// Create or use provided image view
+	if (update.view != VK_NULL_HANDLE) {
+		ref_tex->view = update.view;
+	} else {
+		VkFormat vk_format = _skr_to_vk_tex_fmt(ref_tex->format);
+
+		VkImageViewCreateInfo view_info = {
+			.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.image    = update.image,
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.format   = vk_format,
+			.subresourceRange = {
+				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel   = 0,
+				.levelCount     = 1,
+				.baseArrayLayer = 0,
+				.layerCount     = 1,
+			},
+		};
+
+		VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &ref_tex->view);
+		if (vr != VK_SUCCESS) {
+			skr_log(skr_log_critical, "skr_tex_update_external: vkCreateImageView failed");
+			return skr_err_device_error;
+		}
+	}
+
+	// Update layout tracking
+	ref_tex->current_layout = update.current_layout;
+	ref_tex->first_use      = false;
+
+	return skr_err_success;
 }

@@ -145,6 +145,15 @@ bool skr_init(skr_settings_t settings) {
 		desired_extensions[desired_extension_count++] = "VK_EXT_present_mode_fifo_latest_ready";
 	}
 
+	// Video decode extensions (checked when skr_gpu_video flag is set)
+	const char* video_extensions[] = {
+		"VK_KHR_synchronization2",
+		"VK_KHR_video_queue",
+		"VK_KHR_video_decode_queue",
+		"VK_KHR_video_decode_h264",
+	};
+	const uint32_t video_ext_count = sizeof(video_extensions) / sizeof(video_extensions[0]);
+
 	// Get available extensions
 	uint32_t available_ext_count = 0;
 	vkEnumerateInstanceExtensionProperties(NULL, &available_ext_count, NULL);
@@ -239,25 +248,90 @@ bool skr_init(skr_settings_t settings) {
 	}
 
 	// Pick physical device
-	uint32_t device_count = 0;
-	vkEnumeratePhysicalDevices(_skr_vk.instance, &device_count, NULL);
-	if (device_count == 0) {
-		skr_log(skr_log_critical, "No Vulkan-compatible GPUs found");
-		return false;
-	}
-
-	VkPhysicalDevice devices[32];
-	vkEnumeratePhysicalDevices(_skr_vk.instance, &device_count, devices);
-
-	// Prefer discrete GPU over integrated GPU
-	_skr_vk.physical_device = devices[0];
-	for (uint32_t i = 0; i < device_count; i++) {
+	if (settings.physical_device) {
+		// Use the device specified by the application (e.g., from OpenXR)
+		_skr_vk.physical_device = (VkPhysicalDevice)settings.physical_device;
 		VkPhysicalDeviceProperties props;
-		vkGetPhysicalDeviceProperties(devices[i], &props);
-		if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-			_skr_vk.physical_device = devices[i];
-			break;
+		vkGetPhysicalDeviceProperties(_skr_vk.physical_device, &props);
+		skr_log(skr_log_info, "Using application-specified GPU: %s", props.deviceName);
+	} else {
+		// Enumerate and select GPU based on require/prefer flags
+		uint32_t device_count = 0;
+		vkEnumeratePhysicalDevices(_skr_vk.instance, &device_count, NULL);
+		if (device_count == 0) {
+			skr_log(skr_log_critical, "No Vulkan-compatible GPUs found");
+			return false;
 		}
+
+		VkPhysicalDevice devices[32];
+		vkEnumeratePhysicalDevices(_skr_vk.instance, &device_count, devices);
+
+		// Score each device and find best match
+		int32_t best_score = -1;
+		int32_t best_idx   = -1;
+
+		for (uint32_t i = 0; i < device_count; i++) {
+			VkPhysicalDeviceProperties props;
+			vkGetPhysicalDeviceProperties(devices[i], &props);
+
+			// Determine device capabilities
+			bool is_discrete   = (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+			bool is_integrated = (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU);
+			bool has_video     = false;
+
+			// Check for video decode support
+			uint32_t ext_count = 0;
+			vkEnumerateDeviceExtensionProperties(devices[i], NULL, &ext_count, NULL);
+			if (ext_count > 0) {
+				VkExtensionProperties* exts = _skr_malloc(sizeof(VkExtensionProperties) * ext_count);
+				vkEnumerateDeviceExtensionProperties(devices[i], NULL, &ext_count, exts);
+
+				uint32_t video_found = 0;
+				for (uint32_t v = 0; v < video_ext_count; v++) {
+					for (uint32_t e = 0; e < ext_count; e++) {
+						if (strcmp(exts[e].extensionName, video_extensions[v]) == 0) {
+							video_found++;
+							break;
+						}
+					}
+				}
+				_skr_free(exts);
+				has_video = (video_found == video_ext_count);
+			}
+
+			// Check required flags - skip device if any required flag is missing
+			skr_gpu_ req = settings.gpu_require;
+			if ((req & skr_gpu_discrete)   && !is_discrete)   continue;
+			if ((req & skr_gpu_integrated) && !is_integrated) continue;
+			if ((req & skr_gpu_video)      && !has_video)     continue;
+
+			// Calculate score based on preferred flags and device type
+			int32_t score = 0;
+			skr_gpu_ pref = settings.gpu_prefer;
+
+			if (pref == skr_gpu_none) {
+				// No preference: default to discrete > integrated
+				if (is_discrete)   score += 1000;
+				if (is_integrated) score += 100;
+			} else {
+				// Score based on matching preferred flags
+				if ((pref & skr_gpu_discrete)   && is_discrete)   score += 1000;
+				if ((pref & skr_gpu_integrated) && is_integrated) score += 1000;
+				if ((pref & skr_gpu_video)      && has_video)     score += 500;
+			}
+
+			if (score > best_score) {
+				best_score = score;
+				best_idx   = (int32_t)i;
+			}
+		}
+
+		if (best_idx < 0) {
+			skr_log(skr_log_critical, "No GPU found matching required features (require=0x%X)", settings.gpu_require);
+			return false;
+		}
+
+		_skr_vk.physical_device = devices[best_idx];
 	}
 
 	// Get device properties for timing and logging
@@ -309,9 +383,18 @@ bool skr_init(skr_settings_t settings) {
 		_skr_vk.has_dedicated_transfer = false;
 	}
 
+	// Find video decode queue family (requires VK_QUEUE_VIDEO_DECODE_BIT_KHR = 0x20)
+	_skr_vk.video_decode_queue_family = UINT32_MAX;
+	for (uint32_t i = 0; i < queue_family_count; i++) {
+		if (queue_families[i].queueFlags & 0x00000020) {  // VK_QUEUE_VIDEO_DECODE_BIT_KHR
+			_skr_vk.video_decode_queue_family = i;
+			break;
+		}
+	}
+
 	// Create queue create infos
 	float queue_priority = 1.0f;
-	VkDeviceQueueCreateInfo queue_infos[2];
+	VkDeviceQueueCreateInfo queue_infos[3];
 	uint32_t queue_info_count = 0;
 
 	// Always create graphics queue
@@ -327,6 +410,19 @@ bool skr_init(skr_settings_t settings) {
 		queue_infos[queue_info_count++] = (VkDeviceQueueCreateInfo){
 			.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
 			.queueFamilyIndex = _skr_vk.transfer_queue_family,
+			.queueCount       = 1,
+			.pQueuePriorities = &queue_priority,
+		};
+	}
+
+	// Create video decode queue if available and different from existing queues
+	bool need_video_decode_queue = _skr_vk.video_decode_queue_family != UINT32_MAX &&
+	                               _skr_vk.video_decode_queue_family != _skr_vk.graphics_queue_family &&
+	                               _skr_vk.video_decode_queue_family != _skr_vk.transfer_queue_family;
+	if (need_video_decode_queue) {
+		queue_infos[queue_info_count++] = (VkDeviceQueueCreateInfo){
+			.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+			.queueFamilyIndex = _skr_vk.video_decode_queue_family,
 			.queueCount       = 1,
 			.pQueuePriorities = &queue_priority,
 		};
@@ -578,3 +674,28 @@ VkInstance skr_get_vk_instance(void) {
 VkDevice skr_get_vk_device(void) {
 	return _skr_vk.device;
 }
+
+VkPhysicalDevice skr_get_vk_physical_device(void) {
+	return _skr_vk.physical_device;
+}
+
+VkQueue skr_get_vk_graphics_queue(void) {
+	return _skr_vk.graphics_queue;
+}
+
+uint32_t skr_get_vk_graphics_queue_family(void) {
+	return _skr_vk.graphics_queue_family;
+}
+
+void skr_get_vk_device_uuid(uint8_t out_uuid[VK_UUID_SIZE]) {
+	VkPhysicalDeviceIDProperties id_props = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES,
+	};
+	VkPhysicalDeviceProperties2 props2 = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+		.pNext = &id_props,
+	};
+	vkGetPhysicalDeviceProperties2(_skr_vk.physical_device, &props2);
+	memcpy(out_uuid, id_props.deviceUUID, VK_UUID_SIZE);
+}
+

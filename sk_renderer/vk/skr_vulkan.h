@@ -68,7 +68,27 @@ typedef struct skr_tex_t {
 	uint32_t               current_queue_family; // Current queue family owner
 	bool                   first_use;            // True until first transition (allows UNDEFINED optimization)
 	bool                   is_transient_discard; // True for non-readable depth/MSAA (always use UNDEFINED)
+	bool                   is_external;          // True if image/memory are externally owned (don't destroy)
 } skr_tex_t;
+
+// External texture creation info (for wrapping VkImages from external sources like FFmpeg)
+typedef struct skr_tex_external_info_t {
+	VkImage           image;          // External VkImage (not owned unless owns_image=true)
+	VkImageView       view;           // Optional - will create if VK_NULL_HANDLE
+	VkDeviceMemory    memory;         // Optional - VK_NULL_HANDLE for external memory
+	skr_tex_fmt_      format;         // Texture format
+	skr_vec3i_t       size;           // Dimensions
+	VkImageLayout     current_layout; // Current layout of the image
+	skr_tex_sampler_t sampler;        // Sampler settings
+	bool              owns_image;     // If true, sk_renderer destroys image on tex_destroy
+} skr_tex_external_info_t;
+
+// External texture update info (for video frame cycling)
+typedef struct skr_tex_external_update_t {
+	VkImage       image;          // New VkImage to reference
+	VkImageView   view;           // Optional new view (VK_NULL_HANDLE = recreate from image)
+	VkImageLayout current_layout; // Current layout of new image
+} skr_tex_external_update_t;
 
 typedef struct skr_surface_t {
 	VkSurfaceKHR   surface;

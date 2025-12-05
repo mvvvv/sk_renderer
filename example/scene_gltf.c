@@ -144,6 +144,7 @@ typedef struct scene_gltf_t {
 	char*          skybox_path;   // Path to currently loaded skybox (for UI display)
 
 	float          rotation;
+	float          model_scale;   // User-adjustable model scale multiplier
 } scene_gltf_t;
 
 static void _destroy_skybox(scene_gltf_t* scene) {
@@ -260,8 +261,9 @@ static scene_t* _scene_gltf_create(void) {
 	scene_gltf_t* scene = calloc(1, sizeof(scene_gltf_t));
 	if (!scene) return NULL;
 
-	scene->base.size = sizeof(scene_gltf_t);
-	scene->rotation  = 0.0f;
+	scene->base.size   = sizeof(scene_gltf_t);
+	scene->rotation    = 0.0f;
+	scene->model_scale = 1.0f;
 
 	// Create fallback textures for placeholder
 	scene->white_texture = su_tex_create_solid_color(0xFFFFFFFF);
@@ -382,6 +384,7 @@ static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, flo
 	};
 	float max_extent = fmaxf(fmaxf(extents.x, extents.y), extents.z);
 	float scale = (max_extent > 0.0001f) ? (4.0f / max_extent) : 1.0f;
+	scale *= scene->model_scale;  // Apply user scale multiplier
 
 	// Build transform: rotate, then scale, then translate to center at origin
 	float4x4 rotation     = float4x4_r(float4_quat_from_euler((float3){0.0f, scene->rotation, 0.0f}));
@@ -430,6 +433,7 @@ static void _scene_gltf_render_ui(scene_t* base) {
 
 	igText("Model: %s", _get_filename(scene->model_path));
 	igText("Status: %s", state_str);
+	igSliderFloat("Scale", &scene->model_scale, 0.1f, 5.0f, "%.2f", 0);
 
 #if HAS_FILE_DIALOG
 	if (igButton("Load GLTF...", (ImVec2){-1, 0})) {

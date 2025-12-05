@@ -93,7 +93,8 @@ typedef struct {
 	uint32_t                 graphics_queue_family;
 	uint32_t                 present_queue_family;
 	uint32_t                 transfer_queue_family;
-	mtx_t                    queue_mutexes[3];         // Mutexes for unique queues (graphics, present, transfer)
+	uint32_t                 video_decode_queue_family;  // UINT32_MAX if not available
+	mtx_t                    queue_mutexes[4];         // Mutexes for unique queues (graphics, present, transfer, video_decode)
 	mtx_t*                   graphics_queue_mutex;     // Pointer to correct mutex (may alias)
 	mtx_t*                   present_queue_mutex;      // Pointer to correct mutex (may alias)
 	mtx_t*                   transfer_queue_mutex;     // Pointer to correct mutex (may alias)

@@ -155,17 +155,20 @@ app_t* app_create(int32_t start_scene) {
 	skr_render_list_create(&app->render_list);
 
 	// Register available scenes
-	app->scene_types[0] = &scene_meshes_vtable;
-	app->scene_types[1] = &scene_reaction_diffusion_vtable;
-	app->scene_types[2] = &scene_orbital_particles_vtable;
-	app->scene_types[3] = &scene_impostor_vtable;
-	app->scene_types[4] = &scene_array_texture_vtable;
-	app->scene_types[5] = &scene_3d_texture_vtable;
-	app->scene_types[6] = &scene_cubemap_vtable;
-	app->scene_types[7] = &scene_gltf_vtable;
-	app->scene_types[8] = &scene_shadows_vtable;
-	app->scene_types[9] = &scene_cloth_vtable;
+	app->scene_types[0]  = &scene_meshes_vtable;
+	app->scene_types[1]  = &scene_reaction_diffusion_vtable;
+	app->scene_types[2]  = &scene_orbital_particles_vtable;
+	app->scene_types[3]  = &scene_impostor_vtable;
+	app->scene_types[4]  = &scene_array_texture_vtable;
+	app->scene_types[5]  = &scene_3d_texture_vtable;
+	app->scene_types[6]  = &scene_cubemap_vtable;
+	app->scene_types[7]  = &scene_gltf_vtable;
+	app->scene_types[8]  = &scene_shadows_vtable;
+	app->scene_types[9]  = &scene_cloth_vtable;
 	app->scene_count = 10;
+#ifdef SKR_HAS_VIDEO
+	app->scene_types[app->scene_count++] = &scene_video_vtable;
+#endif
 
 	su_log(su_log_info, "Application created successfully!");
 	su_log(su_log_info, "Available scenes: %d (use arrow keys to switch)", app->scene_count);
