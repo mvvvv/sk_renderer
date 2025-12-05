@@ -64,9 +64,9 @@ bool parse_readint(const char* a, char separator, int32_t *out_int, const char**
 
 const char* parse_glslang_error(const char* at) {
 	const char* curr  = at;
-	log_level_  level = log_level_err;
-	if      (parse_startswith(at, "ERROR: "  )) { level = log_level_err;  curr += 7;}
-	else if (parse_startswith(at, "WARNING: ")) { level = log_level_warn; curr += 9;}
+	sksc_log_level_ level = sksc_log_level_err;
+	if      (parse_startswith(at, "ERROR: "  )) { level = sksc_log_level_err;  curr += 7;}
+	else if (parse_startswith(at, "WARNING: ")) { level = sksc_log_level_warn; curr += 9;}
 
 	bool has_line = false;
 	int32_t line;
@@ -218,7 +218,7 @@ compile_result_ sksc_hlsl_to_spirv(const char *filename, const char *hlsl, const
 	// Log any SPIR-V generation messages
 	std::string gen_messages = logger.getAllMessages();
 	if (gen_messages.length() > 0) {
-		sksc_log(log_level_info, gen_messages.c_str());
+		sksc_log(sksc_log_level_info, gen_messages.c_str());
 	}
 
 	////////////////////////////////////////////////////////////////
@@ -307,13 +307,18 @@ compile_result_ sksc_hlsl_to_spirv(const char *filename, const char *hlsl, const
 	}
 
 	// Optimize the SPIRV we just generated
-	if (settings->debug == false) {
+	if (settings->debug == false && settings->optimize > 0) {
 		spvtools::Optimizer optimizer(SPV_ENV_UNIVERSAL_1_3);
 		optimizer.SetMessageConsumer([](spv_message_level_t, const char*, const spv_position_t&, const char* m) {
 			printf("SPIRV optimization error: %s\n", m);
 		});
 
-		optimizer.RegisterPerformancePasses();
+		if (settings->optimize == 1) {
+			optimizer.RegisterSizePasses();
+		} else {
+			optimizer.RegisterPerformancePasses();
+		}
+
 		std::vector<uint32_t> spirv_optimized;
 		if (!optimizer.Run(spirv.data(), spirv.size(), &spirv_optimized)) {
 			return compile_result_fail;
@@ -323,7 +328,6 @@ compile_result_ sksc_hlsl_to_spirv(const char *filename, const char *hlsl, const
 		out_stage->code      = malloc(out_stage->code_size);
 		memcpy(out_stage->code, spirv_optimized.data(), out_stage->code_size);
 	} else {
-		
 		out_stage->code_size = (uint32_t)(spirv.size() * sizeof(unsigned int));
 		out_stage->code      = malloc(out_stage->code_size);
 		memcpy(out_stage->code, spirv.data(), out_stage->code_size);

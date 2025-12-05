@@ -32,7 +32,11 @@ project(skshaderc VERSION 1.0 DESCRIPTION "Shader compiler for sk_renderer" LANG
 include(FetchContent)
 set(VULKAN_VERSION vulkan-sdk-1.4.328.1) # Most of our dependencies here use the same version tag!
 
-add_executable(skshaderc)
+###############################################################################
+# Static library: skshaderc_lib
+###############################################################################
+
+add_library(skshaderc_lib STATIC)
 
 # For SPIRV-Tools
 message(STATUS "Fetching SPIRV-Headers...")
@@ -43,7 +47,7 @@ FetchContent_Declare( SPIRV-Headers
 	GIT_PROGRESS   TRUE
 )
 FetchContent_MakeAvailable(SPIRV-Headers)
-target_link_libraries     (skshaderc PRIVATE SPIRV)
+target_link_libraries     (skshaderc_lib PUBLIC SPIRV)
 
 # For optimizing SPIR-V shaders, a baseline amount of
 # optimization is crucial for meta compatability with
@@ -59,7 +63,7 @@ set(SPIRV_SKIP_TESTS       ON  CACHE BOOL "")
 set(SPIRV_SKIP_EXECUTABLES ON  CACHE BOOL "")
 set(SPIRV_WERROR           OFF CACHE BOOL "")
 FetchContent_MakeAvailable(SPIRV-Tools)
-target_link_libraries     (skshaderc PRIVATE SPIRV-Tools-opt)
+target_link_libraries     (skshaderc_lib PUBLIC SPIRV-Tools-opt)
 
 # For grabbing shader metadata, SPIRV-Cross can also do
 # this, but Reflect is lighter weight.
@@ -73,7 +77,7 @@ FetchContent_Declare( SPIRV-Reflect
 set(SPIRV_REFLECT_EXECUTABLE OFF CACHE BOOL "")
 set(SPIRV_REFLECT_STATIC_LIB ON CACHE BOOL "")
 FetchContent_MakeAvailable(SPIRV-Reflect)
-target_link_libraries     (skshaderc PRIVATE spirv-reflect-static)
+target_link_libraries     (skshaderc_lib PUBLIC spirv-reflect-static)
 
 # This is used to convert HLSL to SPIR-V. DXC is an
 # alternative, but is far more difficult to compile,
@@ -93,20 +97,30 @@ set(ENABLE_GLSLANG_JS       OFF  CACHE BOOL "")
 set(ENABLE_HLSL             ON   CACHE BOOL "")
 set(ENABLE_RTTI             OFF  CACHE BOOL "")
 FetchContent_MakeAvailable(glslang)
-target_link_libraries     (skshaderc PRIVATE glslang)
+target_link_libraries     (skshaderc_lib PUBLIC glslang)
 
-target_sources(skshaderc PRIVATE
-	main.cpp
+target_sources(skshaderc_lib PRIVATE
 	sksc.cpp
 	sksc_hlsl.cpp
 	sksc_meta.cpp
 	sksc_log.cpp
 	sksc.h
+	_sksc.h
 	miniz.cpp
 	miniz.h
 	../sk_renderer/sksc_file.c
 )
-target_include_directories(skshaderc PRIVATE ../sk_renderer/include)
+target_include_directories(skshaderc_lib PUBLIC
+	${CMAKE_CURRENT_SOURCE_DIR}
+	../sk_renderer/include
+)
+
+###############################################################################
+# Executable: skshaderc
+###############################################################################
+
+add_executable(skshaderc main.cpp)
+target_link_libraries(skshaderc PRIVATE skshaderc_lib)
 
 # Static link MinGW runtime when cross-compiling to Windows
 if(MINGW)

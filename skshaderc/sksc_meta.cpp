@@ -23,7 +23,7 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 	SpvReflectResult       result = spvReflectCreateShaderModule(spirv_stage->code_size, spirv_stage->code, &module);
 	
 	if (result != SPV_REFLECT_RESULT_SUCCESS) {
-		sksc_log(log_level_err, "[SPIRV-Reflect] Failed to create shader module: %d", result);
+		sksc_log(sksc_log_level_err, "[SPIRV-Reflect] Failed to create shader module: %d", result);
 		return false;
 	}
 
@@ -441,7 +441,7 @@ array_t<sksc_meta_item_t> sksc_meta_find_defaults(const char *hlsl_text) {
 			items.add(item);
 
 			if (tag[0] == '\0' && value[0] == '\0') {
-				sksc_log_at(log_level_warn, item.row, item.col, "Shader var data for '%s' has no tag or value, missing a ':' or '='?", name);
+				sksc_log_at(sksc_log_level_warn, item.row, item.col, "Shader var data for '%s' has no tag or value, missing a ':' or '='?", name);
 			}
 		}
 		comment = next_comment(hlsl_text, &comment_end, &in_comment);
@@ -477,9 +477,9 @@ void sksc_meta_assign_defaults(array_t<sksc_meta_item_t> items, sksc_shader_meta
 			int32_t commas = count_ch(item->value, ',');
 
 			if (buff->vars[v].type == sksc_shader_var_none) {
-				sksc_log_at(log_level_warn, item->row, item->col, "Can't set default for --%s, unimplemented type", item->name);
+				sksc_log_at(sksc_log_level_warn, item->row, item->col, "Can't set default for --%s, unimplemented type", item->name);
 			} else if (commas + 1 != buff->vars[v].type_count) {
-				sksc_log_at(log_level_warn, item->row, item->col, "Default value for --%s has an incorrect number of arguments", item->name);
+				sksc_log_at(sksc_log_level_warn, item->row, item->col, "Default value for --%s has an incorrect number of arguments", item->name);
 			} else {
 				if (buff->defaults == nullptr) {
 					buff->defaults = malloc(buff->size);
@@ -529,7 +529,7 @@ void sksc_meta_assign_defaults(array_t<sksc_meta_item_t> items, sksc_shader_meta
 		}
 		
 		if (found != 1) {
-			sksc_log_at(log_level_warn, item->row, item->col, "Can't find shader var named '%s'", item->name);
+			sksc_log_at(sksc_log_level_warn, item->row, item->col, "Can't find shader var named '%s'", item->name);
 		}
 	}
 }

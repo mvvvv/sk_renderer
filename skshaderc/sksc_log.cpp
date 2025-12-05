@@ -9,7 +9,7 @@ array_t<sksc_log_item_t> sksc_log_list = {};
 
 ///////////////////////////////////////////
 
-void sksc_log(log_level_ level, const char *text, ...) {
+void sksc_log(sksc_log_level_ level, const char *text, ...) {
 	sksc_log_item_t item = {};
 	item.level  = level;
 	item.line   = -1;
@@ -30,7 +30,7 @@ void sksc_log(log_level_ level, const char *text, ...) {
 
 ///////////////////////////////////////////
 
-void sksc_log_at(log_level_ level, int32_t line, int32_t column, const char *text, ...) {
+void sksc_log_at(sksc_log_level_ level, int32_t line, int32_t column, const char *text, ...) {
 	sksc_log_item_t item = {};
 	item.level  = level;
 	item.line   = line;
@@ -53,20 +53,20 @@ void sksc_log_at(log_level_ level, int32_t line, int32_t column, const char *tex
 
 void sksc_log_print(const char *file, const sksc_settings_t *settings) {
 	for (size_t i = 0; i < sksc_log_list.count; i++) {
-		if (sksc_log_list[i].level == log_level_info && !settings->silent_info) {
+		if (sksc_log_list[i].level == sksc_log_level_info && !settings->silent_info) {
 			printf("%s\n", sksc_log_list[i].text);
 		}
 	}
 	for (size_t i = 0; i < sksc_log_list.count; i++) {
-		if ((sksc_log_list[i].level == log_level_err_pre && !settings->silent_err)) {
+		if ((sksc_log_list[i].level == sksc_log_level_err_pre && !settings->silent_err)) {
 			printf("%s", sksc_log_list[i].text);
 		}
 	}
 	for (size_t i = 0; i < sksc_log_list.count; i++) {
-		if ((sksc_log_list[i].level == log_level_warn && !settings->silent_warn) ||
-			(sksc_log_list[i].level == log_level_err  && !settings->silent_err )) {
+		if ((sksc_log_list[i].level == sksc_log_level_warn && !settings->silent_warn) ||
+			(sksc_log_list[i].level == sksc_log_level_err  && !settings->silent_err )) {
 
-			const char* level = sksc_log_list[i].level == log_level_warn
+			const char* level = sksc_log_list[i].level == sksc_log_level_warn
 				? "warning"
 				: "error";
 
