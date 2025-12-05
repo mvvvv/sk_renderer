@@ -53,11 +53,14 @@ typedef struct {
 ///////////////////////////////////////////////////////////////////////////////
 
 skr_destroy_list_t _skr_destroy_list_create(void) {
-	return (skr_destroy_list_t){ .items = NULL, .count = 0, .capacity = 0 };
+	skr_destroy_list_t list = { .items = NULL, .count = 0, .capacity = 0 };
+	mtx_init(&list.mutex, mtx_plain);
+	return list;
 }
 
 void _skr_destroy_list_free(skr_destroy_list_t* ref_list) {
 	if (!ref_list) return;
+	mtx_destroy(&ref_list->mutex);
 	_skr_free(ref_list->items);
 	ref_list->items    = NULL;
 	ref_list->count    = 0;
@@ -83,6 +86,8 @@ static void _skr_destroy_list_ensure_capacity(skr_destroy_list_t* ref_list, uint
 }
 
 static void _skr_destroy_list_add(skr_destroy_list_t* ref_list, uint64_t handle, skr_destroy_type_ type){
+	mtx_lock(&ref_list->mutex);
+
 	_skr_destroy_list_ensure_capacity(ref_list, ref_list->count + 1);
 
 	skr_destroy_item_t* items = (skr_destroy_item_t*)ref_list->items;
@@ -90,6 +95,8 @@ static void _skr_destroy_list_add(skr_destroy_list_t* ref_list, uint64_t handle,
 		.type   = type,
 		.handle = handle,
 	};
+
+	mtx_unlock(&ref_list->mutex);
 }
 
 static void _skr_destroy_list_destroy(uint64_t handle, skr_destroy_type_ type) {
@@ -104,6 +111,8 @@ static void _skr_destroy_list_destroy(uint64_t handle, skr_destroy_type_ type) {
 void _skr_cmd_destroy_##name(skr_destroy_list_t* opt_ref_list, vk_type handle) { \
 	if (handle == VK_NULL_HANDLE) return; \
 	if (opt_ref_list == NULL) { _skr_cmd_ring_slot_t* active = _skr_cmd_get_thread()->active_cmd; opt_ref_list = active ? &active->destroy_list : NULL; } \
+	if (opt_ref_list == NULL) { _skr_cmd_ring_slot_t* active = _skr_vk.thread_pools[0].active_cmd; opt_ref_list = active ? &active->destroy_list : NULL; } \
+	if (opt_ref_list == NULL) { _skr_cmd_ring_slot_t* active = _skr_vk.thread_pools[0].last_submitted; opt_ref_list = active ? &active->destroy_list : NULL; } \
 	if (opt_ref_list == NULL) { _skr_destroy_list_destroy(              (uint64_t)handle, skr_destroy_type_##name); } \
 	else                      { _skr_destroy_list_add    (opt_ref_list, (uint64_t)handle, skr_destroy_type_##name); } \
 }
@@ -111,13 +120,19 @@ FOREACH_DESTROY_TYPE(MAKE_ADD_FUNCTION)
 #undef MAKE_ADD_FUNCTION
 
 void _skr_destroy_list_execute(skr_destroy_list_t* ref_list) {
+	mtx_lock(&ref_list->mutex);
+
 	// Execute in reverse order (LIFO - last in, first out)
 	skr_destroy_item_t* items = (skr_destroy_item_t*)ref_list->items;
 	for (int32_t i = ref_list->count - 1; i >= 0; i--)
 		_skr_destroy_list_destroy(items[i].handle, items[i].type);
+
+	mtx_unlock(&ref_list->mutex);
 }
 
 void _skr_destroy_list_clear(skr_destroy_list_t* ref_list) {
 	if (!ref_list) return;
+	mtx_lock(&ref_list->mutex);
 	ref_list->count = 0;
+	mtx_unlock(&ref_list->mutex);
 }

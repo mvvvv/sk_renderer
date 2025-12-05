@@ -48,6 +48,31 @@ FetchContent_Declare( cimgui
 )
 FetchContent_MakeAvailable(cimgui)
 
+# FFmpeg for video playback (Linux only for now)
+if(UNIX AND NOT ANDROID AND NOT APPLE)
+	find_package(PkgConfig QUIET)
+	if(PkgConfig_FOUND)
+		pkg_check_modules(FFMPEG
+			libavcodec>=58.0
+			libavformat>=58.0
+			libavutil>=56.0
+			libswscale>=5.0
+		)
+		if(FFMPEG_FOUND)
+			message(STATUS "FFmpeg found - video playback enabled")
+			set(SKR_HAS_VIDEO TRUE)
+		else()
+			message(STATUS "FFmpeg not found - video playback disabled")
+			set(SKR_HAS_VIDEO FALSE)
+		endif()
+	else()
+		message(STATUS "PkgConfig not found - video playback disabled")
+		set(SKR_HAS_VIDEO FALSE)
+	endif()
+else()
+	set(SKR_HAS_VIDEO FALSE)
+endif()
+
 ###############################################################################
 # sk_renderer_test target
 ###############################################################################
@@ -101,6 +126,14 @@ target_sources            (sk_renderer_test PRIVATE
 	${cimgui_SOURCE_DIR}/cimgui.cpp
 )
 
+# Video playback (conditional on FFmpeg)
+if(SKR_HAS_VIDEO)
+	target_compile_definitions(sk_renderer_test PRIVATE SKR_HAS_VIDEO)
+	target_include_directories(sk_renderer_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
+	target_link_libraries     (sk_renderer_test PRIVATE ${FFMPEG_LIBRARIES})
+	target_sources            (sk_renderer_test PRIVATE video.c scene_video.c)
+endif()
+
 ###############################################################################
 # Shader compilation
 ###############################################################################
@@ -136,6 +169,7 @@ skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH}/shaders ""
 	assets/shaders/stereo_display.hlsl
 	assets/shaders/test.hlsl
 	assets/shaders/texture3d.hlsl
+	assets/shaders/video.hlsl
 )
 
 ###############################################################################

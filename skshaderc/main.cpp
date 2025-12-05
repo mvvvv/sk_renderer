@@ -152,8 +152,7 @@ compiler_settings_t check_settings(int32_t argc, const char **argv, bool *exit) 
 	result.force_sks             = false;
 	result.only_if_changed       = true;
 	result.shaderc.debug         = false;
-	result.shaderc.optimize      = 3;
-	result.shaderc.row_major     = false;
+	result.shaderc.optimize      = 2;
 	result.shaderc.silent_err    = false;
 	result.shaderc.silent_info   = false;
 	result.shaderc.silent_warn   = false;
@@ -171,7 +170,6 @@ compiler_settings_t check_settings(int32_t argc, const char **argv, bool *exit) 
 		else if (strcmp(argv[i], "-raw")== 0) result.output_raw_shaders    = true;
 		else if (strcmp(argv[i], "-e" ) == 0) result.replace_ext           = false;
 		else if (strcmp(argv[i], "-f" ) == 0) result.only_if_changed       = false;
-		else if (strcmp(argv[i], "-r" ) == 0) result.shaderc.row_major     = true;
 		else if (strcmp(argv[i], "-d" ) == 0) result.shaderc.debug         = true;
 		else if (strcmp(argv[i], "-si") == 0) result.shaderc.silent_info   = true;
 		else if (strcmp(argv[i], "-sw") == 0) { result.shaderc.silent_info = true; result.shaderc.silent_warn = true; }
@@ -242,7 +240,6 @@ void show_usage() {
 Usage: skshaderc [options] target_file
 
 Options:
-	-r		Specify row-major matrices, column-major is default.
 	-h		Output a C header file with a byte array instead of a binary file.
 	-z		Zips and compresses output data with miniz
 	-raw		Outputs the raw shader stage data as additional files in the same
@@ -251,21 +248,21 @@ Options:
 			skips outputting a normal .sks file.
 	-sks		If some other flag like -sk prevents outputting a .sks file,
 			this flag will force the .sks to be made anyhow.
-	-e		Appends the extension to the resulting file instead of replacing 
+	-e		Appends the extension to the resulting file instead of replacing
 			the extension. Default will replace the extension.
 	-s		Silent, no errors, warnings or info are printed when compiling
 			shaders.
 	-sw		No info or warnings are printed when compiling shaders.
 	-si		No info is printed when compiling shaders.
-	-f		Force the shader to recompile, even if the timestamp on the 
+	-f		Force the shader to recompile, even if the timestamp on the
 			matching .sks file is newer.
-	
+
 	-d		Compile shaders with debug info embedded. Enabling this will
 			disable shader optimizations.
-	-o0		Optimization level 0. Default is 3.
-	-o1		Optimization level 1. Default is 3.
-	-o2		Optimization level 2. Default is 3.
-	-o3		Optimization level 3. Default is 3.
+	-O0		No SPIRV optimization.
+	-O1		Size-focused SPIRV optimization.
+	-O2		Performance-focused SPIRV optimization. Default.
+	-O3		Performance-focused SPIRV optimization (same as -O2).
 
 	-cs name	Compiles a compute shader stage from this file, using an entry
 			function of [name]. Specifying this removes the default entry 
@@ -351,7 +348,7 @@ void compile_file(const char *src_filename, compiler_settings_t *settings) {
 	}
 	
 	sksc_shader_file_t file;
-	sksc_log(log_level_info, "Compiling %s..", src_filename);
+	sksc_log(sksc_log_level_info, "Compiling %s..", src_filename);
 	if (sksc_compile(src_filename, file_text, &settings->shaderc, &file)) {
 		
 		// Turn the shader data into a binary file
@@ -367,7 +364,7 @@ void compile_file(const char *src_filename, compiler_settings_t *settings) {
 			
 			int status = mz_compress2((unsigned char*)sks_data_z, &sks_size_z, (unsigned char*)sks_data, (mz_ulong)sks_size, MZ_BEST_COMPRESSION);
 			if (status != MZ_OK) {
-				sksc_log(log_level_err, "Failed to compress data! %d\n", status);
+				sksc_log(sksc_log_level_err, "Failed to compress data! %d\n", status);
 				err = true;
 			}
 			
@@ -387,29 +384,29 @@ void compile_file(const char *src_filename, compiler_settings_t *settings) {
 				char* abs_file = path_absolute(new_filename_cs);
 				bool  success  = write_skcs(abs_file, sks_data, sks_size, name, &file);
 
-				if (success) sksc_log(log_level_info, "Compiled successfully to %s", abs_file);
-				else         sksc_log(log_level_err,  "Failed to write file! %s", abs_file);
+				if (success) sksc_log(sksc_log_level_info, "Compiled successfully to %s", abs_file);
+				else         sksc_log(sksc_log_level_err,  "Failed to write file! %s", abs_file);
 			}
 			if (settings->output_header) {
 				char* abs_file = path_absolute(new_filename_h);
 				bool  success  = write_header(abs_file, sks_data, &file.meta->ops_vertex, &file.meta->ops_pixel, sks_size, settings->output_zipped);
 
-				if (success) sksc_log(log_level_info, "Compiled successfully to %s", abs_file);
-				else         sksc_log(log_level_err,  "Failed to write file! %s", abs_file);
+				if (success) sksc_log(sksc_log_level_info, "Compiled successfully to %s", abs_file);
+				else         sksc_log(sksc_log_level_err,  "Failed to write file! %s", abs_file);
 			}
 			if (settings->output_raw_shaders) {
 				char* abs_file = path_absolute(new_filename_cs);
 				bool  success  = write_stages(&file, dest_folder, trailing_slash, name_ext);
 
-				if (success) sksc_log(log_level_info, "Compiled raw files successfully to %s", dest_folder);
-				else         sksc_log(log_level_err,  "Failed to write raw files! %s", dest_folder);
+				if (success) sksc_log(sksc_log_level_info, "Compiled raw files successfully to %s", dest_folder);
+				else         sksc_log(sksc_log_level_err,  "Failed to write raw files! %s", dest_folder);
 			}
 			if (make_sks) {
 				char* abs_file = path_absolute(new_filename_sks);
 				bool  success  = write_file(abs_file, sks_data, sks_size);
 
-				if (success) sksc_log(log_level_info, "Compiled successfully to %s", abs_file);
-				else         sksc_log(log_level_err,  "Failed to write file! %s", abs_file);
+				if (success) sksc_log(sksc_log_level_info, "Compiled successfully to %s", abs_file);
+				else         sksc_log(sksc_log_level_err,  "Failed to write file! %s", abs_file);
 			}
 		}
 		free(sks_data);

@@ -364,11 +364,28 @@ typedef struct skr_stencil_state_t {
 	uint32_t        reference;
 } skr_stencil_state_t;
 
-// This may need to be per-backend?
+// GPU selection flags - can be combined with bitwise OR
+typedef enum skr_gpu_ {
+	skr_gpu_none       = 0,
+	skr_gpu_discrete   = 1 << 0,  // Discrete/dedicated GPU (not integrated)
+	skr_gpu_integrated = 1 << 1,  // Integrated GPU (typically lower power)
+	skr_gpu_video      = 1 << 2,  // GPU with hardware video decode support
+} skr_gpu_;
+
 typedef struct skr_settings_t {
 	const char*  app_name;
 	int32_t      app_version;
 	bool         enable_validation;
+
+	// GPU Selection:
+	// - physical_device: If non-NULL, use this device directly (e.g., from OpenXR)
+	// - gpu_require: Fail initialization if no GPU has these flags
+	// - gpu_prefer: Prefer GPU with these flags, fall back if not found
+	// If no flags set, selects most powerful GPU (discrete preferred).
+	void*        physical_device;     // Backend-specific (VkPhysicalDevice for Vulkan)
+	skr_gpu_     gpu_require;         // Required GPU features (fail if not found)
+	skr_gpu_     gpu_prefer;          // Preferred GPU features (fallback if not found)
+
 	const char** required_extensions;
 	uint32_t     required_extension_count;
 	void*      (*malloc_func) (size_t size);
@@ -401,6 +418,10 @@ typedef struct skr_material_info_t {
 #include "../vk/skr_vulkan.h"
 SKR_API VkInstance        skr_get_vk_instance              (void);
 SKR_API VkDevice          skr_get_vk_device                (void);
+SKR_API VkPhysicalDevice  skr_get_vk_physical_device       (void);
+SKR_API VkQueue           skr_get_vk_graphics_queue        (void);
+SKR_API uint32_t          skr_get_vk_graphics_queue_family (void);
+SKR_API void              skr_get_vk_device_uuid           (uint8_t out_uuid[VK_UUID_SIZE]);
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -443,6 +464,8 @@ SKR_API skr_err_          skr_mesh_set_vertex_buffer       (      skr_mesh_t* re
 SKR_API skr_buffer_t*     skr_mesh_get_vertex_buffer       (const skr_mesh_t*     mesh, uint32_t binding);
 
 SKR_API skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data, skr_tex_t* out_tex);
+SKR_API skr_err_          skr_tex_create_external          (skr_tex_external_info_t info, skr_tex_t* out_tex);
+SKR_API skr_err_          skr_tex_update_external          (skr_tex_t* ref_tex, skr_tex_external_update_t update);
 SKR_API bool              skr_tex_is_valid                 (const skr_tex_t*     tex);
 SKR_API void              skr_tex_destroy                  (      skr_tex_t* ref_tex);
 SKR_API skr_tex_t         skr_tex_duplicate                (const skr_tex_t*     tex, skr_tex_fmt_ to_format, skr_tex_flags_ to_flags);
@@ -453,6 +476,7 @@ SKR_API skr_tex_flags_    skr_tex_get_flags                (const skr_tex_t*    
 SKR_API int32_t           skr_tex_get_multisample          (const skr_tex_t*     tex);
 SKR_API void              skr_tex_set_sampler              (      skr_tex_t* ref_tex, skr_tex_sampler_t sampler);
 SKR_API skr_tex_sampler_t skr_tex_get_sampler              (const skr_tex_t*     tex);
+SKR_API skr_err_          skr_tex_set_data                 (      skr_tex_t* ref_tex, const void* data, int32_t row_pitch); // row_pitch=0 means tightly packed
 SKR_API void              skr_tex_generate_mips            (      skr_tex_t* ref_tex, const skr_shader_t* opt_compute_shader);
 SKR_API void              skr_tex_set_name                 (      skr_tex_t* ref_tex, const char* name);
 SKR_API bool              skr_tex_fmt_is_supported         (skr_tex_fmt_ format);
