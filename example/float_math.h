@@ -93,6 +93,14 @@ static inline float2 float2_abs(float2 v) {
 	return (float2){fabsf(v.x), fabsf(v.y)};
 }
 
+static inline float2 float2_min(float2 a, float2 b) {
+	return (float2){fminf(a.x, b.x), fminf(a.y, b.y)};
+}
+
+static inline float2 float2_max(float2 a, float2 b) {
+	return (float2){fmaxf(a.x, b.x), fmaxf(a.y, b.y)};
+}
+
 static inline float float2_mag(float2 v) {
 	return sqrtf(float2_mag2(v));
 }
@@ -146,6 +154,14 @@ static inline float3 float3_ceil(float3 v) {
 
 static inline float3 float3_abs(float3 v) {
 	return (float3){fabsf(v.x), fabsf(v.y), fabsf(v.z)};
+}
+
+static inline float3 float3_min(float3 a, float3 b) {
+	return (float3){fminf(a.x, b.x), fminf(a.y, b.y), fminf(a.z, b.z)};
+}
+
+static inline float3 float3_max(float3 a, float3 b) {
+	return (float3){fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z)};
 }
 
 static inline float float3_mag(float3 v) {
@@ -203,6 +219,14 @@ static inline float3s float3s_abs(float3s v) {
 	return (float3s){fabsf(v.x), fabsf(v.y), fabsf(v.z)};
 }
 
+static inline float3s float3s_min(float3s a, float3s b) {
+	return (float3s){fminf(a.x, b.x), fminf(a.y, b.y), fminf(a.z, b.z)};
+}
+
+static inline float3s float3s_max(float3s a, float3s b) {
+	return (float3s){fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z)};
+}
+
 static inline float float3s_mag(float3s v) {
 	return sqrtf(float3s_mag2(v));
 }
@@ -249,6 +273,14 @@ static inline float4 float4_ceil(float4 v) {
 
 static inline float4 float4_abs(float4 v) {
 	return (float4){fabsf(v.x), fabsf(v.y), fabsf(v.z), fabsf(v.w)};
+}
+
+static inline float4 float4_min(float4 a, float4 b) {
+	return (float4){fminf(a.x, b.x), fminf(a.y, b.y), fminf(a.z, b.z), fminf(a.w, b.w)};
+}
+
+static inline float4 float4_max(float4 a, float4 b) {
+	return (float4){fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z), fmaxf(a.w, b.w)};
 }
 
 static inline float float4_mag(float4 v) {
@@ -694,6 +726,14 @@ static inline float4x4 float4x4_invert(float4x4 m) {
 extern "C" {
 #endif
 
+#if defined(_MSC_VER)
+	#define FM_ALIGN_PREFIX(x) __declspec(align(x))
+	#define FM_ALIGN_SUFFIX(x)
+#else
+	#define FM_ALIGN_PREFIX(x)
+	#define FM_ALIGN_SUFFIX(x) __attribute__((aligned(x)))
+#endif
+
 // ============================================================================
 // Vector types (SSE optimized)
 // ============================================================================
@@ -704,25 +744,25 @@ typedef struct { float x, y; } float2;
 typedef struct { float x, y, z; } float3;
 
 // float3s: 16 bytes, SIMD-aligned for SSE operations
-typedef union {
+typedef FM_ALIGN_PREFIX(16) union {
 	struct { float x, y, z, _pad; };
 	float v[4];
 	__m128 simd;
-} __attribute__((aligned(16))) float3s;
+} FM_ALIGN_SUFFIX(16) float3s;
 
 // float4: 16 bytes, SIMD-aligned
-typedef union {
+typedef FM_ALIGN_PREFIX(16) union {
 	struct { float x, y, z, w; };
 	struct { float r, g, b, a; };
 	float v[4];
 	__m128 simd;
-} __attribute__((aligned(16))) float4;
+} FM_ALIGN_SUFFIX(16) float4;
 
 // Matrix type (row-major for direct shader compatibility)
-typedef union {
+typedef FM_ALIGN_PREFIX(16) union {
 	float m[16]; // Row-major: [m00, m01, m02, m03, m10, m11, ...]
 	__m128 rows[4];
-} __attribute__((aligned(16))) float4x4;
+} FM_ALIGN_SUFFIX(16) float4x4;
 
 // ============================================================================
 // Conversions between float3 and float3s
@@ -786,6 +826,14 @@ static inline float2 float2_abs(float2 v) {
 	return (float2){fabsf(v.x), fabsf(v.y)};
 }
 
+static inline float2 float2_min(float2 a, float2 b) {
+	return (float2){fminf(a.x, b.x), fminf(a.y, b.y)};
+}
+
+static inline float2 float2_max(float2 a, float2 b) {
+	return (float2){fmaxf(a.x, b.x), fmaxf(a.y, b.y)};
+}
+
 static inline float float2_mag(float2 v) {
 	return sqrtf(float2_mag2(v));
 }
@@ -839,6 +887,14 @@ static inline float3 float3_ceil(float3 v) {
 
 static inline float3 float3_abs(float3 v) {
 	return (float3){fabsf(v.x), fabsf(v.y), fabsf(v.z)};
+}
+
+static inline float3 float3_min(float3 a, float3 b) {
+	return (float3){fminf(a.x, b.x), fminf(a.y, b.y), fminf(a.z, b.z)};
+}
+
+static inline float3 float3_max(float3 a, float3 b) {
+	return (float3){fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z)};
 }
 
 static inline float float3_mag(float3 v) {
@@ -933,6 +989,14 @@ static inline float3s float3s_abs(float3s v) {
 	return m128_to_float3s(_mm_and_ps(v.simd, sign_mask));
 }
 
+static inline float3s float3s_min(float3s a, float3s b) {
+	return m128_to_float3s(_mm_min_ps(a.simd, b.simd));
+}
+
+static inline float3s float3s_max(float3s a, float3s b) {
+	return m128_to_float3s(_mm_max_ps(a.simd, b.simd));
+}
+
 static inline float float3s_mag(float3s v) {
 	__m128 dp = _mm_dp_ps(v.simd, v.simd, 0x71);
 	return _mm_cvtss_f32(_mm_sqrt_ss(dp));
@@ -1023,6 +1087,14 @@ static inline float4 float4_ceil(float4 v) {
 static inline float4 float4_abs(float4 v) {
 	__m128 sign_mask = _mm_castsi128_ps(_mm_set1_epi32(0x7FFFFFFF));
 	return m128_to_float4(_mm_and_ps(v.simd, sign_mask));
+}
+
+static inline float4 float4_min(float4 a, float4 b) {
+	return m128_to_float4(_mm_min_ps(a.simd, b.simd));
+}
+
+static inline float4 float4_max(float4 a, float4 b) {
+	return m128_to_float4(_mm_max_ps(a.simd, b.simd));
 }
 
 static inline float float4_mag(float4 v) {
@@ -1842,6 +1914,14 @@ static inline float2 float2_abs(float2 v) {
 	return (float2){fabsf(v.x), fabsf(v.y)};
 }
 
+static inline float2 float2_min(float2 a, float2 b) {
+	return (float2){fminf(a.x, b.x), fminf(a.y, b.y)};
+}
+
+static inline float2 float2_max(float2 a, float2 b) {
+	return (float2){fmaxf(a.x, b.x), fmaxf(a.y, b.y)};
+}
+
 static inline float float2_mag(float2 v) {
 	return sqrtf(float2_mag2(v));
 }
@@ -1895,6 +1975,14 @@ static inline float3 float3_ceil(float3 v) {
 
 static inline float3 float3_abs(float3 v) {
 	return (float3){fabsf(v.x), fabsf(v.y), fabsf(v.z)};
+}
+
+static inline float3 float3_min(float3 a, float3 b) {
+	return (float3){fminf(a.x, b.x), fminf(a.y, b.y), fminf(a.z, b.z)};
+}
+
+static inline float3 float3_max(float3 a, float3 b) {
+	return (float3){fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z)};
 }
 
 static inline float float3_mag(float3 v) {
@@ -2002,6 +2090,14 @@ static inline float3s float3s_abs(float3s v) {
 	return neon_to_float3s(vabsq_f32(v.simd));
 }
 
+static inline float3s float3s_min(float3s a, float3s b) {
+	return neon_to_float3s(vminq_f32(a.simd, b.simd));
+}
+
+static inline float3s float3s_max(float3s a, float3s b) {
+	return neon_to_float3s(vmaxq_f32(a.simd, b.simd));
+}
+
 static inline float float3s_mag(float3s v) {
 	return sqrtf(float3s_mag2(v));
 }
@@ -2089,6 +2185,14 @@ static inline float4 float4_ceil(float4 v) {
 
 static inline float4 float4_abs(float4 v) {
 	return neon_to_float4(vabsq_f32(v.simd));
+}
+
+static inline float4 float4_min(float4 a, float4 b) {
+	return neon_to_float4(vminq_f32(a.simd, b.simd));
+}
+
+static inline float4 float4_max(float4 a, float4 b) {
+	return neon_to_float4(vmaxq_f32(a.simd, b.simd));
 }
 
 static inline float float4_mag(float4 v) {
