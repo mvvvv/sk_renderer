@@ -109,7 +109,6 @@ target_include_directories(sk_renderer_test PRIVATE ${stb_SOURCE_DIR} ${cgltf_SO
 target_sources            (sk_renderer_test PRIVATE
 	main.c
 	app.c
-	scene_util.c
 	scene_meshes.c
 	scene_reaction_diffusion.c
 	scene_orbital_particles.c
@@ -121,6 +120,7 @@ target_sources            (sk_renderer_test PRIVATE
 	scene_shadows.c
 	scene_cloth.c
 	bloom.c
+	tools/scene_util.c
 	imgui_backend/imgui_impl_sk_renderer.cpp
 	imgui_backend/imgui_sdl2_wrapper.cpp
 	${cimgui_SOURCE_DIR}/imgui/imgui.cpp
@@ -137,7 +137,7 @@ if(SKR_HAS_VIDEO)
 	target_compile_definitions(sk_renderer_test PRIVATE SKR_HAS_VIDEO)
 	target_include_directories(sk_renderer_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
 	target_link_libraries     (sk_renderer_test PRIVATE ${FFMPEG_LIBRARIES})
-	target_sources            (sk_renderer_test PRIVATE video.c scene_video.c)
+	target_sources            (sk_renderer_test PRIVATE tools/video.c scene_video.c)
 endif()
 
 ###############################################################################

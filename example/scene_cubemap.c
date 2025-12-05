@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "scene.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "app.h"
 
 #include <stdlib.h>
@@ -134,7 +134,7 @@ static void _scene_cubemap_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time;
 }
 
-static void _scene_cubemap_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_cubemap_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
 	scene_cubemap_t* scene = (scene_cubemap_t*)base;
 
 	// Build instance data

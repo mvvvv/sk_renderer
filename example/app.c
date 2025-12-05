@@ -5,11 +5,11 @@
 
 #include "app.h"
 #include "scene.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "bloom.h"
 #include "imgui_backend/imgui_impl_sk_renderer.h"
 
-#include "float_math.h"
+#include "tools/float_math.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -148,8 +148,6 @@ app_t* app_create(int32_t start_scene) {
 		return NULL;
 	}
 
-	// Initialize scene utilities (vertex types, asset loading thread)
-	su_initialize();
 
 	// Create shared render list
 	skr_render_list_create(&app->render_list);
@@ -285,35 +283,24 @@ void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t hei
 	float3 cam_target   = has_custom_camera ? camera.target   : (float3){0.0f, 0.0f, 0.0f};
 	float3 cam_up       = has_custom_camera ? camera.up       : (float3){0.0f, 1.0f, 0.0f};
 
-	float4x4 view     = float4x4_lookat(cam_position, cam_target, cam_up);
-	float4x4 viewproj = float4x4_mul   (projection, view);
-
-	// Calculate inverse matrices
-	float4x4 view_inv       = float4x4_invert(view);
-	float4x4 projection_inv = float4x4_invert(projection);
+	float4x4 view = float4x4_lookat(cam_position, cam_target, cam_up);
 
 	// Calculate camera direction
 	float3 cam_forward = float3_norm(float3_sub(cam_target, cam_position));
 
 	// Setup application system buffer
-	app_system_buffer_t sys_buffer = {0};
+	su_system_buffer_t sys_buffer = {0};
 	sys_buffer.view_count = 1;
-	memcpy(sys_buffer.viewproj       [0], &viewproj,       sizeof(float) * 16);
-	memcpy(sys_buffer.view           [0], &view,           sizeof(float) * 16);
-	memcpy(sys_buffer.view_inv       [0], &view_inv,       sizeof(float) * 16);
-	memcpy(sys_buffer.projection     [0], &projection,     sizeof(float) * 16);
-	memcpy(sys_buffer.projection_inv [0], &projection_inv, sizeof(float) * 16);
-	sys_buffer.cam_pos[0][0] = cam_position.x;
-	sys_buffer.cam_pos[0][1] = cam_position.y;
-	sys_buffer.cam_pos[0][2] = cam_position.z;
-	sys_buffer.cam_pos[0][3] = 0.0f;
-	sys_buffer.cam_dir[0][0] = cam_forward.x;
-	sys_buffer.cam_dir[0][1] = cam_forward.y;
-	sys_buffer.cam_dir[0][2] = cam_forward.z;
-	sys_buffer.cam_dir[0][3] = 0.0f;
+	sys_buffer.view          [0] = view;
+	sys_buffer.projection    [0] = projection;
+	sys_buffer.viewproj      [0] = float4x4_mul   (projection, view);
+	sys_buffer.view_inv      [0] = float4x4_invert(view);
+	sys_buffer.projection_inv[0] = float4x4_invert(projection);
+	sys_buffer.cam_pos       [0] = (float4){cam_position.x, cam_position.y, cam_position.z, 0.0f};
+	sys_buffer.cam_dir       [0] = (float4){cam_forward.x,  cam_forward.y,  cam_forward.z,  0.0f};
 
 	// Let the scene populate the render list (and optionally do its own render passes)
-	scene_render(vtable, app->scene_current, width, height, viewproj, &app->render_list, &sys_buffer);
+	scene_render(vtable, app->scene_current, width, height, &app->render_list, &sys_buffer);
 
 	// Prepare ImGui mesh data OUTSIDE render pass (uploads via vkCmdCopyBuffer)
 	ImGui_ImplSkRenderer_PrepareDrawData();
@@ -329,7 +316,7 @@ void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t hei
 	skr_renderer_set_scissor ((skr_recti_t){0, 0, width, height});
 
 	// Draw the render list that the scene populated
-	skr_renderer_draw    (&app->render_list, &sys_buffer, sizeof(app_system_buffer_t), sys_buffer.view_count);
+	skr_renderer_draw    (&app->render_list, &sys_buffer, sizeof(su_system_buffer_t), sys_buffer.view_count);
 	skr_render_list_clear(&app->render_list);
 
 	// Draw ImGui INSIDE the same render pass

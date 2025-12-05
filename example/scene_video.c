@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Video playback scene
 
-#include "scene.h"
-#include "scene_util.h"
 #include "app.h"
-#include "video.h"
+#include "scene.h"
+#include "tools/scene_util.h"
+#include "tools/video.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -328,12 +328,10 @@ static void _scene_video_update(scene_t* base, float delta_time) {
 	}
 }
 
-static void _scene_video_render(scene_t* base, int32_t width, int32_t height,
-                                 float4x4 viewproj, skr_render_list_t* ref_render_list,
-                                 app_system_buffer_t* ref_system_buffer) {
-	scene_video_t* scene = (scene_video_t*)base;
-	video_worker_t* w = &scene->worker;
-	(void)viewproj; (void)ref_system_buffer;
+static void _scene_video_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
+	scene_video_t*  scene = (scene_video_t*)base;
+	video_worker_t* w     = &scene->worker;
+	(void)ref_system_buffer;
 
 	if (!atomic_load(&w->video_ready) || !w->video) return;
 

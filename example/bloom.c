@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "bloom.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

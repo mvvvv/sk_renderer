@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "scene.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "app.h"
 
 #include <stdlib.h>
@@ -111,7 +111,7 @@ static void _scene_array_texture_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time;
 }
 
-static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
 	scene_array_texture_t* scene = (scene_array_texture_t*)base;
 
 	// Create/resize array texture if needed
@@ -149,12 +149,11 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 	}
 
 	// Build stereo system buffer (2 views for left/right eye)
-	app_system_buffer_t sys_buffer = {0};
+	su_system_buffer_t sys_buffer = {0};
 	sys_buffer.view_count = 2;
 
 	// Extract projection matrix from viewproj passed from app.c
-	float4x4 projection;
-	memcpy(&projection, ref_system_buffer->projection[0], sizeof(float) * 16);
+	float4x4 projection = ref_system_buffer->projection[0];
 
 	// Create view matrices for left and right eye
 	float3 camera_pos = {0, 3, 8};  // Match app.c default camera
@@ -175,42 +174,28 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 	float4x4 projection_inv  = float4x4_invert(projection);
 
 	// Copy to system buffer
-	memcpy(sys_buffer.view          [0], &view_left,       sizeof(float) * 16);
-	memcpy(sys_buffer.view          [1], &view_right,      sizeof(float) * 16);
-	memcpy(sys_buffer.view_inv      [0], &view_left_inv,   sizeof(float) * 16);
-	memcpy(sys_buffer.view_inv      [1], &view_right_inv,  sizeof(float) * 16);
-	memcpy(sys_buffer.projection    [0], &projection,      sizeof(float) * 16);
-	memcpy(sys_buffer.projection    [1], &projection,      sizeof(float) * 16);
-	memcpy(sys_buffer.projection_inv[0], &projection_inv,  sizeof(float) * 16);
-	memcpy(sys_buffer.projection_inv[1], &projection_inv,  sizeof(float) * 16);
+	sys_buffer.view          [0] = view_left;
+	sys_buffer.view          [1] = view_right;
+	sys_buffer.view_inv      [0] = view_left_inv;
+	sys_buffer.view_inv      [1] = view_right_inv;
+	sys_buffer.projection    [0] = projection;
+	sys_buffer.projection    [1] = projection;
+	sys_buffer.projection_inv[0] = projection_inv;
+	sys_buffer.projection_inv[1] = projection_inv;
 
 	// Compute viewproj matrices
-	float4x4 viewproj_left  = float4x4_mul(projection, view_left);
-	float4x4 viewproj_right = float4x4_mul(projection, view_right);
-	memcpy(sys_buffer.viewproj[0], &viewproj_left,  sizeof(float) * 16);
-	memcpy(sys_buffer.viewproj[1], &viewproj_right, sizeof(float) * 16);
+	sys_buffer.viewproj[0] = float4x4_mul(projection, view_left);
+	sys_buffer.viewproj[1] = float4x4_mul(projection, view_right);
 
 	// Calculate camera positions and directions for both eyes
 	float3 cam_pos_left  = float3_add(camera_pos, (float3){-scene->eye_separation * 0.5f, 0, 0});
 	float3 cam_pos_right = float3_add(camera_pos, (float3){ scene->eye_separation * 0.5f, 0, 0});
 	float3 cam_forward   = float3_norm(float3_sub(target, camera_pos));
 
-	sys_buffer.cam_pos[0][0] = cam_pos_left.x;
-	sys_buffer.cam_pos[0][1] = cam_pos_left.y;
-	sys_buffer.cam_pos[0][2] = cam_pos_left.z;
-	sys_buffer.cam_pos[0][3] = 0.0f;
-	sys_buffer.cam_pos[1][0] = cam_pos_right.x;
-	sys_buffer.cam_pos[1][1] = cam_pos_right.y;
-	sys_buffer.cam_pos[1][2] = cam_pos_right.z;
-	sys_buffer.cam_pos[1][3] = 0.0f;
-	sys_buffer.cam_dir[0][0] = cam_forward.x;
-	sys_buffer.cam_dir[0][1] = cam_forward.y;
-	sys_buffer.cam_dir[0][2] = cam_forward.z;
-	sys_buffer.cam_dir[0][3] = 0.0f;
-	sys_buffer.cam_dir[1][0] = cam_forward.x;
-	sys_buffer.cam_dir[1][1] = cam_forward.y;
-	sys_buffer.cam_dir[1][2] = cam_forward.z;
-	sys_buffer.cam_dir[1][3] = 0.0f;
+	sys_buffer.cam_pos[0] = (float4){cam_pos_left.x, cam_pos_left.y, cam_pos_left.z, 0.0f};
+	sys_buffer.cam_pos[1] = (float4){cam_pos_right.x, cam_pos_right.y, cam_pos_right.z, 0.0f};
+	sys_buffer.cam_dir[0] = (float4){cam_forward.x, cam_forward.y, cam_forward.z, 0.0f};
+	sys_buffer.cam_dir[1] = (float4){cam_forward.x, cam_forward.y, cam_forward.z, 0.0f};
 
 	// Build cube instance data (configurable grid)
 	#define       grid_size_x 100
@@ -240,7 +225,7 @@ static void _scene_array_texture_render(scene_t* base, int32_t width, int32_t he
 	skr_renderer_set_scissor ((skr_recti_t){0, 0, scene->array_render_target.size.x, scene->array_render_target.size.y});
 
 	skr_render_list_add  (&scene->render_list, &scene->cube_mesh, &scene->cube_material, cube_instances, sizeof(float4x4), total_cubes);
-	skr_renderer_draw    (&scene->render_list, &sys_buffer, sizeof(app_system_buffer_t), sys_buffer.view_count);
+	skr_renderer_draw    (&scene->render_list, &sys_buffer, sizeof(su_system_buffer_t), sys_buffer.view_count);
 	skr_render_list_clear(&scene->render_list);
 	skr_renderer_end_pass();
 

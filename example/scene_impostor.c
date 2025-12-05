@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "scene.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "app.h"
 
 #include <stdlib.h>
@@ -40,7 +40,7 @@ static scene_t* _scene_impostor_create(void) {
 
 
 	// Create impostor mesh - two perpendicular double-sided quads forming an X
-	su_vertex_pnuc_t impostor_vertices[] = {
+	su_vertex_t impostor_vertices[] = {
 		// First quad - front face (facing +Z)
 		{ .position = {-0.5f, 0.0f, 0.0f}, .normal = {-1.0f, 0.0f, 0.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
 		{ .position = { 0.5f, 0.0f, 0.0f}, .normal = { 1.0f, 0.0f, 0.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
@@ -57,7 +57,7 @@ static scene_t* _scene_impostor_create(void) {
 		0, 1, 2,  2, 3, 0,
 		4, 6, 5,  6, 4, 7,
 	};
-	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, impostor_vertices, 8, impostor_indices, 12, &scene->impostor_mesh);
+	skr_mesh_create(&su_vertex_type, skr_index_fmt_u16, impostor_vertices, 8, impostor_indices, 12, &scene->impostor_mesh);
 	skr_mesh_set_name(&scene->impostor_mesh, "impostor_quad");
 
 	// Create terrain mesh - a grid with height field
@@ -66,7 +66,7 @@ static scene_t* _scene_impostor_create(void) {
 	const int   vertex_count = (grid_size + 1) * (grid_size + 1);
 	const int   index_count  = grid_size * grid_size * 6;
 
-	su_vertex_pnuc_t* terrain_vertices = malloc(vertex_count * sizeof(su_vertex_pnuc_t));
+	su_vertex_t* terrain_vertices = malloc(vertex_count * sizeof(su_vertex_t));
 	uint16_t*         terrain_indices  = malloc(index_count  * sizeof(uint16_t));
 
 	// Generate terrain vertices with height field
@@ -124,7 +124,7 @@ static scene_t* _scene_impostor_create(void) {
 		}
 	}
 
-	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, terrain_vertices, vertex_count, terrain_indices, index_count, &scene->terrain_mesh);
+	skr_mesh_create(&su_vertex_type, skr_index_fmt_u16, terrain_vertices, vertex_count, terrain_indices, index_count, &scene->terrain_mesh);
 	skr_mesh_set_name(&scene->terrain_mesh, "terrain");
 	free(terrain_vertices);
 	free(terrain_indices);
@@ -203,7 +203,7 @@ static void _scene_impostor_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time * 0.5f;
 }
 
-static void _scene_impostor_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_impostor_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
 	scene_impostor_t* scene = (scene_impostor_t*)base;
 
 	// Build instance data - 1000 randomly placed trees

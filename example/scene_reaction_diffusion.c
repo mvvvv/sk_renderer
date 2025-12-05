@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "scene.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "app.h"
 
 #include <stdlib.h>
@@ -56,7 +56,7 @@ static scene_t* _scene_reaction_diffusion_create(void) {
 	scene->rotation          = 0.0f;
 
 	// Create double-sided quad mesh (front face + back face with flipped normals)
-	su_vertex_pnuc_t quad_vertices[] = {
+	su_vertex_t quad_vertices[] = {
 		// Front face (Z+)
 		{ .position = {-0.7f, -0.7f, 0.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
 		{ .position = { 0.7f, -0.7f, 0.0f}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
@@ -72,7 +72,7 @@ static scene_t* _scene_reaction_diffusion_create(void) {
 		0, 1, 2,  2, 3, 0,  // Front face
 		5, 4, 7,  7, 6, 5,  // Back face (flipped winding)
 	};
-	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 8, quad_indices, 12, &scene->quad_mesh);
+	skr_mesh_create(&su_vertex_type, skr_index_fmt_u16, quad_vertices, 8, quad_indices, 12, &scene->quad_mesh);
 	skr_mesh_set_name(&scene->quad_mesh, "quad");
 
 	// Load shaders
@@ -168,7 +168,7 @@ static void _scene_reaction_diffusion_update(scene_t* base, float delta_time) {
 	}
 }
 
-static void _scene_reaction_diffusion_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_reaction_diffusion_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
 	scene_reaction_diffusion_t* scene = (scene_reaction_diffusion_t*)base;
 
 	// Build instance data for quad

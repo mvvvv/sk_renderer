@@ -7,7 +7,8 @@
 
 #include <sk_renderer.h>
 #include "app.h"
-#include "float_math.h"
+#include "tools/float_math.h"
+#include "tools/scene_util.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -27,7 +28,7 @@ typedef struct {
 	scene_t*    (*create)     (void);
 	void        (*destroy)    (scene_t* scene);
 	void        (*update)     (scene_t* scene, float delta_time);
-	void        (*render)     (scene_t* scene, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer);
+	void        (*render)     (scene_t* scene, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer);
 	bool        (*get_camera) (scene_t* scene, scene_camera_t* out_camera);  // Optional - return true to override camera
 	void        (*render_ui)  (scene_t* scene);  // Optional - scene-specific ImGui controls
 } scene_vtable_t;
@@ -53,9 +54,9 @@ extern const scene_vtable_t scene_video_vtable;
 #endif
 
 // Helper macros for scene methods (vtable passed separately)
-#define scene_create(vtable)                                     ((vtable)->create())
-#define scene_destroy(vtable, scene)                             ((vtable)->destroy(scene))
-#define scene_update(vtable, scene, delta_time)                  ((vtable)->update(scene, delta_time))
-#define scene_render(vtable, scene, w, h, vp, render_list, buf) ((vtable)->render(scene, w, h, vp, render_list, buf))
-#define scene_render_ui(vtable, scene)                           ((vtable)->render_ui ? (vtable)->render_ui(scene) : (void)0)
-#define scene_get_name(vtable)                                   ((vtable)->name)
+#define scene_create(vtable)                                ((vtable)->create())
+#define scene_destroy(vtable, scene)                        ((vtable)->destroy(scene))
+#define scene_update(vtable, scene, delta_time)             ((vtable)->update(scene, delta_time))
+#define scene_render(vtable, scene, w, h, render_list, buf) ((vtable)->render(scene, w, h, render_list, buf))
+#define scene_render_ui(vtable, scene)                      ((vtable)->render_ui ? (vtable)->render_ui(scene) : (void)0)
+#define scene_get_name(vtable)                              ((vtable)->name)

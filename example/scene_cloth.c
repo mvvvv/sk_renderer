@@ -4,10 +4,10 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "scene.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "app.h"
 
-#include "float_math.h"
+#include "tools/float_math.h"
 
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui.h>
@@ -29,7 +29,7 @@ typedef struct {
 	float3*        positions;        // Current positions
 	float3*        old_positions;    // Previous positions for Verlet integration
 	bool*          pinned;           // Whether each vertex is pinned
-	su_vertex_pnuc_t* vertices;      // Vertex buffer data
+	su_vertex_t* vertices;      // Vertex buffer data
 	uint32_t*      indices;          // Index buffer data
 
 	int32_t        grid_width;
@@ -65,7 +65,7 @@ static void _cloth_init(scene_cloth_t* scene) {
 	scene->positions     = calloc(scene->vertex_count, sizeof(float3));
 	scene->old_positions = calloc(scene->vertex_count, sizeof(float3));
 	scene->pinned        = calloc(scene->vertex_count, sizeof(bool));
-	scene->vertices      = calloc(scene->vertex_count, sizeof(su_vertex_pnuc_t));
+	scene->vertices      = calloc(scene->vertex_count, sizeof(su_vertex_t));
 	scene->indices       = calloc(scene->index_count, sizeof(uint32_t));
 
 	// Initialize cloth grid
@@ -276,7 +276,7 @@ static scene_t* _scene_cloth_create(void) {
 
 	// Create mesh (start with static buffers, will convert to dynamic on first update)
 	skr_mesh_create(
-		&su_vertex_type_pnuc,
+		&su_vertex_type,
 		skr_index_fmt_u32,
 		scene->vertices,
 		scene->vertex_count,
@@ -339,7 +339,7 @@ static void _scene_cloth_update(scene_t* base, float delta_time) {
 	skr_mesh_set_verts(&scene->cloth_mesh, scene->vertices, scene->vertex_count);
 }
 
-static void _scene_cloth_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_cloth_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
 	scene_cloth_t* scene = (scene_cloth_t*)base;
 
 	// Draw cloth at origin

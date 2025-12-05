@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "app.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "imgui_backend/imgui_impl_sk_renderer.h"
 
 #include <stdlib.h>
@@ -23,6 +23,46 @@ bool ImGui_ImplSDL2_InitForVulkan_C(SDL_Window* window);
 void ImGui_ImplSDL2_Shutdown_C(void);
 void ImGui_ImplSDL2_NewFrame_C(void);
 bool ImGui_ImplSDL2_ProcessEvent_C(const SDL_Event* event);
+
+// SDL-based file reader for su_initialize (handles Android assets via SDL_RWops)
+static bool _sdl_file_read(const char* filename, void** out_data, size_t* out_size, void* user_data) {
+	(void)user_data;
+
+	SDL_RWops* rw = SDL_RWFromFile(filename, "rb");
+	if (!rw) {
+		su_log(su_log_critical, "Failed to open file '%s': %s", filename, SDL_GetError());
+		return false;
+	}
+
+	Sint64 size = SDL_RWsize(rw);
+	if (size < 0) {
+		su_log(su_log_critical, "Failed to get size of file '%s': %s", filename, SDL_GetError());
+		SDL_RWclose(rw);
+		return false;
+	}
+
+	*out_size = (size_t)size;
+	*out_data = malloc(*out_size);
+	if (*out_data == NULL) {
+		su_log(su_log_critical, "Failed to allocate %zu bytes for file '%s'", *out_size, filename);
+		SDL_RWclose(rw);
+		*out_size = 0;
+		return false;
+	}
+
+	size_t bytes_read = SDL_RWread(rw, *out_data, 1, *out_size);
+	SDL_RWclose(rw);
+
+	if (bytes_read != *out_size) {
+		su_log(su_log_critical, "Failed to read file '%s': expected %zu bytes, got %zu", filename, *out_size, bytes_read);
+		free(*out_data);
+		*out_data = NULL;
+		*out_size = 0;
+		return false;
+	}
+
+	return true;
+}
 
 
 int main(int argc, char* argv[]) {
@@ -124,6 +164,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	su_log(su_log_info, "sk_renderer initialized successfully!");
+
+	// Initialize scene utilities with SDL file reader (handles Android assets)
+	su_initialize(_sdl_file_read, NULL);
 
 	// Initialize ImGui
 	igCreateContext(NULL);

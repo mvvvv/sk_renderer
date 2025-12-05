@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "scene.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "app.h"
 
 #include <stdlib.h>
@@ -83,7 +83,7 @@ static scene_t* _scene_orbital_particles_create(void) {
 	// Create simple 3-sided pyramid (tetrahedron) mesh
 	const float h = 0.5f;  // Height
 	const float r = 0.5f;  // Base radius
-	su_vertex_pnuc_t pyramid_vertices[] = {
+	su_vertex_t pyramid_vertices[] = {
 		// Base triangle
 		{ .position = { 0.0f,    -h/2, 0.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.5f, 0.5f}, .color = 0xFFFFFFFF },
 		{ .position = { r,       -h/2, 0.0f}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
@@ -114,7 +114,7 @@ static scene_t* _scene_orbital_particles_create(void) {
 		8, 9, 10,   // Back left
 		11, 12, 13, // Back right
 	};
-	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, pyramid_vertices, 14, pyramid_indices, 18, &scene->pyramid_mesh);
+	skr_mesh_create(&su_vertex_type, skr_index_fmt_u16, pyramid_vertices, 14, pyramid_indices, 18, &scene->pyramid_mesh);
 	skr_mesh_set_name(&scene->pyramid_mesh, "tetrahedron");
 
 	// Load shader
@@ -229,7 +229,7 @@ static void _scene_orbital_particles_update(scene_t* base, float delta_time) {
 	scene->compute_iteration++;
 }
 
-static void _scene_orbital_particles_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_orbital_particles_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
 	scene_orbital_particles_t* scene = (scene_orbital_particles_t*)base;
 
 	// Bind particle params buffer (colors) to slot 0

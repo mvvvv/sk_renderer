@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "scene.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "app.h"
 
 #include <stdlib.h>
@@ -338,17 +338,14 @@ static void _scene_gltf_update(scene_t* base, float delta_time) {
 	scene->rotation += delta_time * 0.5f;
 }
 
-static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_gltf_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
 	scene_gltf_t*  scene = (scene_gltf_t*)base;
 	su_gltf_state_ state = su_gltf_get_state(scene->model);
 
 	// Set up environment cubemap info in system buffer
 	if (scene->cubemap_ready && ref_system_buffer) {
-		ref_system_buffer->cubemap_info[0] = (float)scene->cubemap_texture.size.x;
-		ref_system_buffer->cubemap_info[1] = (float)scene->cubemap_texture.size.y;
-		ref_system_buffer->cubemap_info[2] = (float)scene->cubemap_texture.mip_levels;
-		ref_system_buffer->cubemap_info[3] = 0.0f;
-		ref_system_buffer->time = scene->rotation;
+		ref_system_buffer->cubemap_info = (float4){(float)scene->cubemap_texture.size.x, (float)scene->cubemap_texture.size.y, (float)scene->cubemap_texture.mip_levels, 0.0f};
+		ref_system_buffer->time         = scene->rotation;
 
 		// Bind environment cubemap globally for all PBR materials (t5 in pbr.hlsl)
 		skr_renderer_set_global_texture(5, &scene->cubemap_texture);

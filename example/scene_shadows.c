@@ -4,7 +4,7 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "scene.h"
-#include "scene_util.h"
+#include "tools/scene_util.h"
 #include "app.h"
 
 #include <stdlib.h>
@@ -178,7 +178,7 @@ static void _scene_shadows_update(scene_t* base, float delta_time) {
 	scene->light_dir = float3_norm((float3){cosf(scene->rotation), -1, sinf(scene->rotation)});
 }
 
-static void _scene_shadows_render(scene_t* base, int32_t width, int32_t height, float4x4 viewproj, skr_render_list_t* ref_render_list, app_system_buffer_t* ref_system_buffer) {
+static void _scene_shadows_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
 	scene_shadows_t* scene = (scene_shadows_t*)base;
 
 	// Setup shadow map matrices
@@ -243,14 +243,14 @@ static void _scene_shadows_render(scene_t* base, int32_t width, int32_t height, 
 	);
 
 	// Create system buffer for shadow pass (orthographic projection)
-	app_system_buffer_t shadow_sys_buffer = {0};
+	su_system_buffer_t shadow_sys_buffer = {0};
 	shadow_sys_buffer.view_count = 1;
 
 	float4x4 shadow_viewproj = float4x4_mul(shadow_proj, shadow_view);
 
-	memcpy(shadow_sys_buffer.view      [0], &shadow_view,     sizeof(float) * 16);
-	memcpy(shadow_sys_buffer.projection[0], &shadow_proj,     sizeof(float) * 16);
-	memcpy(shadow_sys_buffer.viewproj  [0], &shadow_viewproj, sizeof(float) * 16);
+	shadow_sys_buffer.view      [0] = shadow_view;
+	shadow_sys_buffer.projection[0] = shadow_proj;
+	shadow_sys_buffer.viewproj  [0] = shadow_viewproj;
 
 	// Clear global texture/constants that shadow caster doesn't use
 	skr_renderer_set_global_constants(13, NULL);
@@ -263,7 +263,7 @@ static void _scene_shadows_render(scene_t* base, int32_t width, int32_t height, 
 
 	skr_render_list_add  (&scene->shadow_list, &scene->cube_mesh,  &scene->shadow_caster_material,  cube_instances, sizeof(float4x4), cube_count);
 	skr_render_list_add  (&scene->shadow_list, &scene->floor_mesh, &scene->shadow_caster_material, &floor_instance, sizeof(float4x4), 1);
-	skr_renderer_draw    (&scene->shadow_list, &shadow_sys_buffer, sizeof(app_system_buffer_t), 1);
+	skr_renderer_draw    (&scene->shadow_list, &shadow_sys_buffer, sizeof(su_system_buffer_t), 1);
 	skr_render_list_clear(&scene->shadow_list);
 	skr_renderer_end_pass();
 

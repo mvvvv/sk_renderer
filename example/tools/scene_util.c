@@ -4,7 +4,6 @@
 // Copyright (c) 2025 Qualcomm Technologies, Inc.
 
 #include "scene_util.h"
-#include "app.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -19,8 +18,6 @@
 #include <math.h>
 #include <float.h>
 #include <stdio.h>
-
-#include <SDL.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common Texture Samplers
@@ -45,7 +42,7 @@ const skr_tex_sampler_t su_sampler_point_clamp = {
 // Standard Vertex Types
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_vert_type_t su_vertex_type_pnuc = {0};
+skr_vert_type_t su_vertex_type = {0};
 
 static void _su_vertex_types_init(void) {
 	skr_vert_type_create(
@@ -53,7 +50,7 @@ static void _su_vertex_types_init(void) {
 			{ .format = skr_vertex_fmt_f32,            .count = 3, .semantic = skr_semantic_position, .semantic_slot = 0 },
 			{ .format = skr_vertex_fmt_f32,            .count = 3, .semantic = skr_semantic_normal,   .semantic_slot = 0 },
 			{ .format = skr_vertex_fmt_f32,            .count = 2, .semantic = skr_semantic_texcoord, .semantic_slot = 0 },
-			{ .format = skr_vertex_fmt_ui8_normalized, .count = 4, .semantic = skr_semantic_color,    .semantic_slot = 0 }}, 4, &su_vertex_type_pnuc);
+			{ .format = skr_vertex_fmt_ui8_normalized, .count = 4, .semantic = skr_semantic_color,    .semantic_slot = 0 }}, 4, &su_vertex_type);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -73,7 +70,7 @@ skr_mesh_t su_mesh_create_sphere(int32_t segments, int32_t rings, float radius, 
 	const int vert_count = (rings + 1) * (segments + 1);
 	const int idx_count  = rings * segments * 6;
 
-	su_vertex_pnuc_t* verts = malloc(sizeof(su_vertex_pnuc_t) * vert_count);
+	su_vertex_t* verts = malloc(sizeof(su_vertex_t) * vert_count);
 	uint16_t*          inds  = malloc(sizeof(uint16_t) * idx_count);
 	uint32_t           color_u32 = _color_vec4_to_u32(color);
 
@@ -90,7 +87,7 @@ skr_mesh_t su_mesh_create_sphere(int32_t segments, int32_t rings, float radius, 
 			float y = cosf(phi);
 			float z = sinf(phi) * sinf(theta);
 
-			verts[v_idx++] = (su_vertex_pnuc_t){
+			verts[v_idx++] = (su_vertex_t){
 				.position = {x * radius, y * radius, z * radius},
 				.normal   = {x, y, z},
 				.uv       = {u, v},
@@ -117,7 +114,7 @@ skr_mesh_t su_mesh_create_sphere(int32_t segments, int32_t rings, float radius, 
 	}
 
 	skr_mesh_t mesh;
-	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
+	skr_mesh_create(&su_vertex_type, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
 	free(verts);
 	free(inds);
 
@@ -139,7 +136,7 @@ skr_mesh_t su_mesh_create_cube(float size, const skr_vec4_t* opt_face_colors) {
 		colors_u32[i] = _color_vec4_to_u32(colors[i]);
 	}
 
-	su_vertex_pnuc_t verts[24] = {
+	su_vertex_t verts[24] = {
 		// Front face (Z+)
 		{ .position = {-half, -half,  half}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {0.0f, 0.0f}, .color = colors_u32[0] },
 		{ .position = { half, -half,  half}, .normal = { 0.0f,  0.0f,  1.0f}, .uv = {1.0f, 0.0f}, .color = colors_u32[0] },
@@ -182,7 +179,7 @@ skr_mesh_t su_mesh_create_cube(float size, const skr_vec4_t* opt_face_colors) {
 	};
 
 	skr_mesh_t mesh;
-	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, verts, 24, indices, 36, &mesh);
+	skr_mesh_create(&su_vertex_type, skr_index_fmt_u16, verts, 24, indices, 36, &mesh);
 	return mesh;
 }
 
@@ -198,7 +195,7 @@ skr_mesh_t su_mesh_create_pyramid(float base_size, float height, skr_vec4_t colo
 
 	uint32_t color_u32 = _color_vec4_to_u32(color);
 
-	su_vertex_pnuc_t verts[17] = {
+	su_vertex_t verts[17] = {
 		// Base (4 vertices)
 		{ .position = {-half, base_y,  half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {0.0f, 0.0f}, .color = color_u32 },
 		{ .position = { half, base_y,  half}, .normal = { 0.0f, -1.0f,  0.0f}, .uv = {1.0f, 0.0f}, .color = color_u32 },
@@ -233,7 +230,7 @@ skr_mesh_t su_mesh_create_pyramid(float base_size, float height, skr_vec4_t colo
 	};
 
 	skr_mesh_t mesh;
-	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, verts, 17, indices, 18, &mesh);
+	skr_mesh_create(&su_vertex_type, skr_index_fmt_u16, verts, 17, indices, 18, &mesh);
 	return mesh;
 }
 
@@ -260,7 +257,7 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 	int vert_count = double_sided ? 8 : 4;
 	int idx_count  = double_sided ? 12 : 6;
 
-	su_vertex_pnuc_t* verts = malloc(sizeof(su_vertex_pnuc_t) * vert_count);
+	su_vertex_t* verts = malloc(sizeof(su_vertex_t) * vert_count);
 	uint16_t*          inds  = malloc(sizeof(uint16_t) * idx_count);
 	uint32_t           color_u32 = _color_vec4_to_u32(color);
 
@@ -277,7 +274,7 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 			tangent.z * x + bitangent.z * y
 		};
 
-		verts[i] = (su_vertex_pnuc_t){
+		verts[i] = (su_vertex_t){
 			.position = {pos.x, pos.y, pos.z},
 			.normal   = normal,
 			.uv       = {u, v},
@@ -300,7 +297,7 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 	}
 
 	skr_mesh_t mesh;
-	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
+	skr_mesh_create(&su_vertex_type, skr_index_fmt_u16, verts, vert_count, inds, idx_count, &mesh);
 	free(verts);
 	free(inds);
 
@@ -308,7 +305,7 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 }
 
 skr_mesh_t su_mesh_create_fullscreen_quad(void) {
-	su_vertex_pnuc_t quad_vertices[] = {
+	su_vertex_t quad_vertices[] = {
 		{ .position = {-1.0f, -1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
 		{ .position = { 1.0f, -1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
 		{ .position = { 1.0f,  1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
@@ -316,7 +313,7 @@ skr_mesh_t su_mesh_create_fullscreen_quad(void) {
 	};
 	uint16_t quad_indices[] = { 0, 1, 2,  2, 3, 0 };
 	skr_mesh_t mesh;
-	skr_mesh_create(&su_vertex_type_pnuc, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &mesh);
+	skr_mesh_create(&su_vertex_type, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &mesh);
 	return mesh;
 }
 
@@ -368,22 +365,62 @@ skr_tex_t su_tex_create_solid_color(uint32_t color) {
 	return tex;
 }
 
+skr_tex_t su_tex_load(const char* filename, const char* opt_name, bool generate_mips) {
+	skr_tex_t tex = {0};
+
+	// Load image from file
+	int32_t width, height;
+	skr_tex_fmt_ format;
+	void* pixels = su_image_load(filename, &width, &height, &format, 4);
+	if (!pixels) return tex; // Return invalid texture
+
+	// Set texture flags
+	skr_tex_flags_ flags = skr_tex_flags_readable;
+	if (generate_mips) flags |= skr_tex_flags_gen_mips;
+
+	// Create texture
+	skr_tex_create(
+		format,
+		flags,
+		su_sampler_linear_wrap,
+		(skr_vec3i_t){width, height, 1},
+		1, 0, pixels, &tex
+	);
+
+	if (opt_name)      skr_tex_set_name     (&tex, opt_name);
+	if (generate_mips) skr_tex_generate_mips(&tex, NULL);
+
+	// Free image data
+	su_image_free(pixels);
+
+	return tex;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // File I/O
 ///////////////////////////////////////////////////////////////////////////////
 
-bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
-	// Use SDL's RWops to read from Android assets
-	SDL_RWops* rw = SDL_RWFromFile(filename, "rb");
-	if (!rw) {
-		su_log(su_log_critical, "Failed to open file '%s': %s", filename, SDL_GetError());
+static su_file_read_fn _su_file_read_callback = NULL;
+static void*           _su_file_read_userdata = NULL;
+
+// Default file reader using standard C I/O (Linux/Windows)
+static bool _su_file_read_default(const char* filename, void** out_data, size_t* out_size, void* user_data) {
+	(void)user_data;
+
+	FILE* file = fopen(filename, "rb");
+	if (!file) {
+		su_log(su_log_critical, "Failed to open file '%s'", filename);
 		return false;
 	}
 
-	Sint64 size = SDL_RWsize(rw);
+	// Get file size
+	fseek(file, 0, SEEK_END);
+	long size = ftell(file);
+	fseek(file, 0, SEEK_SET);
+
 	if (size < 0) {
-		su_log(su_log_critical, "Failed to get size of file '%s': %s", filename, SDL_GetError());
-		SDL_RWclose(rw);
+		su_log(su_log_critical, "Failed to get size of file '%s'", filename);
+		fclose(file);
 		return false;
 	}
 
@@ -391,13 +428,13 @@ bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
 	*out_data = malloc(*out_size);
 	if (*out_data == NULL) {
 		su_log(su_log_critical, "Failed to allocate %zu bytes for file '%s'", *out_size, filename);
-		SDL_RWclose(rw);
+		fclose(file);
 		*out_size = 0;
 		return false;
 	}
 
-	size_t bytes_read = SDL_RWread(rw, *out_data, 1, *out_size);
-	SDL_RWclose(rw);
+	size_t bytes_read = fread(*out_data, 1, *out_size, file);
+	fclose(file);
 
 	if (bytes_read != *out_size) {
 		su_log(su_log_critical, "Failed to read file '%s': expected %zu bytes, got %zu", filename, *out_size, bytes_read);
@@ -408,6 +445,13 @@ bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
 	}
 
 	return true;
+}
+
+bool su_file_read(const char* filename, void** out_data, size_t* out_size) {
+	if (_su_file_read_callback) {
+		return _su_file_read_callback(filename, out_data, out_size, _su_file_read_userdata);
+	}
+	return _su_file_read_default(filename, out_data, out_size, NULL);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -633,7 +677,11 @@ static void _su_loader_enqueue(_su_load_type_ type, void* asset) {
 	mtx_unlock(&_su_loader.queue_mutex);
 }
 
-void su_initialize(void) {
+void su_initialize(su_file_read_fn file_read_callback, void* user_data) {
+	// Store file read callback
+	_su_file_read_callback = file_read_callback;
+	_su_file_read_userdata = user_data;
+
 	// Initialize vertex types
 	_su_vertex_types_init();
 
@@ -791,7 +839,7 @@ static void _su_gltf_extract_node(
 
 			// Build vertex data and compute bounds
 			int32_t           vertex_count = (int32_t)pos_accessor->count;
-			su_vertex_pnuc_t* vertices     = calloc(vertex_count, sizeof(su_vertex_pnuc_t));
+			su_vertex_t* vertices     = calloc(vertex_count, sizeof(su_vertex_t));
 
 			// Initialize mesh bounds to first vertex (will expand)
 			su_bounds_t local_bounds = {
@@ -800,7 +848,7 @@ static void _su_gltf_extract_node(
 			};
 
 			for (int32_t v = 0; v < vertex_count; v++) {
-				su_vertex_pnuc_t* vert = &vertices[v];
+				su_vertex_t* vert = &vertices[v];
 				float d[4];
 
 				_su_gltf_read_attribute(pos_accessor,   v, d, 3, (float[]){0, 0, 0});
@@ -872,7 +920,7 @@ static void _su_gltf_extract_node(
 
 			// Create GPU mesh
 			skr_index_fmt_ idx_fmt = use_32bit ? skr_index_fmt_u32 : skr_index_fmt_u16;
-			skr_mesh_create(&su_vertex_type_pnuc, idx_fmt, vertices, vertex_count, indices, index_count, &gltf->meshes[mesh_idx]);
+			skr_mesh_create(&su_vertex_type, idx_fmt, vertices, vertex_count, indices, index_count, &gltf->meshes[mesh_idx]);
 			char mesh_name[64];
 			snprintf(mesh_name, sizeof(mesh_name), "gltf_mesh_%d", mesh_idx);
 			skr_mesh_set_name(&gltf->meshes[mesh_idx], mesh_name);

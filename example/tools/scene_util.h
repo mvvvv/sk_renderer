@@ -55,6 +55,26 @@ static inline void su_log(su_log_ level, const char* text, ...) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// Rendering system buffer
+///////////////////////////////////////////////////////////////////////////////
+
+// Rendering system buffer (matching SystemBuffer from common.hlsli)
+#define SU_MAX_VIEWS 6
+typedef struct {
+	float4x4 view          [SU_MAX_VIEWS];  // View matrices (one per view)
+	float4x4 view_inv      [SU_MAX_VIEWS];  // Inverse view matrices
+	float4x4 projection    [SU_MAX_VIEWS];  // Per-view projection matrices
+	float4x4 projection_inv[SU_MAX_VIEWS];  // Inverse projection matrices
+	float4x4 viewproj      [SU_MAX_VIEWS];  // Precomputed view*projection matrices
+	float4   cam_pos       [SU_MAX_VIEWS];  // Camera position (xyz + padding)
+	float4   cam_dir       [SU_MAX_VIEWS];  // Camera forward direction (xyz + padding)
+	float4   cubemap_info;                  // .xy = size, .z = mip count, .w = unused
+	float    time;                          // Time in seconds
+	uint32_t view_count;                    // Number of active views (1-6)
+	uint32_t _pad[2];
+} su_system_buffer_t;
+
+///////////////////////////////////////////////////////////////////////////////
 // Common Vertex Format
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -64,31 +84,32 @@ typedef struct {
 	skr_vec3_t normal;
 	skr_vec2_t uv;
 	uint32_t   color;
-} su_vertex_pnuc_t;
+} su_vertex_t;
 
 // Standard vertex type for PNUC format (available after su_initialize)
-extern skr_vert_type_t su_vertex_type_pnuc;
+extern skr_vert_type_t su_vertex_type;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Initialization
 ///////////////////////////////////////////////////////////////////////////////
 
+// File loading callback type
+// filename: Path to file
+// out_data: Pointer to receive allocated data (must be freed by caller with free())
+// out_size: Pointer to receive file size in bytes
+// user_data: User data passed to su_initialize
+// Returns: true on success, false on failure
+typedef bool (*su_file_read_fn)(const char* filename, void** out_data, size_t* out_size, void* user_data);
+
 // Initialize scene utilities (call once at startup, after sk_renderer init)
 // Starts the asset loading thread and initializes standard vertex types
-void su_initialize(void);
+// file_read_callback: Optional custom file loader (NULL uses default fopen/fread)
+// user_data: User data passed to file_read_callback
+void su_initialize(su_file_read_fn file_read_callback, void* user_data);
 
 // Shutdown scene utilities (call before sk_renderer shutdown)
 // Waits for pending loads and stops the asset loading thread
 void su_shutdown(void);
-
-///////////////////////////////////////////////////////////////////////////////
-// Common Instance Data
-///////////////////////////////////////////////////////////////////////////////
-
-// Standard instance data for world transform only
-typedef struct {
-	float4x4 world;
-} su_instance_transform_t;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Common Texture Samplers
@@ -118,7 +139,7 @@ skr_mesh_t su_mesh_create_sphere(
 // size: Cube edge length (e.g., 1.0f for unit cube)
 // opt_face_colors: Array of 6 colors [Front, Back, Top, Bottom, Right, Left], or NULL for white
 skr_mesh_t su_mesh_create_cube(
-	float            size,
+	float             size,
 	const skr_vec4_t* opt_face_colors
 );
 
@@ -172,6 +193,13 @@ skr_tex_t su_tex_create_checkerboard(
 // Creates a 1x1 solid color texture
 // color: RGBA color (format 0xAABBGGRR)
 skr_tex_t su_tex_create_solid_color(uint32_t color);
+
+// Loads a texture from an image file with optional mipmap generation
+// filename: Path to image file (png, jpg, etc.)
+// opt_name: Optional debug name for the texture (can be NULL)
+// generate_mips: Whether to generate mipmaps
+// Returns: Loaded texture, or invalid texture on failure (check with skr_tex_is_valid)
+skr_tex_t su_tex_load(const char* filename, const char* opt_name, bool generate_mips);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Image Loading
