@@ -53,6 +53,7 @@ typedef struct skr_destroy_list_t {
 	void*    items;
 	uint32_t count;
 	uint32_t capacity;
+	mtx_t    mutex;  // Thread-safe access for cross-thread destruction
 } skr_destroy_list_t;
 
 typedef struct {
