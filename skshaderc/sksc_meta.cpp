@@ -146,13 +146,13 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 		
 		if (binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
 			const char* name = binding->name ? binding->name : "";
-			int64_t id = resource_list.index_where([](auto &tex, void *data) { 
-				return strcmp(tex.name, (char*)data) == 0; 
+			int64_t id = resource_list.index_where([](const sksc_shader_resource_t &tex, void *data) {
+				return strcmp(tex.name, (char*)data) == 0;
 			}, (void*)name);
 			if (id == -1)
 				id = resource_list.add({});
 
-			sksc_shader_resource_t *tex = &resource_list[id]; 
+			sksc_shader_resource_t *tex = &resource_list[id];
 			tex->bind.slot          = binding->binding;
 			tex->bind.stage_bits   |= spirv_stage->stage;
 			tex->bind.register_type = skr_register_texture;
@@ -166,8 +166,8 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 		
 		if (binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
 			const char* name = binding->name ? binding->name : "";
-			int64_t id = resource_list.index_where([](auto &tex, void *data) { 
-				return strcmp(tex.name, (char*)data) == 0; 
+			int64_t id = resource_list.index_where([](const sksc_shader_resource_t &tex, void *data) {
+				return strcmp(tex.name, (char*)data) == 0;
 			}, (void*)name);
 			if (id == -1)
 				id = resource_list.add({});
@@ -187,8 +187,8 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 		if (binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
 			const char* name = binding->name ? binding->name : "";
 			
-			int64_t id = resource_list.index_where([](auto &tex, void *data) { 
-				return strcmp(tex.name, (char*)data) == 0; 
+			int64_t id = resource_list.index_where([](const sksc_shader_resource_t &tex, void *data) {
+				return strcmp(tex.name, (char*)data) == 0;
 			}, (void*)name);
 			if (id == -1)
 				id = resource_list.add({});

@@ -26,8 +26,7 @@
 # file.
 
 cmake_minimum_required(VERSION 3.10)
-set(CMAKE_CXX_STANDARD 17)
-project(skshaderc VERSION 1.0 DESCRIPTION "Shader compiler for sk_renderer" LANGUAGES CXX)
+project(skshaderc VERSION 1.0 DESCRIPTION "Shader compiler for sk_renderer")
 
 include(FetchContent)
 set(VULKAN_VERSION vulkan-sdk-1.4.328.1) # Most of our dependencies here use the same version tag!
@@ -37,6 +36,10 @@ set(VULKAN_VERSION vulkan-sdk-1.4.328.1) # Most of our dependencies here use the
 ###############################################################################
 
 add_library(skshaderc_lib STATIC)
+
+set_target_properties(skshaderc_lib PROPERTIES
+	CXX_STANDARD 11
+	CXX_STANDARD_REQUIRED ON)
 
 # For SPIRV-Tools
 message(STATUS "Fetching SPIRV-Headers...")

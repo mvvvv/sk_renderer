@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(sk_renderer VERSION 0.1.0 LANGUAGES CXX C)
-
-# For thread_local
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+project(sk_renderer VERSION 0.1.0)
 
 # Build options
 option(SKR_BUILD_SKSHADERC "Build skshaderc shader compiler" ON)
@@ -37,6 +33,10 @@ if(ANDROID)
 else()
 	add_library(sk_renderer)
 endif()
+
+set_target_properties(sk_renderer PROPERTIES
+	C_STANDARD 11
+	C_STANDARD_REQUIRED ON)
 
 # Grab Vulkan headers first before Volk goes looking for its own. Good for a
 # few reasons, but notably avoids a problem when cross-compiling with mingw.

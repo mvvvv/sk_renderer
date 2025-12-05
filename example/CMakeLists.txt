@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(sk_renderer_example VERSION 0.1.0 LANGUAGES CXX C)
+project(sk_renderer_example VERSION 0.1.0)
 
 include(FetchContent)
 
@@ -82,6 +82,12 @@ if(ANDROID)
 else()
 	add_executable(sk_renderer_test)
 endif()
+
+set_target_properties(sk_renderer_test PROPERTIES
+	C_STANDARD 11
+	C_STANDARD_REQUIRED ON
+	CXX_STANDARD 11
+	CXX_STANDARD_REQUIRED ON)
 
 if (ANDROID)
 	set_target_properties(sk_renderer_test PROPERTIES OUTPUT_NAME "main")
