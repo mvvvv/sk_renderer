@@ -91,6 +91,9 @@ elseif(WIN32)
 	target_link_libraries(sk_renderer_test PRIVATE SDL2::SDL2main)
 endif()
 
+# Set C++ standard to C++20 for designated initializers support
+set_target_properties(sk_renderer_test PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
 # Static link MinGW runtime and pthread when cross-compiling to Windows
 if(MINGW)
 	target_link_options       (sk_renderer_test PRIVATE -static-libgcc -static-libstdc++ -static)
@@ -141,7 +144,8 @@ endif()
 if(ANDROID)
 	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR}/assets)
 else()
-	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR})
+	# For multi-config generators (Visual Studio), use the config-specific directory
+	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>)
 endif()
 
 # Compile ImGui shader to header file (no debug info, embedded in binary)
@@ -183,6 +187,20 @@ if(ANDROID)
 	set(ANDROID_TARGET_SDK_VERSION 36)
 	set(ANDROID_BUILD_TOOLS_VERSION "36.1.0")
 	include(${CMAKE_SOURCE_DIR}/example/android/AndroidBuild.cmake)
+endif()
+
+###############################################################################
+# Copy SDL2 DLL on Windows
+###############################################################################
+
+if(WIN32 AND NOT ANDROID)
+	# Copy SDL2 DLL to executable directory on Windows
+	add_custom_command(TARGET sk_renderer_test POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			$<TARGET_FILE:SDL2::SDL2>
+			$<TARGET_FILE_DIR:sk_renderer_test>
+		COMMENT "Copying SDL2 DLL to executable directory"
+	)
 endif()
 
 ###############################################################################

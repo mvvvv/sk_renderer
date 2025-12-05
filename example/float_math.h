@@ -704,25 +704,46 @@ typedef struct { float x, y; } float2;
 typedef struct { float x, y, z; } float3;
 
 // float3s: 16 bytes, SIMD-aligned for SSE operations
+#ifdef _MSC_VER
+__declspec(align(16))
+#endif
 typedef union {
 	struct { float x, y, z, _pad; };
 	float v[4];
 	__m128 simd;
-} __attribute__((aligned(16))) float3s;
+}
+#ifndef _MSC_VER
+__attribute__((aligned(16)))
+#endif
+float3s;
 
 // float4: 16 bytes, SIMD-aligned
+#ifdef _MSC_VER
+__declspec(align(16))
+#endif
 typedef union {
 	struct { float x, y, z, w; };
 	struct { float r, g, b, a; };
 	float v[4];
 	__m128 simd;
-} __attribute__((aligned(16))) float4;
+}
+#ifndef _MSC_VER
+__attribute__((aligned(16)))
+#endif
+float4;
 
 // Matrix type (row-major for direct shader compatibility)
+#ifdef _MSC_VER
+__declspec(align(16))
+#endif
 typedef union {
 	float m[16]; // Row-major: [m00, m01, m02, m03, m10, m11, ...]
 	__m128 rows[4];
-} __attribute__((aligned(16))) float4x4;
+}
+#ifndef _MSC_VER
+__attribute__((aligned(16)))
+#endif
+float4x4;
 
 // ============================================================================
 // Conversions between float3 and float3s
@@ -894,8 +915,18 @@ static inline float3s float3s_div_s(float3s a, float s) {
 }
 
 static inline float float3s_dot(float3s a, float3s b) {
+#ifdef __SSE4_1__
 	// SSE4.1 dot product: 0x71 = multiply xyz, store in x
 	return _mm_cvtss_f32(_mm_dp_ps(a.simd, b.simd, 0x71));
+#else
+	// SSE2 fallback: multiply, horizontal add
+	__m128 mul = _mm_mul_ps(a.simd, b.simd);
+	__m128 shuf = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128 sums = _mm_add_ps(mul, shuf);
+	shuf = _mm_movehl_ps(shuf, sums);
+	sums = _mm_add_ss(sums, shuf);
+	return _mm_cvtss_f32(sums);
+#endif
 }
 
 static inline float float3s_mag2(float3s v) {
@@ -934,19 +965,46 @@ static inline float3s float3s_abs(float3s v) {
 }
 
 static inline float float3s_mag(float3s v) {
+#ifdef __SSE4_1__
 	__m128 dp = _mm_dp_ps(v.simd, v.simd, 0x71);
 	return _mm_cvtss_f32(_mm_sqrt_ss(dp));
+#else
+	__m128 mul = _mm_mul_ps(v.simd, v.simd);
+	__m128 shuf = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128 sums = _mm_add_ps(mul, shuf);
+	shuf = _mm_movehl_ps(shuf, sums);
+	sums = _mm_add_ss(sums, shuf);
+	return _mm_cvtss_f32(_mm_sqrt_ss(sums));
+#endif
 }
 
 static inline float float3s_dist(float3s a, float3s b) {
 	__m128 diff = _mm_sub_ps(a.simd, b.simd);
+#ifdef __SSE4_1__
 	__m128 dp = _mm_dp_ps(diff, diff, 0x71);
 	return _mm_cvtss_f32(_mm_sqrt_ss(dp));
+#else
+	__m128 mul = _mm_mul_ps(diff, diff);
+	__m128 shuf = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128 sums = _mm_add_ps(mul, shuf);
+	shuf = _mm_movehl_ps(shuf, sums);
+	sums = _mm_add_ss(sums, shuf);
+	return _mm_cvtss_f32(_mm_sqrt_ss(sums));
+#endif
 }
 
 static inline float3s float3s_norm(float3s v) {
+#ifdef __SSE4_1__
 	__m128 dp = _mm_dp_ps(v.simd, v.simd, 0x7F);
 	if (_mm_cvtss_f32(dp) == 0.0f) {
+#else
+	__m128 mul = _mm_mul_ps(v.simd, v.simd);
+	__m128 shuf = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128 sums = _mm_add_ps(mul, shuf);
+	shuf = _mm_movehl_ps(shuf, sums);
+	__m128 dp = _mm_add_ss(sums, shuf);
+	if (_mm_cvtss_f32(dp) == 0.0f) {
+#endif
 		float3s zero = {0};
 		return zero;
 	}
@@ -995,8 +1053,18 @@ static inline float4 float4_div_s(float4 a, float s) {
 }
 
 static inline float float4_dot(float4 a, float4 b) {
+#ifdef __SSE4_1__
 	// SSE4.1 dot product: 0xF1 = multiply all 4, store in x
 	return _mm_cvtss_f32(_mm_dp_ps(a.simd, b.simd, 0xF1));
+#else
+	// SSE2 fallback: multiply, horizontal add
+	__m128 mul = _mm_mul_ps(a.simd, b.simd);
+	__m128 shuf = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128 sums = _mm_add_ps(mul, shuf);
+	shuf = _mm_movehl_ps(shuf, sums);
+	sums = _mm_add_ss(sums, shuf);
+	return _mm_cvtss_f32(sums);
+#endif
 }
 
 static inline float float4_mag2(float4 v) {
@@ -1026,19 +1094,46 @@ static inline float4 float4_abs(float4 v) {
 }
 
 static inline float float4_mag(float4 v) {
+#ifdef __SSE4_1__
 	__m128 dp = _mm_dp_ps(v.simd, v.simd, 0xF1);
 	return _mm_cvtss_f32(_mm_sqrt_ss(dp));
+#else
+	__m128 mul = _mm_mul_ps(v.simd, v.simd);
+	__m128 shuf = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128 sums = _mm_add_ps(mul, shuf);
+	shuf = _mm_movehl_ps(shuf, sums);
+	sums = _mm_add_ss(sums, shuf);
+	return _mm_cvtss_f32(_mm_sqrt_ss(sums));
+#endif
 }
 
 static inline float float4_dist(float4 a, float4 b) {
 	__m128 diff = _mm_sub_ps(a.simd, b.simd);
+#ifdef __SSE4_1__
 	__m128 dp = _mm_dp_ps(diff, diff, 0xF1);
 	return _mm_cvtss_f32(_mm_sqrt_ss(dp));
+#else
+	__m128 mul = _mm_mul_ps(diff, diff);
+	__m128 shuf = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128 sums = _mm_add_ps(mul, shuf);
+	shuf = _mm_movehl_ps(shuf, sums);
+	sums = _mm_add_ss(sums, shuf);
+	return _mm_cvtss_f32(_mm_sqrt_ss(sums));
+#endif
 }
 
 static inline float4 float4_norm(float4 v) {
+#ifdef __SSE4_1__
 	__m128 dp = _mm_dp_ps(v.simd, v.simd, 0xFF);
 	if (_mm_cvtss_f32(dp) == 0.0f) {
+#else
+	__m128 mul = _mm_mul_ps(v.simd, v.simd);
+	__m128 shuf = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 3, 0, 1));
+	__m128 sums = _mm_add_ps(mul, shuf);
+	shuf = _mm_movehl_ps(shuf, sums);
+	__m128 dp = _mm_add_ss(sums, shuf);
+	if (_mm_cvtss_f32(dp) == 0.0f) {
+#endif
 		float4 zero = {0};
 		return zero;
 	}

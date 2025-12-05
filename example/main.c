@@ -9,8 +9,10 @@
 
 #include <stdlib.h>
 #include <string.h>
-#ifndef __ANDROID__
+#if !defined(__ANDROID__) && !defined(_WIN32)
 #include <unistd.h>  // chdir
+#elif defined(_WIN32)
+#include <direct.h>  // _chdir
 #endif
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
@@ -43,7 +45,11 @@ int main(int argc, char* argv[]) {
 #ifndef __ANDROID__
 	char* base_path = SDL_GetBasePath();
 	if (base_path) {
+#ifdef _WIN32
+		_chdir(base_path);
+#else
 		chdir(base_path);
+#endif
 		SDL_free(base_path);
 	}
 #endif
