@@ -75,7 +75,7 @@ extern "C" bool ImGui_ImplSkRenderer_Init() {
 	skr_tex_sampler_t font_sampler = {
 		skr_tex_sample_linear,
 		skr_tex_address_clamp,
-		skr_compare_never,
+		skr_compare_none,
 		0
 	};
 
