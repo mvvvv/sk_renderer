@@ -147,7 +147,7 @@ endif()
 if(ANDROID)
 	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR}/assets)
 else()
-	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR})
+	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR})
 endif()
 
 # Compile ImGui shader to header file (no debug info, embedded in binary)
@@ -209,3 +209,12 @@ endif()
 add_custom_command(TARGET sk_renderer_test POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/assets ${ASSET_PATH}
 	COMMENT "Copying App Assets")
+
+# Copy SDL2 DLL on Windows
+if(WIN32)
+	add_custom_command(TARGET sk_renderer_test POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			$<TARGET_FILE:SDL2::SDL2>
+			$<TARGET_FILE_DIR:sk_renderer_test>
+		COMMENT "Copying SDL2 DLL")
+endif()
