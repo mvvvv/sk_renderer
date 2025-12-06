@@ -10,7 +10,12 @@
 #include <stdlib.h>
 #include <string.h>
 #ifndef __ANDROID__
+#ifdef _WIN32
+#include <direct.h>
+#define chdir _chdir
+#else
 #include <unistd.h>  // chdir
+#endif
 #endif
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>

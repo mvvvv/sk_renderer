@@ -31,9 +31,9 @@ static ImGui_ImplSkRenderer_Data* ImGui_ImplSkRenderer_GetBackendData() {
 static bool ImGui_ImplSkRenderer_CreateVertexFormat(skr_vert_type_t* out_vertex_type) {
 	// ImDrawVert: ImVec2 pos (8 bytes), ImVec2 uv (8 bytes), ImU32 col (4 bytes) = 20 bytes total
 	skr_vert_component_t components[] = {
-		{ .format = skr_vertex_fmt_f32,            .count = 2, .semantic = skr_semantic_position, .semantic_slot = 0 },  // pos
-		{ .format = skr_vertex_fmt_f32,            .count = 2, .semantic = skr_semantic_texcoord, .semantic_slot = 0 },  // uv
-		{ .format = skr_vertex_fmt_ui8_normalized, .count = 4, .semantic = skr_semantic_color,    .semantic_slot = 0 },  // col (RGBA8)
+		{ skr_vertex_fmt_f32,            2, skr_semantic_position, 0, 0 },  // pos
+		{ skr_vertex_fmt_f32,            2, skr_semantic_texcoord, 0, 0 },  // uv
+		{ skr_vertex_fmt_ui8_normalized, 4, skr_semantic_color,    0, 0 },  // col (RGBA8)
 	};
 
 	return skr_vert_type_create(components, 3, out_vertex_type) == skr_err_success;
@@ -73,13 +73,15 @@ extern "C" bool ImGui_ImplSkRenderer_Init() {
 	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 
 	skr_tex_sampler_t font_sampler = {
-		.sample        = skr_tex_sample_linear,
-		.address       = skr_tex_address_clamp,
-		.sample_compare = skr_compare_never,
+		skr_tex_sample_linear,
+		skr_tex_address_clamp,
+		skr_compare_never,
+		0
 	};
 
+	skr_vec3i_t size = {width, height, 1};
 	if (skr_tex_create(skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, font_sampler,
-					   (skr_vec3i_t){width, height, 1}, 1, 1, pixels, &bd->font_texture) != skr_err_success) {
+					   size, 1, 1, pixels, &bd->font_texture) != skr_err_success) {
 		skr_shader_destroy(&bd->shader);
 		skr_vert_type_destroy(&bd->vertex_type);
 		free(bd);
@@ -92,14 +94,18 @@ extern "C" bool ImGui_ImplSkRenderer_Init() {
 	io.Fonts->SetTexID((ImTextureID)&bd->font_texture);
 
 	// Create material with alpha blending
-	skr_material_create((skr_material_info_t){
-		.shader       = &bd->shader,
-		.cull         = skr_cull_none,
-		.write_mask   = skr_write_default,
-		.depth_test   = skr_compare_always,
-		.blend_state  = skr_blend_alpha,
-		.queue_offset = 100,  // Render last
-	}, &bd->material);
+	skr_material_info_t mat_info = {
+		&bd->shader,
+		skr_cull_none,
+		skr_write_default,
+		skr_compare_always,
+		skr_blend_alpha,
+		false,
+		{skr_compare_none, skr_stencil_op_keep, skr_stencil_op_keep, skr_stencil_op_keep, 0, 0, 0},
+		{skr_compare_none, skr_stencil_op_keep, skr_stencil_op_keep, skr_stencil_op_keep, 0, 0, 0},
+		100  // queue_offset
+	};
+	skr_material_create(mat_info, &bd->material);
 
 	// Bind font texture to material
 	skr_material_set_tex(&bd->material, "texture0", &bd->font_texture);
@@ -265,7 +271,8 @@ extern "C" void ImGui_ImplSkRenderer_RenderDrawData(int width, int height) {
 	// We're now INSIDE a render pass, just drawing.
 
 	// Set viewport
-	skr_renderer_set_viewport((skr_rect_t){0, 0, (float)width, (float)height});
+	skr_rect_t viewport = {0, 0, (float)width, (float)height};
+	skr_renderer_set_viewport(viewport);
 
 	// Will project scissor/clipping rectangles into framebuffer space
 	ImVec2 clip_off = draw_data->DisplayPos;          // (0,0) unless using multi-viewports
@@ -303,10 +310,10 @@ extern "C" void ImGui_ImplSkRenderer_RenderDrawData(int width, int height) {
 
 				// Apply scissor rectangle
 				skr_recti_t scissor = {
-					.x = (int32_t)clip_min.x,
-					.y = (int32_t)clip_min.y,
-					.w = (int32_t)(clip_max.x - clip_min.x),
-					.h = (int32_t)(clip_max.y - clip_min.y),
+					(int32_t)clip_min.x,
+					(int32_t)clip_min.y,
+					(int32_t)(clip_max.x - clip_min.x),
+					(int32_t)(clip_max.y - clip_min.y),
 				};
 				skr_renderer_set_scissor(scissor);
 
