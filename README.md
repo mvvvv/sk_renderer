@@ -33,6 +33,9 @@ cmake --build build-android -j8 --target run_apk
 cmake -B build-androidx86 -G Ninja -DCMAKE_ANDROID_NDK=$ANDROID_NDK_HOME -DCMAKE_SYSTEM_NAME=Android -DCMAKE_SYSTEM_VERSION=32 -DCMAKE_ANDROID_ARCH_ABI=x86_64
 cmake --build build-androidx86 -j8
 cmake --build build-androidx86 -j8 --target run_apk
+
+# Filtered logcat of the app
+adb logcat -v color --uid `adb shell pm list package -U net.stereokit.renderer_test | cut -d ":" -f3`
 ```
 
 ```bash
