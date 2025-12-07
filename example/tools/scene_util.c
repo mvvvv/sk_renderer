@@ -11,6 +11,8 @@
 #define CGLTF_IMPLEMENTATION
 #include "cgltf.h"
 
+#include "hdr_load.h"
+
 #include <threads.h>
 
 #include <stdlib.h>
@@ -535,21 +537,14 @@ static uint32_t _float3_to_rgb9e5(float r, float g, float b) {
 void* su_image_load_from_memory(const void* data, size_t size, int32_t* opt_out_width, int32_t* opt_out_height, skr_tex_fmt_* opt_out_format, int32_t force_channels) {
 	int   width, height, channels;
 	void* pixels = NULL;
-	bool  is_hdr = stbi_is_hdr_from_memory((const unsigned char*)data, (int)size);
 
-	if (is_hdr) {
-		// Load as float, then convert to RGB9E5
-		float* hdr_pixels = stbi_loadf_from_memory((const unsigned char*)data, (int)size, &width, &height, &channels, 3);
-		if (hdr_pixels) {
-			int32_t   pixel_count = width * height;
-			uint32_t* rgb9e5      = malloc(pixel_count * sizeof(uint32_t));
-
-			for (int32_t i = 0; i < pixel_count; i++) {
-				rgb9e5[i] = _float3_to_rgb9e5(hdr_pixels[i * 3], hdr_pixels[i * 3 + 1], hdr_pixels[i * 3 + 2]);
-			}
-
-			stbi_image_free(hdr_pixels);
-			pixels = rgb9e5;
+	hdr_header_t hdr_header = hdr_parse_header(data, (int32_t)size);
+	if (hdr_header.valid) {
+		hdr_image_t img = hdr_decode_pixels(data, (int32_t)size, &hdr_header);
+		if (img.pixels) {
+			width  = img.width;
+			height = img.height;
+			pixels = img.pixels;
 			if (opt_out_format) *opt_out_format = skr_tex_fmt_rgb9e5;
 		}
 	} else {
