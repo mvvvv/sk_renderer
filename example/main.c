@@ -112,9 +112,23 @@ int main(int argc, char* argv[]) {
 		0, 0,
 		SDL_WINDOW_VULKAN | SDL_WINDOW_FULLSCREEN);
 #else
+	// Detect screen resolution and adapt window size
+	SDL_DisplayMode display_mode;
+	int display_index = 0;
+	int window_width = 2560;
+	int window_height = 1440;
+	
+	if (SDL_GetCurrentDisplayMode(display_index, &display_mode) == 0) {
+		// If screen is smaller than 2560x1440, use 80% of screen size
+		if (display_mode.w < 2560 || display_mode.h < 1440) {
+			window_width = (int)(display_mode.w * 0.9);
+			window_height = (int)(display_mode.h * 0.9);
+		}
+	}
+	
 	window = SDL_CreateWindow("sk_renderer_test",
 		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		2560, 1440,
+		window_width, window_height,
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
 #endif
 	if (!window) {
