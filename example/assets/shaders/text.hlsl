@@ -18,9 +18,18 @@ struct Curve {
 	float  y_max;
 };
 
+struct Band {
+	uint curve_start;   // Index into curves array
+	uint curve_count;   // Number of curves in this band
+};
+
+#define BAND_COUNT 16   // Must match TEXT_BAND_COUNT in C
+
 struct Glyph {
-	uint   curve_start;     // Index into curves array
-	uint   curve_count;     // Number of curves for this glyph
+	uint   band_start;      // Index into bands array (BAND_COUNT bands per glyph)
+	uint   curve_start;     // Index into curves array (for fallback)
+	uint   curve_count;     // Total number of curves for this glyph
+	uint   _pad0;           // Padding for alignment
 	float2 bounds_min;      // Glyph bounding box
 	float2 bounds_max;
 	float  advance;         // Horizontal advance
@@ -45,7 +54,8 @@ StructuredBuffer<Instance> inst : register(t2, space0);
 
 // Font data - bound via skr_material_set_buffer
 StructuredBuffer<Curve>    curves : register(t3);
-StructuredBuffer<Glyph>    glyphs : register(t4);
+StructuredBuffer<Band>     bands  : register(t4);
+StructuredBuffer<Glyph>    glyphs : register(t5);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Vertex Shader
@@ -233,12 +243,20 @@ float4 ps(psIn input) : SV_TARGET {
 	Glyph glyph = glyphs[input.glyph_idx];
 	float2 pos = input.glyph_pos;
 
-	// Sum winding contributions from all curves for this glyph
+	// Determine which band this pixel falls into based on Y position
+	float glyph_height = glyph.bounds_max.y - glyph.bounds_min.y;
+	float normalized_y = (pos.y - glyph.bounds_min.y) / max(glyph_height, 1e-6);
+	uint band_idx = clamp((uint)(normalized_y * BAND_COUNT), 0, BAND_COUNT - 1);
+
+	// Get the band for this Y coordinate
+	Band band = bands[glyph.band_start + band_idx];
+
+	// Sum winding contributions from curves in this band only
 	float winding = 0.0;
 	float min_dist = 1e10;
 
-	for (uint i = 0; i < glyph.curve_count; i++) {
-		Curve c = curves[glyph.curve_start + i];
+	for (uint i = 0; i < band.curve_count; i++) {
+		Curve c = curves[band.curve_start + i];
 		winding += curve_winding(pos, c);
 
 		// Also compute distance for anti-aliasing

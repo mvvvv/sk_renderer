@@ -32,13 +32,15 @@ typedef struct {
 
 // Per-glyph metadata stored in GPU buffer
 typedef struct {
-	uint32_t curve_start;   // Index into curve array (direct, no bands)
-	uint32_t curve_count;   // Number of curves for this glyph
+	uint32_t band_start;    // Index into bands array (TEXT_BAND_COUNT bands per glyph)
+	uint32_t curve_start;   // Index into curve array (for fallback/all curves)
+	uint32_t curve_count;   // Total number of curves for this glyph
+	uint32_t _pad0;         // Padding for alignment
 	float    bounds_min[2]; // Glyph bounding box min (glyph space)
 	float    bounds_max[2]; // Glyph bounding box max (glyph space)
 	float    advance;       // Horizontal advance width
 	float    lsb;           // Left side bearing
-} text_glyph_gpu_t;         // 32 bytes, 16-byte aligned
+} text_glyph_gpu_t;         // 40 bytes
 
 // Per-character instance data (uploaded each frame)
 // Must match HLSL Instance struct exactly
