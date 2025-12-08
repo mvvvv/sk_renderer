@@ -132,6 +132,18 @@ float curve_winding(float2 pos, Curve c) {
 		return 0.0;
 	}
 
+	// Quick rejection: curve AABB max_x < 0 means ray can't hit it
+	// Based on IQ's quadratic Bezier AABB
+	{
+		float2 aa = p0 - 2.0 * p1 + p2;
+		float  bx = p1.x - p0.x;
+		float  tx = clamp(-bx / aa.x, 0.0, 1.0);
+		float  qx = p0.x + tx * (2.0 * bx + tx * aa.x);
+		if (max(max(p0.x, p2.x), qx) < 0.0) {
+			return 0.0;
+		}
+	}
+
 	// Solve: B_y(t) = 0 where B_y(t) = (1-t)^2*p0.y + 2(1-t)t*p1.y + t^2*p2.y
 	// Expanding: a*t^2 + b*t + c = 0
 	float a = p0.y - 2.0 * p1.y + p2.y;
@@ -188,51 +200,59 @@ float curve_winding(float2 pos, Curve c) {
 	return winding;
 }
 
-// Compute signed distance to quadratic Bezier curve (approximate)
-// Used for anti-aliasing
+// Analytical signed distance to quadratic Bezier curve
+// Based on Inigo Quilez's closed-form solution
+// https://iquilezles.org/articles/distfunctions2d/
 float curve_distance(float2 pos, Curve c) {
-	// Use Newton's method to find closest point on curve
-	// Start with t = 0.5 and iterate
-	float2 p0 = c.p0;
-	float2 p1 = c.p1;
-	float2 p2 = c.p2;
+	float2 A = c.p0;
+	float2 B = c.p1;
+	float2 C = c.p2;
 
-	float t = 0.5;
-	float min_dist_sq = 1e10;
+	float2 a = B - A;
+	float2 b = A - 2.0 * B + C;
+	float2 c_coef = a * 2.0;
+	float2 d = A - pos;
 
-	// Sample a few points and pick closest
-	for (int i = 0; i <= 4; i++) {
-		float s = i / 4.0;
-		float2 pt = bezier_eval(p0, p1, p2, s);
-		float2 d = pt - pos;
-		float dist_sq = dot(d, d);
-		if (dist_sq < min_dist_sq) {
-			min_dist_sq = dist_sq;
-			t = s;
-		}
+	// Handle near-linear curves (b ≈ 0) with line segment distance
+	float bb = dot(b, b);
+	if (bb < 1e-8) {
+		float2 ac = C - A;
+		float t = clamp(dot(pos - A, ac) / dot(ac, ac), 0.0, 1.0);
+		return length(pos - (A + ac * t));
 	}
 
-	// Refine with a few Newton iterations
-	for (int iter = 0; iter < 3; iter++) {
-		float2 pt = bezier_eval(p0, p1, p2, t);
-		float2 d = pt - pos;
+	float kk = 1.0 / bb;
+	float kx = kk * dot(a, b);
+	float ky = kk * (2.0 * dot(a, a) + dot(d, b)) / 3.0;
+	float kz = kk * dot(d, a);
 
-		// Derivative of distance^2 w.r.t. t
-		float2 tangent = 2.0 * (1.0 - t) * (p1 - p0) + 2.0 * t * (p2 - p1);
-		float ddist = 2.0 * dot(d, tangent);
+	float p  = ky - kx * kx;
+	float p3 = p * p * p;
+	float q  = kx * (2.0 * kx * kx - 3.0 * ky) + kz;
+	float h  = q * q + 4.0 * p3;
 
-		// Second derivative (approximate)
-		float2 accel = 2.0 * (p2 - 2.0 * p1 + p0);
-		float d2dist = 2.0 * (dot(tangent, tangent) + dot(d, accel));
+	float res;
+	if (h >= 0.0) {
+		// One real root
+		h = sqrt(h);
+		float2 x  = (float2(h, -h) - q) / 2.0;
+		float2 uv = sign(x) * pow(abs(x), 1.0 / 3.0);
+		float  t  = clamp(uv.x + uv.y - kx, 0.0, 1.0);
+		float2 dd = d + (c_coef + b * t) * t;
+		res = dot(dd, dd);
+	} else {
+		// Three real roots
+		float z = sqrt(-p);
+		float v = acos(q / (p * z * 2.0)) / 3.0;
+		float m = cos(v);
+		float n = sin(v) * 1.732050808;
+		float3 t = clamp(float3(m + m, -n - m, n - m) * z - kx, 0.0, 1.0);
 
-		if (abs(d2dist) > 1e-6) {
-			t = t - ddist / d2dist;
-			t = clamp(t, 0.0, 1.0);
-		}
+		float2 d1 = d + (c_coef + b * t.x) * t.x;
+		float2 d2 = d + (c_coef + b * t.y) * t.y;
+		res = min(dot(d1, d1), dot(d2, d2));
 	}
-
-	float2 closest = bezier_eval(p0, p1, p2, t);
-	return length(closest - pos);
+	return sqrt(res);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -240,48 +260,60 @@ float curve_distance(float2 pos, Curve c) {
 ///////////////////////////////////////////////////////////////////////////////
 
 float4 ps(psIn input) : SV_TARGET {
-	Glyph glyph = glyphs[input.glyph_idx];
-	float2 pos = input.glyph_pos;
+	Glyph  glyph = glyphs[input.glyph_idx];
+	float2 pos   = input.glyph_pos;
 
 	// Determine which band this pixel falls into based on Y position
 	float glyph_height = glyph.bounds_max.y - glyph.bounds_min.y;
 	float normalized_y = (pos.y - glyph.bounds_min.y) / max(glyph_height, 1e-6);
-	uint band_idx = clamp((uint)(normalized_y * BAND_COUNT), 0, BAND_COUNT - 1);
+	uint  band_idx     = clamp((uint)(normalized_y * BAND_COUNT), 0, BAND_COUNT - 1);
 
 	// Get the band for this Y coordinate
 	Band band = bands[glyph.band_start + band_idx];
 
-	// Sum winding contributions from curves in this band only
+	// First pass: compute winding number only (cheap)
 	float winding = 0.0;
-	float min_dist = 1e10;
-
 	for (uint i = 0; i < band.curve_count; i++) {
 		Curve c = curves[band.curve_start + i];
 		winding += curve_winding(pos, c);
-
-		// Also compute distance for anti-aliasing
-		float dist = curve_distance(pos, c);
-		min_dist = min(min_dist, dist);
 	}
 
 	// Determine if inside (non-zero winding rule)
 	bool inside = abs(winding) > 0.5;
 
-	// Anti-aliasing based on screen-space derivatives
-	float2 dpos_dx = ddx(pos);
-	float2 dpos_dy = ddy(pos);
-	float pixel_size = length(float2(length(dpos_dx), length(dpos_dy)));
-
-	// Coverage calculation:
-	// - Inside: solid (no fading from internal curves)
-	// - Outside: soft edge based on distance
-	float coverage;
+	// Interior pixels are fully opaque - skip expensive distance calculation
 	if (inside) {
-		coverage = 1.0;
-	} else {
-		// Soft outer edge for anti-aliasing
-		coverage = saturate(1.0 - min_dist / pixel_size);
+		return float4(input.color, 1.0);
 	}
+
+	// Outside pixels: compute distance for anti-aliased edges
+	float min_dist = 1e10;
+	for (uint j = 0; j < band.curve_count; j++) {
+		Curve c = curves[band.curve_start + j];
+
+		// Quick AABB rejection: skip curves whose bounding box is farther than current best
+		// Uses IQ's quadratic Bezier AABB to get tight bounds
+		float2 aa = c.p0 - 2.0 * c.p1 + c.p2;
+		float2 bb = c.p1 - c.p0;
+		float2 tt = clamp(-bb / aa, 0.0, 1.0);
+		float2 qq = c.p0 + tt * (2.0 * bb + tt * aa);
+		float2 box_min = min(min(c.p0, c.p2), qq);
+		float2 box_max = max(max(c.p0, c.p2), qq);
+
+		// Distance from pos to AABB (0 if inside)
+		float2 d_box = max(box_min - pos, pos - box_max);
+		float  aabb_dist_sq = dot(max(d_box, 0.0), max(d_box, 0.0));
+		if (aabb_dist_sq > min_dist * min_dist) continue;
+
+		min_dist = min(min_dist, curve_distance(pos, c));
+	}
+
+	// Anti-aliasing based on screen-space derivatives
+	float2 dpos_dx    = ddx(pos);
+	float2 dpos_dy    = ddy(pos);
+	float  pixel_size = length(float2(length(dpos_dx), length(dpos_dy)));
+
+	float coverage = saturate(1.0 - min_dist / pixel_size);
 
 	// Early discard for fully transparent pixels
 	if (coverage < 0.01) {
