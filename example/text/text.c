@@ -14,11 +14,16 @@
 // Constants
 ///////////////////////////////////////////////////////////////////////////////
 
-#define TEXT_BAND_COUNT       16     // Number of horizontal bands per glyph
+#define TEXT_BAND_COUNT       32     // Number of horizontal bands per glyph
 #define TEXT_MAX_INSTANCES    4096   // Max characters per text_render() call
 #define TEXT_INITIAL_GLYPHS   256    // Initial glyph capacity
 #define TEXT_INITIAL_CURVES   4096   // Initial curve capacity
 #define TEXT_HASH_LOAD_FACTOR 0.7f   // Hash map load factor before resize
+
+// Cubic-to-quadratic conversion method toggle:
+// 0 = Simple midpoint averaging (original, faster but less accurate)
+// 1 = Split into two quadratics (better quality, recommended for cubic fonts)
+#define TEXT_CUBIC_SPLIT_METHOD 1
 
 ///////////////////////////////////////////////////////////////////////////////
 // UTF-8 Decoding
@@ -364,6 +369,71 @@ struct text_context_t {
 // Curve Extraction
 ///////////////////////////////////////////////////////////////////////////////
 
+// Weld curve endpoints to eliminate floating-point gaps.
+// This ensures that when curves share endpoints, they have EXACTLY the same
+// floating-point values, preventing winding calculation errors at junctions.
+// Processes curves contour by contour (contours start when p0 doesn't match
+// the previous curve's p2).
+//
+// Returns: number of welds performed (for debugging)
+static int32_t _weld_curve_endpoints(text_curve_t* curves, int32_t count) {
+	if (count < 2) return 0;
+
+	int32_t welds = 0;
+	int32_t contour_start = 0;
+
+	// More aggressive threshold for contour detection
+	// Fonts can have surprisingly large gaps at contour boundaries
+	const float CONTOUR_BREAK_THRESHOLD = 0.1f;  // 10% of unit square
+
+	for (int32_t i = 1; i <= count; i++) {
+		// Detect contour boundary: new contour starts when p0 is far from prev p2
+		bool is_contour_end = (i == count);
+		if (!is_contour_end) {
+			float dx = curves[i].p0[0] - curves[i-1].p2[0];
+			float dy = curves[i].p0[1] - curves[i-1].p2[1];
+			is_contour_end = (dx * dx + dy * dy > CONTOUR_BREAK_THRESHOLD * CONTOUR_BREAK_THRESHOLD);
+		}
+
+		if (is_contour_end) {
+			int32_t contour_end = i;
+			int32_t contour_len = contour_end - contour_start;
+
+			if (contour_len >= 2) {
+				// ALWAYS weld sequential endpoints within contour
+				// Don't check distance - just force them to match
+				for (int32_t j = contour_start; j < contour_end - 1; j++) {
+					float dx = curves[j+1].p0[0] - curves[j].p2[0];
+					float dy = curves[j+1].p0[1] - curves[j].p2[1];
+					if (dx != 0.0f || dy != 0.0f) {
+						curves[j+1].p0[0] = curves[j].p2[0];
+						curves[j+1].p0[1] = curves[j].p2[1];
+						welds++;
+					}
+				}
+
+				// Weld contour closure: last p2 -> first p0
+				text_curve_t* first = &curves[contour_start];
+				text_curve_t* last  = &curves[contour_end - 1];
+				float dx = last->p2[0] - first->p0[0];
+				float dy = last->p2[1] - first->p0[1];
+				// More aggressive closure threshold
+				if (dx * dx + dy * dy < CONTOUR_BREAK_THRESHOLD * CONTOUR_BREAK_THRESHOLD) {
+					if (dx != 0.0f || dy != 0.0f) {
+						last->p2[0] = first->p0[0];
+						last->p2[1] = first->p0[1];
+						welds++;
+					}
+				}
+			}
+
+			contour_start = i;
+		}
+	}
+
+	return welds;
+}
+
 // Compute tight AABB for a quadratic Bezier curve
 static void _compute_curve_aabb(
 	float p0x, float p0y, float p1x, float p1y, float p2x, float p2y,
@@ -386,18 +456,112 @@ static void _compute_curve_aabb(
 	*out_y_max = fmaxf(fmaxf(p0y, p2y), qy);
 }
 
+// Evaluate quadratic Bezier at parameter t
+static inline void _bezier_eval(
+	float p0x, float p0y, float p1x, float p1y, float p2x, float p2y,
+	float t, float* out_x, float* out_y
+) {
+	float it = 1.0f - t;
+	*out_x = it * it * p0x + 2.0f * it * t * p1x + t * t * p2x;
+	*out_y = it * it * p0y + 2.0f * it * t * p1y + t * t * p2y;
+}
+
+// Split quadratic Bezier at parameter t using de Casteljau
+static inline void _bezier_split(
+	float p0x, float p0y, float p1x, float p1y, float p2x, float p2y,
+	float t,
+	float* a0x, float* a0y, float* a1x, float* a1y, float* a2x, float* a2y,
+	float* b0x, float* b0y, float* b1x, float* b1y, float* b2x, float* b2y
+) {
+	// First split point
+	float m0x = p0x + t * (p1x - p0x);
+	float m0y = p0y + t * (p1y - p0y);
+	float m1x = p1x + t * (p2x - p1x);
+	float m1y = p1y + t * (p2y - p1y);
+	// Point on curve
+	float mx = m0x + t * (m1x - m0x);
+	float my = m0y + t * (m1y - m0y);
+
+	// First curve: p0 -> m0 -> m
+	*a0x = p0x; *a0y = p0y;
+	*a1x = m0x; *a1y = m0y;
+	*a2x = mx;  *a2y = my;
+
+	// Second curve: m -> m1 -> p2
+	*b0x = mx;  *b0y = my;
+	*b1x = m1x; *b1y = m1y;
+	*b2x = p2x; *b2y = p2y;
+}
+
+// Make curve monotonic in Y by splitting at Y-extremum if needed.
+// Monotonic curves are essential for robust winding calculation.
+// Returns number of curves output (1 or 2).
+static int32_t _make_monotonic_y(
+	float p0x, float p0y, float p1x, float p1y, float p2x, float p2y,
+	text_curve_t* out_curves
+) {
+	// Quadratic coefficients for y(t) = a*t^2 + b*t + c
+	float ay = p0y - 2.0f * p1y + p2y;
+	float by = p1y - p0y;
+
+	// Find t where dy/dt = 0: t = -b / (2a)
+	// If this t is in (0, 1), split there
+	if (fabsf(ay) > 1e-8f) {
+		float t_ext = -by / ay;
+		if (t_ext > 0.001f && t_ext < 0.999f) {
+			// Split into two monotonic curves
+			float a0x, a0y, a1x, a1y, a2x, a2y;
+			float b0x, b0y, b1x, b1y, b2x, b2y;
+			_bezier_split(p0x, p0y, p1x, p1y, p2x, p2y, t_ext,
+			              &a0x, &a0y, &a1x, &a1y, &a2x, &a2y,
+			              &b0x, &b0y, &b1x, &b1y, &b2x, &b2y);
+
+			// First curve
+			out_curves[0].p0[0] = a0x; out_curves[0].p0[1] = a0y;
+			out_curves[0].p1[0] = a1x; out_curves[0].p1[1] = a1y;
+			out_curves[0].p2[0] = a2x; out_curves[0].p2[1] = a2y;
+			_compute_curve_aabb(a0x, a0y, a1x, a1y, a2x, a2y,
+			                    &out_curves[0].x_min, &out_curves[0].x_max,
+			                    &out_curves[0].y_min, &out_curves[0].y_max);
+
+			// Second curve
+			out_curves[1].p0[0] = b0x; out_curves[1].p0[1] = b0y;
+			out_curves[1].p1[0] = b1x; out_curves[1].p1[1] = b1y;
+			out_curves[1].p2[0] = b2x; out_curves[1].p2[1] = b2y;
+			_compute_curve_aabb(b0x, b0y, b1x, b1y, b2x, b2y,
+			                    &out_curves[1].x_min, &out_curves[1].x_max,
+			                    &out_curves[1].y_min, &out_curves[1].y_max);
+
+			return 2;
+		}
+	}
+
+	// Already monotonic
+	out_curves[0].p0[0] = p0x; out_curves[0].p0[1] = p0y;
+	out_curves[0].p1[0] = p1x; out_curves[0].p1[1] = p1y;
+	out_curves[0].p2[0] = p2x; out_curves[0].p2[1] = p2y;
+	_compute_curve_aabb(p0x, p0y, p1x, p1y, p2x, p2y,
+	                    &out_curves[0].x_min, &out_curves[0].x_max,
+	                    &out_curves[0].y_min, &out_curves[0].y_max);
+	return 1;
+}
+
 // Extract curves from a glyph into temp array
 static void _extract_glyph_curves(
 	stbtt_fontinfo* font,
 	int32_t         glyph_index,
 	float           scale,
 	text_array_t*   out_curves,
+	float*          out_min_x,
+	float*          out_max_x,
 	float*          out_min_y,
 	float*          out_max_y
 ) {
 	stbtt_vertex* vertices     = NULL;
 	int32_t       num_vertices = stbtt_GetGlyphShape(font, glyph_index, &vertices);
 
+	*out_min_x =  1e10f;
+	*out_max_x = -1e10f;
 	*out_min_y =  1e10f;
 	*out_max_y = -1e10f;
 
@@ -418,6 +582,7 @@ static void _extract_glyph_curves(
 			break;
 
 		case STBTT_vline: {
+			// Lines are always monotonic, just add directly
 			text_curve_t* curve = _array_push(out_curves);
 			curve->p0[0] = cx;
 			curve->p0[1] = cy;
@@ -428,42 +593,84 @@ static void _extract_glyph_curves(
 			_compute_curve_aabb(curve->p0[0], curve->p0[1], curve->p1[0], curve->p1[1],
 			                    curve->p2[0], curve->p2[1], &curve->x_min, &curve->x_max,
 			                    &curve->y_min, &curve->y_max);
+			*out_min_x = fminf(*out_min_x, curve->x_min);
+			*out_max_x = fmaxf(*out_max_x, curve->x_max);
 			*out_min_y = fminf(*out_min_y, curve->y_min);
 			*out_max_y = fmaxf(*out_max_y, curve->y_max);
 			cx = x; cy = y;
 		} break;
 
 		case STBTT_vcurve: {
-			text_curve_t* curve = _array_push(out_curves);
-			curve->p0[0] = cx;
-			curve->p0[1] = cy;
-			curve->p1[0] = cx1;
-			curve->p1[1] = cy1;
-			curve->p2[0] = x;
-			curve->p2[1] = y;
-			_compute_curve_aabb(curve->p0[0], curve->p0[1], curve->p1[0], curve->p1[1],
-			                    curve->p2[0], curve->p2[1], &curve->x_min, &curve->x_max,
-			                    &curve->y_min, &curve->y_max);
-			*out_min_y = fminf(*out_min_y, curve->y_min);
-			*out_max_y = fmaxf(*out_max_y, curve->y_max);
+			// Split quadratic at Y-extremum to make monotonic
+			text_curve_t mono[2];
+			int32_t n = _make_monotonic_y(cx, cy, cx1, cy1, x, y, mono);
+			for (int32_t j = 0; j < n; j++) {
+				text_curve_t* curve = _array_push(out_curves);
+				*curve = mono[j];
+				*out_min_x = fminf(*out_min_x, curve->x_min);
+				*out_max_x = fmaxf(*out_max_x, curve->x_max);
+				*out_min_y = fminf(*out_min_y, curve->y_min);
+				*out_max_y = fmaxf(*out_max_y, curve->y_max);
+			}
 			cx = x; cy = y;
 		} break;
 
 		case STBTT_vcubic: {
 			float cx2 = v->cx1 * scale;
 			float cy2 = v->cy1 * scale;
-			text_curve_t* curve = _array_push(out_curves);
-			curve->p0[0] = cx;
-			curve->p0[1] = cy;
-			curve->p1[0] = (cx1 + cx2) * 0.5f;
-			curve->p1[1] = (cy1 + cy2) * 0.5f;
-			curve->p2[0] = x;
-			curve->p2[1] = y;
-			_compute_curve_aabb(curve->p0[0], curve->p0[1], curve->p1[0], curve->p1[1],
-			                    curve->p2[0], curve->p2[1], &curve->x_min, &curve->x_max,
-			                    &curve->y_min, &curve->y_max);
-			*out_min_y = fminf(*out_min_y, curve->y_min);
-			*out_max_y = fmaxf(*out_max_y, curve->y_max);
+
+#if TEXT_CUBIC_SPLIT_METHOD == 0
+			// Simple midpoint averaging (original method)
+			// Faster but less accurate for curved segments
+			float qp1x = (cx1 + cx2) * 0.5f;
+			float qp1y = (cy1 + cy2) * 0.5f;
+
+			// Make monotonic
+			text_curve_t mono[2];
+			int32_t n = _make_monotonic_y(cx, cy, qp1x, qp1y, x, y, mono);
+			for (int32_t j = 0; j < n; j++) {
+				text_curve_t* curve = _array_push(out_curves);
+				*curve = mono[j];
+				*out_min_x = fminf(*out_min_x, curve->x_min);
+				*out_max_x = fmaxf(*out_max_x, curve->x_max);
+				*out_min_y = fminf(*out_min_y, curve->y_min);
+				*out_max_y = fmaxf(*out_max_y, curve->y_max);
+			}
+#else
+			// Split cubic into two quadratics (better approximation)
+			// Uses 0.75 interpolation which minimizes error for typical curves
+			// Reference: osor.io "Rendering Crispy Text On The GPU"
+			float c0x = cx  + 0.75f * (cx1 - cx);
+			float c0y = cy  + 0.75f * (cy1 - cy);
+			float c1x = x   + 0.75f * (cx2 - x);
+			float c1y = y   + 0.75f * (cy2 - y);
+			float mx  = 0.5f * (c0x + c1x);
+			float my  = 0.5f * (c0y + c1y);
+
+			// First quadratic: start -> c0 -> midpoint (make monotonic)
+			text_curve_t mono1[2];
+			int32_t n1 = _make_monotonic_y(cx, cy, c0x, c0y, mx, my, mono1);
+			for (int32_t j = 0; j < n1; j++) {
+				text_curve_t* curve = _array_push(out_curves);
+				*curve = mono1[j];
+				*out_min_x = fminf(*out_min_x, curve->x_min);
+				*out_max_x = fmaxf(*out_max_x, curve->x_max);
+				*out_min_y = fminf(*out_min_y, curve->y_min);
+				*out_max_y = fmaxf(*out_max_y, curve->y_max);
+			}
+
+			// Second quadratic: midpoint -> c1 -> end (make monotonic)
+			text_curve_t mono2[2];
+			int32_t n2 = _make_monotonic_y(mx, my, c1x, c1y, x, y, mono2);
+			for (int32_t j = 0; j < n2; j++) {
+				text_curve_t* curve = _array_push(out_curves);
+				*curve = mono2[j];
+				*out_min_x = fminf(*out_min_x, curve->x_min);
+				*out_max_x = fmaxf(*out_max_x, curve->x_max);
+				*out_min_y = fminf(*out_min_y, curve->y_min);
+				*out_max_y = fmaxf(*out_max_y, curve->y_max);
+			}
+#endif
 			cx = x; cy = y;
 		} break;
 		}
@@ -496,9 +703,14 @@ static void _organize_into_bands(
 	if (glyph_height < 1e-6f) glyph_height = 1.0f;
 	float band_height = glyph_height / TEXT_BAND_COUNT;
 
+	// Add small overlap between bands to handle floating-point precision
+	// at band boundaries. This ensures curves touching the boundary are
+	// included in both adjacent bands, preventing missed intersections.
+	float band_overlap = band_height * 0.01f;
+
 	for (int32_t b = 0; b < TEXT_BAND_COUNT; b++) {
-		float band_y_min = glyph_y_min + b * band_height;
-		float band_y_max = glyph_y_min + (b + 1) * band_height;
+		float band_y_min = glyph_y_min + b * band_height - band_overlap;
+		float band_y_max = glyph_y_min + (b + 1) * band_height + band_overlap;
 
 		uint32_t band_offset = (uint32_t)out_band_curves->count - glyph_curve_start;
 		uint32_t band_count  = 0;
@@ -546,22 +758,35 @@ static text_glyph_t* _load_glyph(text_font_t* font, uint32_t codepoint) {
 	glyph->gpu.advance = advance * font->scale;
 	glyph->gpu.lsb     = lsb * font->scale;
 
-	// Get bounding box
-	int32_t x0, y0, x1, y1;
-	stbtt_GetGlyphBox(&font->stb_font, stb_idx, &x0, &y0, &x1, &y1);
-	glyph->gpu.bounds_min[0] = x0 * font->scale;
-	glyph->gpu.bounds_min[1] = y0 * font->scale;
-	glyph->gpu.bounds_max[0] = x1 * font->scale;
-	glyph->gpu.bounds_max[1] = y1 * font->scale;
-
-	// Extract curves into temp array
+	// Extract curves into temp array and compute actual bounds
 	text_array_t temp_curves;
 	_array_init(&temp_curves, sizeof(text_curve_t));
 
-	float glyph_min_y, glyph_max_y;
-	_extract_glyph_curves(&font->stb_font, stb_idx, font->scale, &temp_curves, &glyph_min_y, &glyph_max_y);
+	float glyph_min_x, glyph_max_x, glyph_min_y, glyph_max_y;
+	_extract_glyph_curves(&font->stb_font, stb_idx, font->scale, &temp_curves,
+	                      &glyph_min_x, &glyph_max_x, &glyph_min_y, &glyph_max_y);
 
-	// Organize into bands and append to global curve array
+	// Note: Welding is no longer needed - monotonic curves with asymmetric
+	// endpoint comparisons handle shared endpoints correctly.
+
+	// Use actual curve bounds for both quad and bands (no padding)
+	// This ensures perfect alignment between shader band lookup and curve data
+	if (temp_curves.count > 0) {
+		glyph->gpu.bounds_min[0] = glyph_min_x;
+		glyph->gpu.bounds_min[1] = glyph_min_y;
+		glyph->gpu.bounds_max[0] = glyph_max_x;
+		glyph->gpu.bounds_max[1] = glyph_max_y;
+	} else {
+		// Fallback for glyphs without curves (space, etc.)
+		int32_t x0, y0, x1, y1;
+		stbtt_GetGlyphBox(&font->stb_font, stb_idx, &x0, &y0, &x1, &y1);
+		glyph->gpu.bounds_min[0] = x0 * font->scale;
+		glyph->gpu.bounds_min[1] = y0 * font->scale;
+		glyph->gpu.bounds_max[0] = x1 * font->scale;
+		glyph->gpu.bounds_max[1] = y1 * font->scale;
+	}
+
+	// Organize bands using the same bounds
 	_organize_into_bands(
 		(text_curve_t*)temp_curves.data,
 		temp_curves.count,

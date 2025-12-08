@@ -187,12 +187,11 @@ static void _scene_text_update(scene_t* base, float delta_time) {
 
 		// Right mouse: pan
 		if (io->MouseDown[1]) {
-			// Calculate camera right and up vectors for panning
+			// Calculate camera right vector for panning (perpendicular to view direction)
 			float cos_yaw = cosf(scene->cam_yaw);
 			float sin_yaw = sinf(scene->cam_yaw);
 
-			float3 right = { cos_yaw, 0.0f, sin_yaw };
-			float3 up    = { 0.0f, 1.0f, 0.0f };
+			float3 right = { cos_yaw, 0.0f, -sin_yaw };
 
 			float pan_scale = scene->cam_distance * pan_sensitivity;
 			scene->cam_target_vel.x -= right.x * io->MouseDelta.x * pan_scale;
