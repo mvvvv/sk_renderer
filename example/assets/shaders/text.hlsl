@@ -20,22 +20,16 @@ struct Curve {
 	float  y_max;
 };
 
-struct Band {
-	uint curve_start;   // Index into curves array
-	uint curve_count;   // Number of curves in this band
-};
-
 #define BAND_COUNT 16   // Must match TEXT_BAND_COUNT in C
 
 struct Glyph {
-	uint   band_start;      // Index into bands array (BAND_COUNT bands per glyph)
-	uint   curve_start;     // Index into curves array (for fallback)
+	uint   curve_start;     // Base index into curves array
 	uint   curve_count;     // Total number of curves for this glyph
-	uint   _pad0;           // Padding for alignment
 	float2 bounds_min;      // Glyph bounding box
 	float2 bounds_max;
 	float  advance;         // Horizontal advance
 	float  lsb;             // Left side bearing
+	uint   bands[BAND_COUNT]; // Packed (offset << 16) | count per band
 };
 
 struct Instance {
@@ -56,8 +50,7 @@ StructuredBuffer<Instance> inst : register(t2, space0);
 
 // Font data - bound via skr_material_set_buffer
 StructuredBuffer<Curve>    curves : register(t3);
-StructuredBuffer<Band>     bands  : register(t4);
-StructuredBuffer<Glyph>    glyphs : register(t5);
+StructuredBuffer<Glyph>    glyphs : register(t4);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Vertex Shader
@@ -281,43 +274,42 @@ float4 ps(psIn input) : SV_TARGET {
 	float normalized_y = (pos.y - glyph.bounds_min.y) / max(glyph_height, 1e-6);
 	uint  band_idx     = clamp((uint)(normalized_y * BAND_COUNT), 0, BAND_COUNT - 1);
 
-	// Get the band for this Y coordinate
-	Band band = bands[glyph.band_start + band_idx];
+	// Unpack band data from glyph
+	uint band_data    = glyph.bands[band_idx];
+	uint band_offset  = band_data >> 16;
+	uint band_count   = band_data & 0xFFFF;
+	uint curve_start  = glyph.curve_start + band_offset;
 
-	// First pass: compute winding number only (cheap)
-	float winding = 0.0;
-	for (uint i = 0; i < band.curve_count; i++) {
-		Curve c = curves[band.curve_start + i];
-		winding += curve_winding(pos, c);
-	}
-
-	// Determine if inside (non-zero winding rule)
-	bool inside = abs(winding) > 0.5;
-
-	// Interior pixels are fully opaque - skip expensive distance calculation
-	if (inside) {
-		return float4(input.color, 1.0);
-	}
-
-	// Outside pixels: compute distance for anti-aliased edges
-	// Work in squared distance to avoid sqrt per curve
+	// Single-pass: compute winding and distance together
+	// Each curve is loaded once, saving memory bandwidth for edge pixels
+	float winding     = 0.0;
 	float min_dist_sq = 1e20;
-	for (uint j = 0; j < band.curve_count; j++) {
-		Curve c = curves[band.curve_start + j];
 
-		// Quick AABB rejection using precomputed bounds
+	for (uint i = 0; i < band_count; i++) {
+		Curve c = curves[curve_start + i];
+
+		// Winding contribution (always computed)
+		winding += curve_winding(pos, c);
+
+		// Distance: only compute if curve AABB is close enough to matter
 		float2 d_box = max(float2(c.x_min, c.y_min) - pos, pos - float2(c.x_max, c.y_max));
 		float  aabb_dist_sq = dot(max(d_box, 0.0), max(d_box, 0.0));
+
+		// Skip distance calc if AABB is farther than current best or beyond AA threshold
 		if (aabb_dist_sq > min_dist_sq) continue;
 
 		min_dist_sq = min(min_dist_sq, curve_distance_sq(pos, c));
 	}
 
-	// Anti-aliasing based on screen-space derivatives (simplified)
+	// Interior pixels are fully opaque
+	if (abs(winding) > 0.5) {
+		return float4(input.color, 1.0);
+	}
+
+	// Anti-aliasing for edge pixels
 	float pixel_size = length(fwidth(pos));
 	float min_dist   = sqrt(min_dist_sq);
-
-	float coverage = saturate(1.0 - min_dist / pixel_size);
+	float coverage   = saturate(1.0 - min_dist / pixel_size);
 
 	// Early discard for fully transparent pixels
 	if (coverage < 0.01) {

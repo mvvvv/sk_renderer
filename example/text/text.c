@@ -41,19 +41,19 @@ typedef struct {
 typedef struct {
 	uint32_t curve_start;   // Index into curve array
 	uint32_t curve_count;   // Number of curves in this band
-} text_band_t;              // 8 bytes
+} text_band_t;              // 8 bytes (used during loading only)
 
 // Per-glyph metadata stored in GPU buffer
+// Band data is embedded to eliminate one level of indirection
 typedef struct {
-	uint32_t band_start;    // Index into bands array (TEXT_BAND_COUNT bands per glyph)
-	uint32_t curve_start;   // Index into curve array (for fallback/all curves)
+	uint32_t curve_start;   // Base index into curve array
 	uint32_t curve_count;   // Total number of curves for this glyph
-	uint32_t _pad0;         // Padding for alignment
 	float    bounds_min[2]; // Glyph bounding box min (glyph space)
 	float    bounds_max[2]; // Glyph bounding box max (glyph space)
 	float    advance;       // Horizontal advance width
 	float    lsb;           // Left side bearing
-} text_glyph_gpu_t;         // 40 bytes
+	uint32_t bands[TEXT_BAND_COUNT]; // Packed (offset << 16) | count per band
+} text_glyph_gpu_t;         // 96 bytes
 
 // Per-character instance data (uploaded each frame)
 // Must match HLSL Instance struct exactly
@@ -142,8 +142,7 @@ struct text_font_t {
 
 	// GPU buffers
 	skr_buffer_t curve_buffer;  // All curves for all glyphs
-	skr_buffer_t band_buffer;   // Bands for all glyphs (TEXT_BAND_COUNT per glyph)
-	skr_buffer_t glyph_buffer;  // Per-glyph metadata
+	skr_buffer_t glyph_buffer;  // Per-glyph metadata including band info
 
 	bool valid;
 };
@@ -172,22 +171,25 @@ struct text_context_t {
 
 // Organize curves into horizontal bands for faster fragment shader lookup.
 // Each band covers a portion of the glyph's Y range and references only
-// curves that intersect that band.
+// curves that intersect that band. Band data is written directly to glyph.
 static void _organize_curves_into_bands(
-	text_curve_t* glyph_curves,    // Curves for this glyph (from all_curves array)
-	int32_t       curve_count,
-	float         glyph_y_min,
-	float         glyph_y_max,
-	text_array_t* out_bands,       // Array of text_band_t
-	text_array_t* out_band_curves  // Re-ordered curves for band lookup
+	text_curve_t*     glyph_curves,    // Curves for this glyph (temp array)
+	int32_t           curve_count,
+	float             glyph_y_min,
+	float             glyph_y_max,
+	text_glyph_gpu_t* out_glyph,       // Glyph to write band data to
+	text_array_t*     out_band_curves  // Re-ordered curves for band lookup
 ) {
+	// Record glyph's curve_start (base index for band offsets)
+	uint32_t glyph_curve_start = (uint32_t)out_band_curves->count;
+	out_glyph->curve_start = glyph_curve_start;
+
 	if (curve_count == 0) {
-		// Empty glyph - add empty bands
+		// Empty glyph - all bands are empty (offset=0, count=0)
 		for (int32_t b = 0; b < TEXT_BAND_COUNT; b++) {
-			text_band_t* band = _text_array_push(out_bands);
-			band->curve_start = (uint32_t)out_band_curves->count;
-			band->curve_count = 0;
+			out_glyph->bands[b] = 0;  // (0 << 16) | 0
 		}
+		out_glyph->curve_count = 0;
 		return;
 	}
 
@@ -200,9 +202,9 @@ static void _organize_curves_into_bands(
 		float band_y_min = glyph_y_min + b * band_height;
 		float band_y_max = glyph_y_min + (b + 1) * band_height;
 
-		text_band_t* band = _text_array_push(out_bands);
-		band->curve_start = (uint32_t)out_band_curves->count;
-		band->curve_count = 0;
+		// Offset is relative to glyph's curve_start
+		uint32_t band_offset = (uint32_t)out_band_curves->count - glyph_curve_start;
+		uint32_t band_count  = 0;
 
 		// Check each curve for intersection with this band
 		for (int32_t c = 0; c < curve_count; c++) {
@@ -213,10 +215,16 @@ static void _organize_curves_into_bands(
 				// Copy curve to band's curve list
 				text_curve_t* band_curve = _text_array_push(out_band_curves);
 				*band_curve = *curve;
-				band->curve_count++;
+				band_count++;
 			}
 		}
+
+		// Pack offset and count into single uint32: (offset << 16) | count
+		out_glyph->bands[b] = (band_offset << 16) | (band_count & 0xFFFF);
 	}
+
+	// Total curves for this glyph (in band-organized form)
+	out_glyph->curve_count = (uint32_t)out_band_curves->count - glyph_curve_start;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -410,13 +418,11 @@ text_font_t* text_font_load(const void* ttf_data, size_t ttf_size) {
 	font->descent      = descent  * scale;
 	font->line_gap     = line_gap * scale;
 
-	// Temporary arrays for collecting curves and bands
+	// Temporary arrays for collecting curves
 	text_array_t temp_curves;   // Per-glyph curves (temporary, before band organization)
-	text_array_t all_bands;     // All bands for all glyphs (TEXT_BAND_COUNT per glyph)
 	text_array_t band_curves;   // Band-organized curves (final, uploaded to GPU)
 
 	_text_array_init(&temp_curves, sizeof(text_curve_t));
-	_text_array_init(&all_bands,   sizeof(text_band_t ));
 	_text_array_init(&band_curves, sizeof(text_curve_t));
 
 	// Process each ASCII character
@@ -446,19 +452,13 @@ text_font_t* text_font_load(const void* ttf_data, size_t ttf_size) {
 		float glyph_min_y, glyph_max_y;
 		_extract_glyph_curves(&font->stb_font, glyph->stb_glyph, scale, &temp_curves, &glyph_min_y, &glyph_max_y);
 
-		glyph->gpu.curve_count = (uint32_t)temp_curves.count;
-		glyph->gpu.curve_start = (uint32_t)band_curves.count;  // Points to band-organized curves
-
-		// Record band start index for this glyph
-		glyph->gpu.band_start = (uint32_t)all_bands.count;
-
-		// Organize this glyph's curves into bands
+		// Organize curves into bands (writes curve_start, curve_count, bands[] to glyph->gpu)
 		_organize_curves_into_bands(
 			(text_curve_t*)temp_curves.data,
 			temp_curves.count,
 			glyph->gpu.bounds_min[1],  // Use bounding box Y for bands
 			glyph->gpu.bounds_max[1],
-			&all_bands,
+			&glyph->gpu,
 			&band_curves
 		);
 	}
@@ -470,14 +470,7 @@ text_font_t* text_font_load(const void* ttf_data, size_t ttf_size) {
 		skr_buffer_set_name(&font->curve_buffer, "text_curves");
 	}
 
-	// Upload bands
-	if (all_bands.count > 0) {
-		skr_buffer_create(all_bands.data, all_bands.count, sizeof(text_band_t),
-		                  skr_buffer_type_storage, skr_use_static, &font->band_buffer);
-		skr_buffer_set_name(&font->band_buffer, "text_bands");
-	}
-
-	// Upload glyph GPU data
+	// Upload glyph GPU data (includes embedded band info)
 	text_glyph_gpu_t glyph_gpu_data[TEXT_ASCII_COUNT];
 	for (int32_t i = 0; i < TEXT_ASCII_COUNT; i++) {
 		glyph_gpu_data[i] = font->glyphs[i].gpu;
@@ -486,7 +479,6 @@ text_font_t* text_font_load(const void* ttf_data, size_t ttf_size) {
 	skr_buffer_set_name(&font->glyph_buffer, "text_glyphs");
 
 	_text_array_free(&temp_curves);
-	_text_array_free(&all_bands  );
 	_text_array_free(&band_curves);
 
 	font->valid = true;
@@ -497,7 +489,6 @@ void text_font_destroy(text_font_t* font) {
 	if (!font) return;
 
 	skr_buffer_destroy(&font->curve_buffer);
-	skr_buffer_destroy(&font->band_buffer );
 	skr_buffer_destroy(&font->glyph_buffer);
 
 	if (font->ttf_data) {
@@ -704,7 +695,6 @@ void text_render(text_context_t* ctx, skr_render_list_t* render_list) {
 
 	// Bind font data buffers to material
 	skr_material_set_buffer(ctx->material, "curves", &ctx->font->curve_buffer);
-	skr_material_set_buffer(ctx->material, "bands",  &ctx->font->band_buffer );
 	skr_material_set_buffer(ctx->material, "glyphs", &ctx->font->glyph_buffer);
 
 	// Add to render list with instance data (automatic instancing via t2/space0)
