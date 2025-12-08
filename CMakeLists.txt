@@ -40,7 +40,7 @@ set_target_properties(sk_renderer PROPERTIES
 
 # If we are building skshaderc, then sk_renderer should make skshaderc build
 # first. This allows consuming projects to use skshaderc's compile functions.
-if(SKR_BUILD_SKSHADERC)
+if(NOT ANDROID AND SKR_BUILD_SKSHADERC)
 	add_dependencies(sk_renderer skshaderc)
 endif()
 
