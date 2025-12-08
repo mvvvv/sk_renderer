@@ -45,7 +45,11 @@ struct app_t {
 	skr_render_list_t render_list;
 
 	// Performance tracking
-	float frame_time_ms;
+	float   frame_time_ms;
+	float   gpu_time_total_ms;
+	float   gpu_time_min_ms;
+	float   gpu_time_max_ms;
+	int32_t gpu_time_samples;
 };
 
 static const char* _tex_fmt_name(skr_tex_fmt_ fmt) {
@@ -128,7 +132,8 @@ app_t* app_create(int32_t start_scene) {
 	app_t* app = calloc(1, sizeof(app_t));
 	if (!app) return NULL;
 
-	app->msaa             = 4;
+	app->msaa            = 4;
+	app->gpu_time_min_ms = 1e10f;
 	app->offscreen_format = skr_tex_fmt_rgba32_srgb;//skr_tex_fmt_bgra32_srgb;
 
 	// Choose depth format (prefer smaller/faster formats with stencil for stencil masking demo)
@@ -163,7 +168,8 @@ app_t* app_create(int32_t start_scene) {
 	app->scene_types[7]  = &scene_gltf_vtable;
 	app->scene_types[8]  = &scene_shadows_vtable;
 	app->scene_types[9]  = &scene_cloth_vtable;
-	app->scene_count = 10;
+	app->scene_types[10] = &scene_text_vtable;
+	app->scene_count = 11;
 #ifdef SKR_HAS_VIDEO
 	app->scene_types[app->scene_count++] = &scene_video_vtable;
 #endif
@@ -173,7 +179,7 @@ app_t* app_create(int32_t start_scene) {
 
 	// Start with the requested scene (default to 0 if out of range or -1)
 	app->scene_index = -1;
-	int32_t initial_scene = (start_scene >= 0 && start_scene < app->scene_count) ? start_scene : 0;
+	int32_t initial_scene = (start_scene >= 0 && start_scene < app->scene_count) ? start_scene : 10%app->scene_count;
 	_switch_scene(app, initial_scene);
 
 	return app;
@@ -181,6 +187,15 @@ app_t* app_create(int32_t start_scene) {
 
 void app_destroy(app_t* app) {
 	if (!app) return;
+
+	// Log GPU performance summary
+	if (app->gpu_time_samples > 0) {
+		float avg_ms = app->gpu_time_total_ms / app->gpu_time_samples;
+		su_log(su_log_info, "GPU Time: avg %.2f ms (%.1f FPS), min %.2f ms, max %.2f ms, %d samples",
+			avg_ms, 1000.0f / avg_ms,
+			app->gpu_time_min_ms, app->gpu_time_max_ms,
+			app->gpu_time_samples);
+	}
 
 	// Destroy current scene
 	if (app->scene_current) {
@@ -360,6 +375,14 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 
 	float gpu_ms   = skr_renderer_get_gpu_time_ms();
 	float frame_ms = app->frame_time_ms;
+
+	// Track GPU performance stats
+	if (gpu_ms > 0.0f) {
+		app->gpu_time_total_ms += gpu_ms;
+		app->gpu_time_samples++;
+		if (gpu_ms < app->gpu_time_min_ms) app->gpu_time_min_ms = gpu_ms;
+		if (gpu_ms > app->gpu_time_max_ms) app->gpu_time_max_ms = gpu_ms;
+	}
 
 	igText("Frame Time: %.2f ms (%.1f FPS)", frame_ms, 1000.0f / frame_ms);
 	igText("GPU Time: %.2f ms (%.1f FPS)", gpu_ms, 1000.0f / gpu_ms);

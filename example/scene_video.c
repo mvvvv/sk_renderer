@@ -17,56 +17,6 @@
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui.h>
 
-// Platform-specific file dialog support (reuse from scene_gltf.c pattern)
-#if defined(__linux__) && !defined(__ANDROID__)
-	#define HAS_FILE_DIALOG 1
-#else
-	#define HAS_FILE_DIALOG 0
-#endif
-
-#if HAS_FILE_DIALOG
-static char* _open_file_dialog(const char* title, const char* filter_desc, const char* filter_exts) {
-	// Build pattern for zenity: "*.mp4 *.mkv *.webm"
-	char pattern[256] = {0};
-	const char* src = filter_exts;
-	char* dst = pattern;
-	char* dst_end = pattern + sizeof(pattern) - 3;
-	while (*src && dst < dst_end) {
-		if (dst != pattern) *dst++ = ' ';
-		*dst++ = '*';
-		*dst++ = '.';
-		while (*src && *src != ';' && dst < dst_end) {
-			*dst++ = *src++;
-		}
-		if (*src == ';') src++;
-	}
-	*dst = '\0';
-
-	char command[512];
-	snprintf(command, sizeof(command),
-		"zenity --file-selection --title=\"%s\" --file-filter=\"%s | %s\" 2>/dev/null || "
-		"kdialog --getopenfilename . \"%s\" --title \"%s\" 2>/dev/null",
-		title, filter_desc, pattern, pattern, title);
-
-	FILE* pipe = popen(command, "r");
-	if (!pipe) return NULL;
-
-	char path[1024] = {0};
-	if (fgets(path, sizeof(path), pipe)) {
-		size_t len = strlen(path);
-		if (len > 0 && path[len - 1] == '\n') {
-			path[len - 1] = '\0';
-		}
-	}
-	pclose(pipe);
-
-	if (path[0] != '\0') {
-		return strdup(path);
-	}
-	return NULL;
-}
-#endif
-
 ///////////////////////////////////////////////////////////////////////////////
 // Video worker thread - handles all FFmpeg operations
 ///////////////////////////////////////////////////////////////////////////////
@@ -385,22 +335,18 @@ static void _scene_video_render_ui(scene_t* base) {
 	bool is_playing = atomic_load(&w->playing);
 
 	// File loading
-#if HAS_FILE_DIALOG
-	if (is_loading) {
-		igBeginDisabled(true);
-	}
-	if (igButton("Open Video...", (ImVec2){0, 0})) {
-		char* path = _open_file_dialog("Open Video", "Video Files", "mp4;mkv;webm;avi;mov");
-		if (path) {
-			if (scene->video_path) free(scene->video_path);
-			scene->video_path = path;
-			_worker_open(w, path);
+	if (su_file_dialog_supported()) {
+		if (is_loading) igBeginDisabled(true);
+		if (igButton("Open Video...", (ImVec2){0, 0})) {
+			char* path = su_file_dialog_open("Open Video", "Video Files", "mp4;mkv;webm;avi;mov");
+			if (path) {
+				if (scene->video_path) free(scene->video_path);
+				scene->video_path = path;
+				_worker_open(w, path);
+			}
 		}
+		if (is_loading) igEndDisabled();
 	}
-	if (is_loading) {
-		igEndDisabled();
-	}
-#endif
 
 	// Show loading state
 	if (is_loading) {

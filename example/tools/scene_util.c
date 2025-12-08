@@ -11,6 +11,8 @@
 #define CGLTF_IMPLEMENTATION
 #include "cgltf.h"
 
+#include "hdr_load.h"
+
 #include <threads.h>
 
 #include <stdlib.h>
@@ -535,21 +537,14 @@ static uint32_t _float3_to_rgb9e5(float r, float g, float b) {
 void* su_image_load_from_memory(const void* data, size_t size, int32_t* opt_out_width, int32_t* opt_out_height, skr_tex_fmt_* opt_out_format, int32_t force_channels) {
 	int   width, height, channels;
 	void* pixels = NULL;
-	bool  is_hdr = stbi_is_hdr_from_memory((const unsigned char*)data, (int)size);
 
-	if (is_hdr) {
-		// Load as float, then convert to RGB9E5
-		float* hdr_pixels = stbi_loadf_from_memory((const unsigned char*)data, (int)size, &width, &height, &channels, 3);
-		if (hdr_pixels) {
-			int32_t   pixel_count = width * height;
-			uint32_t* rgb9e5      = malloc(pixel_count * sizeof(uint32_t));
-
-			for (int32_t i = 0; i < pixel_count; i++) {
-				rgb9e5[i] = _float3_to_rgb9e5(hdr_pixels[i * 3], hdr_pixels[i * 3 + 1], hdr_pixels[i * 3 + 2]);
-			}
-
-			stbi_image_free(hdr_pixels);
-			pixels = rgb9e5;
+	hdr_header_t hdr_header = hdr_parse_header(data, (int32_t)size);
+	if (hdr_header.valid) {
+		hdr_image_t img = hdr_decode_pixels(data, (int32_t)size, &hdr_header);
+		if (img.pixels) {
+			width  = img.width;
+			height = img.height;
+			pixels = img.pixels;
 			if (opt_out_format) *opt_out_format = skr_tex_fmt_rgb9e5;
 		}
 	} else {
@@ -590,6 +585,101 @@ float su_hash_f(int32_t position, uint32_t seed) {
 	mangled ^= (mangled >> 8);
 
 	return (float)mangled / 4294967296.0f;  // Normalize to [0.0, 1.0]
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// File Dialog
+///////////////////////////////////////////////////////////////////////////////
+
+#if defined(_WIN32)
+	#define SU_HAS_FILE_DIALOG 1
+	#define WIN32_LEAN_AND_MEAN
+	#include <windows.h>
+	#include <commdlg.h>
+#elif defined(__linux__) && !defined(__ANDROID__)
+	#define SU_HAS_FILE_DIALOG 1
+#else
+	#define SU_HAS_FILE_DIALOG 0
+#endif
+
+bool su_file_dialog_supported(void) {
+	return SU_HAS_FILE_DIALOG != 0;
+}
+
+char* su_file_dialog_open(const char* title, const char* filter_desc, const char* filter_exts) {
+#if !SU_HAS_FILE_DIALOG
+	(void)title; (void)filter_desc; (void)filter_exts;
+	return NULL;
+#elif defined(_WIN32)
+	char filename[MAX_PATH] = {0};
+
+	// Build filter string: "Description\0*.ext1;*.ext2\0\0"
+	char filter[256];
+	int  len = snprintf(filter, sizeof(filter) - 2, "%s", filter_desc);
+	filter[len++] = '\0';
+
+	// Add extension patterns
+	const char* ext = filter_exts;
+	char* dst = filter + len;
+	while (*ext) {
+		*dst++ = '*';
+		*dst++ = '.';
+		while (*ext && *ext != ';') *dst++ = *ext++;
+		if (*ext == ';') { *dst++ = ';'; ext++; }
+	}
+	*dst++ = '\0';
+	*dst   = '\0';  // Double null terminator
+
+	OPENFILENAMEA ofn   = {0};
+	ofn.lStructSize     = sizeof(ofn);
+	ofn.hwndOwner       = NULL;
+	ofn.lpstrFilter     = filter;
+	ofn.lpstrFile       = filename;
+	ofn.nMaxFile        = MAX_PATH;
+	ofn.lpstrTitle      = title;
+	ofn.Flags           = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+	if (GetOpenFileNameA(&ofn)) {
+		return strdup(filename);
+	}
+	return NULL;
+
+#elif defined(__linux__)
+	// Build pattern for zenity/kdialog: "*.jpg *.png *.hdr"
+	char pattern[256] = {0};
+	const char* src = filter_exts;
+	char*       dst = pattern;
+	while (*src && dst < pattern + sizeof(pattern) - 8) {
+		*dst++ = '*';
+		*dst++ = '.';
+		while (*src && *src != ';' && dst < pattern + sizeof(pattern) - 4) *dst++ = *src++;
+		if (*src == ';') { *dst++ = ' '; src++; }
+	}
+	*dst = '\0';
+
+	// Try zenity first (GTK), then kdialog (KDE)
+	char command[512];
+	snprintf(command, sizeof(command),
+		"zenity --file-selection --title=\"%s\" --file-filter=\"%s | %s\" 2>/dev/null || "
+		"kdialog --getopenfilename . \"%s\" --title \"%s\" 2>/dev/null",
+		title, filter_desc, pattern, pattern, title);
+
+	FILE* pipe = popen(command, "r");
+	if (!pipe) return NULL;
+
+	char result[1024];
+	if (fgets(result, sizeof(result), pipe) == NULL) {
+		pclose(pipe);
+		return NULL;
+	}
+	pclose(pipe);
+
+	// Remove trailing newline
+	size_t len = strlen(result);
+	if (len > 0 && result[len - 1] == '\n') result[len - 1] = '\0';
+
+	return strlen(result) > 0 ? strdup(result) : NULL;
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
