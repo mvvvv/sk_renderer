@@ -37,13 +37,13 @@ struct Glyph {
 };
 
 struct Instance {
-	float4x4 transform;     // World transform - 64 bytes, offset 0
-	uint     glyph_index;   // Index into glyphs array - 4 bytes, offset 64
-	uint     _pad0;         // Padding - 4 bytes, offset 68
-	uint     _pad1;         // Padding - 4 bytes, offset 72
-	uint     _pad2;         // Padding - 4 bytes, offset 76
-	float4   color;         // RGBA color - 16 bytes, offset 80 (16-byte aligned)
-};                          // 96 bytes total
+	float3 pos;             // World position - 12 bytes, offset 0
+	uint   glyph_index;     // Index into glyphs array - 4 bytes, offset 12
+	float3 right;           // X axis * scale - 12 bytes, offset 16
+	uint   color;           // Packed RGBA8 (0xAABBGGRR) - 4 bytes, offset 28
+	float3 up;              // Y axis * scale - 12 bytes, offset 32
+	uint   _pad;            // Padding - 4 bytes, offset 44
+};                          // 48 bytes total
 
 ///////////////////////////////////////////////////////////////////////////////
 // Buffers
@@ -75,6 +75,14 @@ struct psIn {
 	uint   layer     : SV_RenderTargetArrayIndex;  // Multi-view output layer
 };
 
+// Unpack RGBA8 color from uint (0xAABBGGRR format)
+float3 unpack_color(uint packed) {
+	float r = float((packed >>  0) & 0xFF) / 255.0;
+	float g = float((packed >>  8) & 0xFF) / 255.0;
+	float b = float((packed >> 16) & 0xFF) / 255.0;
+	return float3(r, g, b);
+}
+
 psIn vs(vsIn input, uint id : SV_InstanceID) {
 	// Multi-view instancing
 	uint inst_idx = id / view_count;
@@ -87,15 +95,18 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	float2 glyph_size = glyph.bounds_max - glyph.bounds_min;
 	float2 local_pos  = glyph.bounds_min + input.uv * glyph_size;
 
-	// Transform to world space
-	float4 world_pos = mul(float4(local_pos, 0, 1), instance.transform);
+	// Transform to world space using position + right/up vectors
+	// This is simpler and faster than full matrix multiply for 2D glyphs
+	float3 world_pos = instance.pos
+	                 + local_pos.x * instance.right
+	                 + local_pos.y * instance.up;
 
 	psIn output;
-	output.pos       = mul(world_pos, viewproj[view_idx]);
+	output.pos       = mul(float4(world_pos, 1), viewproj[view_idx]);
 	output.glyph_uv  = input.uv;
 	output.glyph_pos = local_pos;
 	output.glyph_idx = instance.glyph_index;
-	output.color     = instance.color.rgb;
+	output.color     = unpack_color(instance.color);
 	output.layer     = view_idx;  // Route to correct render target layer
 
 	return output;

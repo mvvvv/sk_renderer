@@ -55,17 +55,17 @@ typedef struct {
 
 // Per-character instance data (uploaded each frame)
 // Must match HLSL Instance struct exactly
-// HLSL float4 requires 16-byte alignment!
+// Uses position/right/up vectors instead of full matrix (50% smaller!)
 typedef struct {
-	float    transform[16]; // 4x4 world transform matrix (row-major) - 64 bytes, offset 0
-	uint32_t glyph_index;   // Index into glyph buffer - 4 bytes, offset 64
-	uint32_t _pad0;         // Padding - 4 bytes, offset 68
-	uint32_t _pad1;         // Padding - 4 bytes, offset 72
-	uint32_t _pad2;         // Padding - 4 bytes, offset 76
-	float    color[4];      // RGBA color - 16 bytes, offset 80 (16-byte aligned)
-} text_instance_t;          // 96 bytes total
+	float    pos[3];        // World position - 12 bytes, offset 0
+	uint32_t glyph_index;   // Index into glyph buffer - 4 bytes, offset 12
+	float    right[3];      // X axis * scale - 12 bytes, offset 16
+	uint32_t color;         // Packed RGBA8 (0xAABBGGRR) - 4 bytes, offset 28
+	float    up[3];         // Y axis * scale - 12 bytes, offset 32
+	uint32_t _pad;          // Padding - 4 bytes, offset 44
+} text_instance_t;          // 48 bytes total
 
-_Static_assert(sizeof(text_instance_t) == 96, "text_instance_t must be exactly 96 bytes to match HLSL");
+_Static_assert(sizeof(text_instance_t) == 48, "text_instance_t must be exactly 48 bytes to match HLSL");
 
 ///////////////////////////////////////////////////////////////////////////////
 // CPU-side Structures
@@ -627,30 +627,37 @@ void text_add(
 		// Skip glyphs with no visual (like space)
 		if (glyph->gpu.curve_count > 0) {
 			// Build instance transform
-			// Translate to cursor position, then scale by font size
-			float4x4 char_transform = transform;
-
-			// Apply cursor offset and scale
-			// float4x4_mul(A, B) produces matrix that applies B first, then A
-			// We want: local first (scale + cursor offset), then world transform
+			// Apply cursor offset and scale, then user's world transform
 			float4x4 local = float4x4_trs(
 				(float3){ cursor_x, 0, 0 },
 				(float4){ 0, 0, 0, 1 },  // Identity quaternion
 				(float3){ scale, scale, 1 }
 			);
-			char_transform = float4x4_mul(transform, local);
+			float4x4 final = float4x4_mul(transform, local);
 
-			// Add instance
+			// Extract position/right/up from row-major matrix:
+			// Translation is in last column (m[3], m[7], m[11])
+			// Right/up are columns 0 and 1
 			text_instance_t* inst = &ctx->instances[ctx->instance_count++];
-			memcpy(inst->transform, &char_transform.m[0], sizeof(float) * 16);
+			inst->pos[0]   = final.m[3];
+			inst->pos[1]   = final.m[7];
+			inst->pos[2]   = final.m[11];
+			inst->right[0] = final.m[0];
+			inst->right[1] = final.m[4];
+			inst->right[2] = final.m[8];
+			inst->up[0]    = final.m[1];
+			inst->up[1]    = final.m[5];
+			inst->up[2]    = final.m[9];
+
 			inst->glyph_index = (uint32_t)idx;
-			inst->_pad0       = 0;
-			inst->_pad1       = 0;
-			inst->_pad2       = 0;
-			inst->color[0]    = color.x;
-			inst->color[1]    = color.y;
-			inst->color[2]    = color.z;
-			inst->color[3]    = color.w;
+			inst->_pad        = 0;
+
+			// Pack color as RGBA8 (0xAABBGGRR)
+			uint32_t r = (uint32_t)(color.x * 255.0f) & 0xFF;
+			uint32_t g = (uint32_t)(color.y * 255.0f) & 0xFF;
+			uint32_t b = (uint32_t)(color.z * 255.0f) & 0xFF;
+			uint32_t a = (uint32_t)(color.w * 255.0f) & 0xFF;
+			inst->color = r | (g << 8) | (b << 16) | (a << 24);
 		}
 
 		cursor_x += glyph->gpu.advance * scale;
