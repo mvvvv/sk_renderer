@@ -31,6 +31,17 @@ typedef struct {
 	bool            enable_rotation;
 	int32_t         align_mode;   // 0=left, 1=center, 2=right
 	char*           font_path;    // Current font path (for display)
+
+	// Camera state (arc-ball style)
+	float           cam_yaw;       // Horizontal angle (radians)
+	float           cam_pitch;     // Vertical angle (radians)
+	float           cam_distance;  // Distance from target
+	float3          cam_target;    // Look-at target point
+	// Velocities for smooth motion
+	float           cam_yaw_vel;
+	float           cam_pitch_vel;
+	float           cam_distance_vel;
+	float3          cam_target_vel;
 } scene_text_t;
 
 // Helper to get just the filename from a path
@@ -88,6 +99,16 @@ static scene_t* _scene_text_create(void) {
 	scene->align_mode      = 1;  // Center by default
 	scene->font_path       = strdup("CascadiaMono.ttf");
 
+	// Initialize camera
+	scene->cam_yaw          = 0.0f;
+	scene->cam_pitch        = 0.0f;
+	scene->cam_distance     = 10.0f;
+	scene->cam_target       = (float3){ 0.0f, -1.0f, -4.0f };
+	scene->cam_yaw_vel      = 0.0f;
+	scene->cam_pitch_vel    = 0.0f;
+	scene->cam_distance_vel = 0.0f;
+	scene->cam_target_vel   = (float3){ 0.0f, 0.0f, 0.0f };
+
 	// Load font
 	scene->font = _load_font_file("CascadiaMono.ttf");
 	if (!scene->font) {
@@ -143,6 +164,70 @@ static void _scene_text_destroy(scene_t* base) {
 static void _scene_text_update(scene_t* base, float delta_time) {
 	scene_text_t* scene = (scene_text_t*)base;
 	scene->time += delta_time;
+
+	// Camera control constants
+	const float rotate_sensitivity = 0.0002f;
+	const float pan_sensitivity    = 0.0001f;
+	const float zoom_sensitivity   = 0.2f;
+	const float velocity_damping   = 0.0001f;  // Per-second retention (lower = more damping)
+	const float pitch_limit        = 1.5f;     // ~86 degrees
+	const float min_distance       = 1.0f;
+	const float max_distance       = 50.0f;
+
+	// Get ImGui IO for mouse state
+	ImGuiIO* io = igGetIO();
+
+	// Only process input if ImGui doesn't want the mouse
+	if (!io->WantCaptureMouse) {
+		// Left mouse: arc rotate
+		if (io->MouseDown[0]) {
+			scene->cam_yaw_vel   -= io->MouseDelta.x * rotate_sensitivity;
+			scene->cam_pitch_vel += io->MouseDelta.y * rotate_sensitivity;
+		}
+
+		// Right mouse: pan
+		if (io->MouseDown[1]) {
+			// Calculate camera right and up vectors for panning
+			float cos_yaw = cosf(scene->cam_yaw);
+			float sin_yaw = sinf(scene->cam_yaw);
+
+			float3 right = { cos_yaw, 0.0f, sin_yaw };
+			float3 up    = { 0.0f, 1.0f, 0.0f };
+
+			float pan_scale = scene->cam_distance * pan_sensitivity;
+			scene->cam_target_vel.x -= right.x * io->MouseDelta.x * pan_scale;
+			scene->cam_target_vel.z -= right.z * io->MouseDelta.x * pan_scale;
+			scene->cam_target_vel.y += io->MouseDelta.y * pan_scale;
+		}
+
+		// Scroll wheel: zoom
+		if (io->MouseWheel != 0.0f) {
+			scene->cam_distance_vel -= io->MouseWheel * zoom_sensitivity;
+		}
+	}
+
+	// Apply velocities
+	scene->cam_yaw      += scene->cam_yaw_vel;
+	scene->cam_pitch    += scene->cam_pitch_vel;
+	scene->cam_distance += scene->cam_distance_vel;
+	scene->cam_target.x += scene->cam_target_vel.x;
+	scene->cam_target.y += scene->cam_target_vel.y;
+	scene->cam_target.z += scene->cam_target_vel.z;
+
+	// Clamp pitch and distance
+	if (scene->cam_pitch >  pitch_limit) scene->cam_pitch =  pitch_limit;
+	if (scene->cam_pitch < -pitch_limit) scene->cam_pitch = -pitch_limit;
+	if (scene->cam_distance < min_distance) scene->cam_distance = min_distance;
+	if (scene->cam_distance > max_distance) scene->cam_distance = max_distance;
+
+	// Apply damping (exponential decay)
+	float damping = powf(velocity_damping, delta_time);
+	scene->cam_yaw_vel      *= damping;
+	scene->cam_pitch_vel    *= damping;
+	scene->cam_distance_vel *= damping;
+	scene->cam_target_vel.x *= damping;
+	scene->cam_target_vel.y *= damping;
+	scene->cam_target_vel.z *= damping;
 }
 
 static void _scene_text_render(scene_t* base, int32_t width, int32_t height,
@@ -184,13 +269,13 @@ static void _scene_text_render(scene_t* base, int32_t width, int32_t height,
 		         (float4){ 0.7f, 0.9f, 1.0f, 1.0f }, align);
 	}
 
-	// Demo text at different sizes
+	// Demo text at different sizes - including Unicode!
 	const char* demo_texts[] = {
 		"Resolution Independent",
-		"Perfect at any scale",
+		"Привет мир! Cyrillic",      // Russian: "Hello world!"
+		"日本語テキスト Chinese/Japanese", // "Japanese text"
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-		"abcdefghijklmnopqrstuvwxyz",
-		"0123456789 !@#$%^&*()",
+		"0123456789 αβγδ €£¥",       // Greek letters and currency symbols
 	};
 	int32_t num_demos = sizeof(demo_texts) / sizeof(demo_texts[0]);
 
@@ -249,6 +334,38 @@ static void _scene_text_render_ui(scene_t* base) {
 	igText("  Ascent:  %.3f", text_font_get_ascent(scene->font));
 	igText("  Descent: %.3f", text_font_get_descent(scene->font));
 	igText("  Line Gap: %.3f", text_font_get_line_gap(scene->font));
+
+	igSeparator();
+	if (igButton("Reset Camera", (ImVec2){0, 0})) {
+		scene->cam_yaw          = 0.0f;
+		scene->cam_pitch        = 0.0f;
+		scene->cam_distance     = 10.0f;
+		scene->cam_target       = (float3){ 0.0f, -1.0f, -4.0f };
+		scene->cam_yaw_vel      = 0.0f;
+		scene->cam_pitch_vel    = 0.0f;
+		scene->cam_distance_vel = 0.0f;
+		scene->cam_target_vel   = (float3){ 0.0f, 0.0f, 0.0f };
+	}
+}
+
+static bool _scene_text_get_camera(scene_t* base, scene_camera_t* out_camera) {
+	scene_text_t* scene = (scene_text_t*)base;
+
+	// Calculate camera position from spherical coordinates
+	float cos_pitch = cosf(scene->cam_pitch);
+	float sin_pitch = sinf(scene->cam_pitch);
+	float cos_yaw   = cosf(scene->cam_yaw);
+	float sin_yaw   = sinf(scene->cam_yaw);
+
+	out_camera->position = (float3){
+		scene->cam_target.x + scene->cam_distance * cos_pitch * sin_yaw,
+		scene->cam_target.y + scene->cam_distance * sin_pitch,
+		scene->cam_target.z + scene->cam_distance * cos_pitch * cos_yaw
+	};
+	out_camera->target = scene->cam_target;
+	out_camera->up     = (float3){ 0.0f, 1.0f, 0.0f };
+
+	return true;
 }
 
 const scene_vtable_t scene_text_vtable = {
@@ -257,6 +374,6 @@ const scene_vtable_t scene_text_vtable = {
 	.destroy    = _scene_text_destroy,
 	.update     = _scene_text_update,
 	.render     = _scene_text_render,
-	.get_camera = NULL,
+	.get_camera = _scene_text_get_camera,
 	.render_ui  = _scene_text_render_ui,
 };
