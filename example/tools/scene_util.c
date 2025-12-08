@@ -588,6 +588,101 @@ float su_hash_f(int32_t position, uint32_t seed) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// File Dialog
+///////////////////////////////////////////////////////////////////////////////
+
+#if defined(_WIN32)
+	#define SU_HAS_FILE_DIALOG 1
+	#define WIN32_LEAN_AND_MEAN
+	#include <windows.h>
+	#include <commdlg.h>
+#elif defined(__linux__) && !defined(__ANDROID__)
+	#define SU_HAS_FILE_DIALOG 1
+#else
+	#define SU_HAS_FILE_DIALOG 0
+#endif
+
+bool su_file_dialog_supported(void) {
+	return SU_HAS_FILE_DIALOG != 0;
+}
+
+char* su_file_dialog_open(const char* title, const char* filter_desc, const char* filter_exts) {
+#if !SU_HAS_FILE_DIALOG
+	(void)title; (void)filter_desc; (void)filter_exts;
+	return NULL;
+#elif defined(_WIN32)
+	char filename[MAX_PATH] = {0};
+
+	// Build filter string: "Description\0*.ext1;*.ext2\0\0"
+	char filter[256];
+	int  len = snprintf(filter, sizeof(filter) - 2, "%s", filter_desc);
+	filter[len++] = '\0';
+
+	// Add extension patterns
+	const char* ext = filter_exts;
+	char* dst = filter + len;
+	while (*ext) {
+		*dst++ = '*';
+		*dst++ = '.';
+		while (*ext && *ext != ';') *dst++ = *ext++;
+		if (*ext == ';') { *dst++ = ';'; ext++; }
+	}
+	*dst++ = '\0';
+	*dst   = '\0';  // Double null terminator
+
+	OPENFILENAMEA ofn   = {0};
+	ofn.lStructSize     = sizeof(ofn);
+	ofn.hwndOwner       = NULL;
+	ofn.lpstrFilter     = filter;
+	ofn.lpstrFile       = filename;
+	ofn.nMaxFile        = MAX_PATH;
+	ofn.lpstrTitle      = title;
+	ofn.Flags           = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+	if (GetOpenFileNameA(&ofn)) {
+		return strdup(filename);
+	}
+	return NULL;
+
+#elif defined(__linux__)
+	// Build pattern for zenity/kdialog: "*.jpg *.png *.hdr"
+	char pattern[256] = {0};
+	const char* src = filter_exts;
+	char*       dst = pattern;
+	while (*src && dst < pattern + sizeof(pattern) - 8) {
+		*dst++ = '*';
+		*dst++ = '.';
+		while (*src && *src != ';' && dst < pattern + sizeof(pattern) - 4) *dst++ = *src++;
+		if (*src == ';') { *dst++ = ' '; src++; }
+	}
+	*dst = '\0';
+
+	// Try zenity first (GTK), then kdialog (KDE)
+	char command[512];
+	snprintf(command, sizeof(command),
+		"zenity --file-selection --title=\"%s\" --file-filter=\"%s | %s\" 2>/dev/null || "
+		"kdialog --getopenfilename . \"%s\" --title \"%s\" 2>/dev/null",
+		title, filter_desc, pattern, pattern, title);
+
+	FILE* pipe = popen(command, "r");
+	if (!pipe) return NULL;
+
+	char result[1024];
+	if (fgets(result, sizeof(result), pipe) == NULL) {
+		pclose(pipe);
+		return NULL;
+	}
+	pclose(pipe);
+
+	// Remove trailing newline
+	size_t len = strlen(result);
+	if (len > 0 && result[len - 1] == '\n') result[len - 1] = '\0';
+
+	return strlen(result) > 0 ? strdup(result) : NULL;
+#endif
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // Asset Loading Thread
 ///////////////////////////////////////////////////////////////////////////////
 

@@ -85,7 +85,7 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 
 	// Transform quad vertex to glyph bounds
 	float2 glyph_size = glyph.bounds_max - glyph.bounds_min;
-	float2 local_pos = glyph.bounds_min + input.uv * glyph_size;
+	float2 local_pos  = glyph.bounds_min + input.uv * glyph_size;
 
 	// Transform to world space
 	float4 world_pos = mul(float4(local_pos, 0, 1), instance.transform);

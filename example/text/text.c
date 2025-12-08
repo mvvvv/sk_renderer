@@ -2,8 +2,6 @@
 // Copyright (c) 2025 Nick Klingensmith
 
 #include "text.h"
-#include "text_internal.h"
-#include "../tools/scene_util.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
@@ -11,6 +9,116 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
+///////////////////////////////////////////////////////////////////////////////
+// Constants
+///////////////////////////////////////////////////////////////////////////////
+
+#define TEXT_BAND_COUNT      16    // Number of horizontal bands per glyph
+#define TEXT_ASCII_START     32    // First ASCII character (space)
+#define TEXT_ASCII_END       127   // Last ASCII character (DEL excluded)
+#define TEXT_ASCII_COUNT     (TEXT_ASCII_END - TEXT_ASCII_START)
+#define TEXT_MAX_INSTANCES   4096  // Max characters per text_render() call
+
+///////////////////////////////////////////////////////////////////////////////
+// GPU Buffer Structures (must match shader exactly)
+///////////////////////////////////////////////////////////////////////////////
+
+// Quadratic Bezier curve (3 control points)
+// Curves are stored in glyph-local coordinates (normalized to units_per_em)
+typedef struct {
+	float p0[2];        // Start point
+	float p1[2];        // Control point
+	float p2[2];        // End point
+	float y_min;        // Minimum Y of curve bounding box
+	float y_max;        // Maximum Y of curve bounding box
+} text_curve_t;         // 32 bytes, 16-byte aligned
+
+// Horizontal band - references curves that cross this Y range
+// Bands enable O(n/bands) curve testing instead of O(n) per pixel
+typedef struct {
+	uint32_t curve_start;   // Index into curve array
+	uint32_t curve_count;   // Number of curves in this band
+} text_band_t;              // 8 bytes
+
+// Per-glyph metadata stored in GPU buffer
+typedef struct {
+	uint32_t band_start;    // Index into bands array (TEXT_BAND_COUNT bands per glyph)
+	uint32_t curve_start;   // Index into curve array (for fallback/all curves)
+	uint32_t curve_count;   // Total number of curves for this glyph
+	uint32_t _pad0;         // Padding for alignment
+	float    bounds_min[2]; // Glyph bounding box min (glyph space)
+	float    bounds_max[2]; // Glyph bounding box max (glyph space)
+	float    advance;       // Horizontal advance width
+	float    lsb;           // Left side bearing
+} text_glyph_gpu_t;         // 40 bytes
+
+// Per-character instance data (uploaded each frame)
+// Must match HLSL Instance struct exactly
+// HLSL float4 requires 16-byte alignment!
+typedef struct {
+	float    transform[16]; // 4x4 world transform matrix (row-major) - 64 bytes, offset 0
+	uint32_t glyph_index;   // Index into glyph buffer - 4 bytes, offset 64
+	uint32_t _pad0;         // Padding - 4 bytes, offset 68
+	uint32_t _pad1;         // Padding - 4 bytes, offset 72
+	uint32_t _pad2;         // Padding - 4 bytes, offset 76
+	float    color[4];      // RGBA color - 16 bytes, offset 80 (16-byte aligned)
+} text_instance_t;          // 96 bytes total
+
+_Static_assert(sizeof(text_instance_t) == 96, "text_instance_t must be exactly 96 bytes to match HLSL");
+
+///////////////////////////////////////////////////////////////////////////////
+// CPU-side Structures
+///////////////////////////////////////////////////////////////////////////////
+
+// Extended glyph info kept on CPU for layout calculations
+typedef struct {
+	text_glyph_gpu_t gpu;       // Data that goes to GPU
+	int32_t          codepoint; // Unicode codepoint
+	int32_t          stb_glyph; // stb_truetype glyph index
+} text_glyph_t;
+
+// Dynamic array for collecting curves/bands during font loading
+typedef struct {
+	void*   data;
+	int32_t count;
+	int32_t capacity;
+	int32_t elem_size;
+} text_array_t;
+
+///////////////////////////////////////////////////////////////////////////////
+// Internal Array Helpers
+///////////////////////////////////////////////////////////////////////////////
+
+static inline void _text_array_init(text_array_t* arr, int32_t elem_size) {
+	arr->data      = NULL;
+	arr->count     = 0;
+	arr->capacity  = 0;
+	arr->elem_size = elem_size;
+}
+
+static inline void _text_array_free(text_array_t* arr) {
+	if (arr->data) {
+		free(arr->data);
+		arr->data     = NULL;
+		arr->count    = 0;
+		arr->capacity = 0;
+	}
+}
+
+static inline void* _text_array_push(text_array_t* arr) {
+	if (arr->count >= arr->capacity) {
+		arr->capacity = arr->capacity == 0 ? 64 : arr->capacity * 2;
+		arr->data     = realloc(arr->data, arr->capacity * arr->elem_size);
+	}
+	void* ptr = (char*)arr->data + arr->count * arr->elem_size;
+	arr->count++;
+	return ptr;
+}
+
+static inline void* _text_array_at(text_array_t* arr, int32_t index) {
+	return (char*)arr->data + index * arr->elem_size;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Font Structure
@@ -123,7 +231,7 @@ static void _extract_glyph_curves(
 	float*          out_min_y,
 	float*          out_max_y
 ) {
-	stbtt_vertex* vertices = NULL;
+	stbtt_vertex* vertices     = NULL;
 	int32_t       num_vertices = stbtt_GetGlyphShape(font, glyph_index, &vertices);
 
 	*out_min_y =  1e10f;
@@ -137,8 +245,8 @@ static void _extract_glyph_curves(
 
 	for (int32_t i = 0; i < num_vertices; i++) {
 		stbtt_vertex* v = &vertices[i];
-		float x  = v->x * scale;
-		float y  = v->y * scale;
+		float x   = v->x  * scale;
+		float y   = v->y  * scale;
 		float cx1 = v->cx * scale;
 		float cy1 = v->cy * scale;
 
@@ -237,24 +345,23 @@ static void _extract_glyph_curves(
 // Font Loading
 ///////////////////////////////////////////////////////////////////////////////
 
-text_font_t* text_font_load(const char* filename) {
+text_font_t* text_font_load(const void* ttf_data, size_t ttf_size) {
+	if (!ttf_data || ttf_size == 0) return NULL;
+
 	text_font_t* font = calloc(1, sizeof(text_font_t));
 	if (!font) return NULL;
 
-	// Load TTF file
-	void*  ttf_data;
-	size_t ttf_size;
-	if (!su_file_read(filename, &ttf_data, &ttf_size)) {
-		su_log(su_log_warning, "text: Failed to load font file: %s", filename);
+	// Copy TTF data (stb_truetype needs it to remain valid)
+	font->ttf_data = malloc(ttf_size);
+	if (!font->ttf_data) {
 		free(font);
 		return NULL;
 	}
-	font->ttf_data = ttf_data;
+	memcpy(font->ttf_data, ttf_data, ttf_size);
 
 	// Initialize stb_truetype
-	if (!stbtt_InitFont(&font->stb_font, ttf_data, 0)) {
-		su_log(su_log_warning, "text: Failed to parse font: %s", filename);
-		free(ttf_data);
+	if (!stbtt_InitFont(&font->stb_font, font->ttf_data, 0)) {
+		free(font->ttf_data);
 		free(font);
 		return NULL;
 	}
@@ -276,7 +383,7 @@ text_font_t* text_font_load(const char* filename) {
 	text_array_t band_curves;   // Band-organized curves (final, uploaded to GPU)
 
 	_text_array_init(&temp_curves, sizeof(text_curve_t));
-	_text_array_init(&all_bands,   sizeof(text_band_t));
+	_text_array_init(&all_bands,   sizeof(text_band_t ));
 	_text_array_init(&band_curves, sizeof(text_curve_t));
 
 	// Process each ASCII character
@@ -304,8 +411,7 @@ text_font_t* text_font_load(const char* filename) {
 		// Extract curves for this glyph into temp array
 		temp_curves.count = 0;  // Reset for each glyph
 		float glyph_min_y, glyph_max_y;
-		_extract_glyph_curves(&font->stb_font, glyph->stb_glyph, scale,
-		                      &temp_curves, &glyph_min_y, &glyph_max_y);
+		_extract_glyph_curves(&font->stb_font, glyph->stb_glyph, scale, &temp_curves, &glyph_min_y, &glyph_max_y);
 
 		glyph->gpu.curve_count = (uint32_t)temp_curves.count;
 		glyph->gpu.curve_start = (uint32_t)band_curves.count;  // Points to band-organized curves
@@ -343,19 +449,14 @@ text_font_t* text_font_load(const char* filename) {
 	for (int32_t i = 0; i < TEXT_ASCII_COUNT; i++) {
 		glyph_gpu_data[i] = font->glyphs[i].gpu;
 	}
-	skr_buffer_create(glyph_gpu_data, TEXT_ASCII_COUNT, sizeof(text_glyph_gpu_t),
-	                  skr_buffer_type_storage, skr_use_static, &font->glyph_buffer);
+	skr_buffer_create  (glyph_gpu_data, TEXT_ASCII_COUNT, sizeof(text_glyph_gpu_t), skr_buffer_type_storage, skr_use_static, &font->glyph_buffer);
 	skr_buffer_set_name(&font->glyph_buffer, "text_glyphs");
 
-	int32_t total_curves = band_curves.count;
-	int32_t total_bands  = all_bands.count;
 	_text_array_free(&temp_curves);
-	_text_array_free(&all_bands);
+	_text_array_free(&all_bands  );
 	_text_array_free(&band_curves);
 
 	font->valid = true;
-	su_log(su_log_info, "text: Loaded font %s (%d curves, %d bands)", filename, total_curves, total_bands);
-
 	return font;
 }
 
@@ -363,7 +464,7 @@ void text_font_destroy(text_font_t* font) {
 	if (!font) return;
 
 	skr_buffer_destroy(&font->curve_buffer);
-	skr_buffer_destroy(&font->band_buffer);
+	skr_buffer_destroy(&font->band_buffer );
 	skr_buffer_destroy(&font->glyph_buffer);
 
 	if (font->ttf_data) {
@@ -373,19 +474,19 @@ void text_font_destroy(text_font_t* font) {
 	free(font);
 }
 
-bool text_font_is_valid(text_font_t* font) {
+bool text_font_is_valid(const text_font_t* font) {
 	return font && font->valid;
 }
 
-float text_font_get_ascent(text_font_t* font) {
+float text_font_get_ascent(const text_font_t* font) {
 	return font ? font->ascent : 0;
 }
 
-float text_font_get_descent(text_font_t* font) {
+float text_font_get_descent(const text_font_t* font) {
 	return font ? font->descent : 0;
 }
 
-float text_font_get_line_gap(text_font_t* font) {
+float text_font_get_line_gap(const text_font_t* font) {
 	return font ? font->line_gap : 0;
 }
 
@@ -407,7 +508,7 @@ text_context_t* text_context_create(text_font_t* font, skr_shader_t* shader, skr
 	// The quad spans [0,1] in X and Y, scaled by glyph bounds in shader
 	typedef struct {
 		float position[2];
-		float uv[2];
+		float uv      [2];
 	} quad_vertex_t;
 
 	skr_vert_type_create(
@@ -424,8 +525,7 @@ text_context_t* text_context_create(text_font_t* font, skr_shader_t* shader, skr
 	};
 	uint16_t quad_indices[] = { 0, 1, 2, 2, 3, 0 };
 
-	skr_mesh_create(&ctx->quad_vertex_type, skr_index_fmt_u16,
-	                quad_verts, 4, quad_indices, 6, &ctx->quad_mesh);
+	skr_mesh_create  (&ctx->quad_vertex_type, skr_index_fmt_u16, quad_verts, 4, quad_indices, 6, &ctx->quad_mesh);
 	skr_mesh_set_name(&ctx->quad_mesh, "text_quad");
 
 	return ctx;
@@ -449,12 +549,12 @@ void text_context_clear(text_context_t* ctx) {
 // Text Layout & Rendering
 ///////////////////////////////////////////////////////////////////////////////
 
-float text_measure_width(text_font_t* font, const char* text) {
+float text_measure_width(const text_font_t* font, const char* text) {
 	if (!font || !text) return 0;
 
-	float width = 0;
-	const char* p = text;
-	int32_t prev_codepoint = 0;
+	float       width          = 0;
+	const char* p              = text;
+	int32_t     prev_codepoint = 0;
 
 	while (*p) {
 		int32_t codepoint = (int32_t)(unsigned char)*p;
@@ -463,8 +563,8 @@ float text_measure_width(text_font_t* font, const char* text) {
 			continue;
 		}
 
-		int32_t idx = codepoint - TEXT_ASCII_START;
-		text_glyph_t* glyph = &font->glyphs[idx];
+		int32_t             idx   = codepoint - TEXT_ASCII_START;
+		const text_glyph_t* glyph = &font->glyphs[idx];
 
 		// Add kerning
 		if (prev_codepoint) {
@@ -472,7 +572,7 @@ float text_measure_width(text_font_t* font, const char* text) {
 			width += kern / font->units_per_em;
 		}
 
-		width += glyph->gpu.advance;
+		width         += glyph->gpu.advance;
 		prev_codepoint = codepoint;
 		p++;
 	}
@@ -490,12 +590,12 @@ void text_add(
 ) {
 	if (!ctx || !text || ctx->instance_count >= TEXT_MAX_INSTANCES) return;
 
-	text_font_t* font = ctx->font;
-	float scale = size;  // Size is in world units, font is normalized
+	text_font_t* font  = ctx->font;
+	float        scale = size;  // Size is in world units, font is normalized
 
 	// Measure text width for alignment
 	float text_width = text_measure_width(font, text) * scale;
-	float offset_x = 0;
+	float offset_x   = 0;
 
 	switch (align) {
 	case text_align_left:   offset_x = 0;                break;
@@ -504,9 +604,9 @@ void text_add(
 	}
 
 	// Process each character
-	float cursor_x = offset_x;
-	const char* p = text;
-	int32_t prev_codepoint = 0;
+	float       cursor_x       = offset_x;
+	const char* p              = text;
+	int32_t     prev_codepoint = 0;
 
 	while (*p && ctx->instance_count < TEXT_MAX_INSTANCES) {
 		int32_t codepoint = (int32_t)(unsigned char)*p;
@@ -515,7 +615,7 @@ void text_add(
 			continue;
 		}
 
-		int32_t idx = codepoint - TEXT_ASCII_START;
+		int32_t       idx   = codepoint - TEXT_ASCII_START;
 		text_glyph_t* glyph = &font->glyphs[idx];
 
 		// Add kerning
@@ -564,10 +664,9 @@ void text_render(text_context_t* ctx, skr_render_list_t* render_list) {
 
 	// Bind font data buffers to material
 	skr_material_set_buffer(ctx->material, "curves", &ctx->font->curve_buffer);
-	skr_material_set_buffer(ctx->material, "bands",  &ctx->font->band_buffer);
+	skr_material_set_buffer(ctx->material, "bands",  &ctx->font->band_buffer );
 	skr_material_set_buffer(ctx->material, "glyphs", &ctx->font->glyph_buffer);
 
 	// Add to render list with instance data (automatic instancing via t2/space0)
-	skr_render_list_add(render_list, &ctx->quad_mesh, ctx->material,
-	                    ctx->instances, sizeof(text_instance_t), ctx->instance_count);
+	skr_render_list_add(render_list, &ctx->quad_mesh, ctx->material, ctx->instances, sizeof(text_instance_t), ctx->instance_count);
 }

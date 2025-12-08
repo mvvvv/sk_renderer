@@ -29,24 +29,69 @@ typedef struct {
 	float           rotation_speed;
 	float           font_size;
 	bool            enable_rotation;
-	int32_t         align_mode;  // 0=left, 1=center, 2=right
+	int32_t         align_mode;   // 0=left, 1=center, 2=right
+	char*           font_path;    // Current font path (for display)
 } scene_text_t;
+
+// Helper to get just the filename from a path
+static const char* _get_filename(const char* path) {
+	if (!path) return "(none)";
+	const char* last_slash = strrchr(path, '/');
+	if (!last_slash) last_slash = strrchr(path, '\\');
+	return last_slash ? last_slash + 1 : path;
+}
+
+// Helper to load a font from a file path
+static text_font_t* _load_font_file(const char* path) {
+	void*  data;
+	size_t size;
+	if (!su_file_read(path, &data, &size)) {
+		su_log(su_log_warning, "scene_text: Failed to read font file: %s", path);
+		return NULL;
+	}
+	text_font_t* font = text_font_load(data, size);
+	free(data);
+	if (!text_font_is_valid(font)) {
+		su_log(su_log_warning, "scene_text: Failed to parse font: %s", path);
+		text_font_destroy(font);
+		return NULL;
+	}
+	su_log(su_log_info, "scene_text: Loaded font: %s", _get_filename(path));
+	return font;
+}
+
+// Helper to reload font from a path
+static void _reload_font_from_path(scene_text_t* scene, const char* path) {
+	text_font_t* new_font = _load_font_file(path);
+	if (!new_font) return;
+
+	// Destroy old context and font
+	text_context_destroy(scene->text_ctx);
+	text_font_destroy(scene->font);
+
+	// Set up new font
+	scene->font = new_font;
+	if (scene->font_path) free(scene->font_path);
+	scene->font_path = strdup(path);
+	scene->text_ctx = text_context_create(scene->font, &scene->text_shader, &scene->text_material);
+}
 
 static scene_t* _scene_text_create(void) {
 	scene_text_t* scene = calloc(1, sizeof(scene_text_t));
 	if (!scene) return NULL;
 
-	scene->base.size      = sizeof(scene_text_t);
-	scene->time           = 0.0f;
-	scene->rotation_speed = 0.3f;
-	scene->font_size      = 2.0f;
+	scene->base.size       = sizeof(scene_text_t);
+	scene->time            = 0.0f;
+	scene->rotation_speed  = 0.3f;
+	scene->font_size       = 2.0f;
 	scene->enable_rotation = false;
-	scene->align_mode     = 1;  // Center by default
+	scene->align_mode      = 1;  // Center by default
+	scene->font_path       = strdup("CascadiaMono.ttf");
 
 	// Load font
-	scene->font = text_font_load("CascadiaMono.ttf");
-	if (!text_font_is_valid(scene->font)) {
-		su_log(su_log_warning, "scene_text: Failed to load font");
+	scene->font = _load_font_file("CascadiaMono.ttf");
+	if (!scene->font) {
+		free(scene->font_path);
 		free(scene);
 		return NULL;
 	}
@@ -65,7 +110,7 @@ static scene_t* _scene_text_create(void) {
 		.shader      = &scene->text_shader,
 		.cull        = skr_cull_none,      // Double-sided for 3D viewing
 		.depth_test  = skr_compare_less,
-		.blend_state = skr_blend_alpha,    // For anti-aliased edges
+		.alpha_to_coverage = true,    // For anti-aliased edges
 	}, &scene->text_material);
 
 	// Create text context
@@ -90,6 +135,7 @@ static void _scene_text_destroy(scene_t* base) {
 	text_font_destroy(scene->font);
 	skr_material_destroy(&scene->text_material);
 	skr_shader_destroy(&scene->text_shader);
+	if (scene->font_path) free(scene->font_path);
 
 	free(scene);
 }
@@ -177,6 +223,19 @@ static void _scene_text_render_ui(scene_t* base) {
 
 	igText("Vector Text Settings");
 	igSeparator();
+
+	// Font display and picker
+	igText("Font: %s", _get_filename(scene->font_path));
+	if (su_file_dialog_supported()) {
+		igSameLine(0, 5);
+		if (igButton("Browse...", (ImVec2){0, 0})) {
+			char* path = su_file_dialog_open("Select Font", "Font Files", "ttf;otf");
+			if (path) {
+				_reload_font_from_path(scene, path);
+				free(path);
+			}
+		}
+	}
 
 	igSliderFloat("Font Size", &scene->font_size, 0.1f, 1.0f, "%.2f", 0);
 	igSliderFloat("Rotation Speed", &scene->rotation_speed, 0.0f, 2.0f, "%.2f", 0);

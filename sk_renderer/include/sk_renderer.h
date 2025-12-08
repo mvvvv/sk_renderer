@@ -310,7 +310,7 @@ typedef struct skr_tex_sampler_t {
 	skr_tex_sample_      sample;
 	skr_tex_address_     address;
 	skr_compare_         sample_compare;
-	int32_t             anisotropy;
+	int32_t              anisotropy;
 } skr_tex_sampler_t;
 
 typedef struct skr_blend_state_t {

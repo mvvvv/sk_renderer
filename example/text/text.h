@@ -8,7 +8,12 @@
 // Text can be rendered in 3D space with perfect quality at any scale or angle.
 //
 // Usage:
-//   text_font_t*    font = text_font_load("assets/CascadiaMono.ttf");
+//   // Load TTF file into memory (use your own file I/O)
+//   void* ttf_data; size_t ttf_size;
+//   load_file("CascadiaMono.ttf", &ttf_data, &ttf_size);
+//
+//   text_font_t*    font = text_font_load(ttf_data, ttf_size);
+//   free(ttf_data);  // Font copies data internally
 //   text_context_t* ctx  = text_context_create(font, &shader, &material);
 //
 //   // Each frame:
@@ -47,10 +52,12 @@ typedef enum {
 // Font Management
 ///////////////////////////////////////////////////////////////////////////////
 
-
-text_font_t* text_font_load    (const char* filename); // Load a TrueType font file and extract glyph curves for GPU rendering. Returns NULL on failure.
-void         text_font_destroy (text_font_t* font); // Destroy a font and release all GPU resources.
-bool         text_font_is_valid(text_font_t* font); // Check if font is valid (successfully loaded).
+// Load a TrueType font from memory and extract glyph curves for GPU rendering.
+// The data is copied internally, so the caller can free it after this returns.
+// Returns NULL on failure.
+text_font_t* text_font_load    (const void* ttf_data, size_t ttf_size);
+void         text_font_destroy (      text_font_t* font); // Destroy a font and release all GPU resources.
+bool         text_font_is_valid(const text_font_t* font); // Check if font is valid (successfully loaded).
 
 ///////////////////////////////////////////////////////////////////////////////
 // Text Context
@@ -94,10 +101,10 @@ void text_render(text_context_t* ctx, skr_render_list_t* render_list);
 ///////////////////////////////////////////////////////////////////////////////
 
 
-float text_font_get_ascent  (text_font_t* font);// Get the ascender height in normalized units (typically ~0.8-1.0)
-float text_font_get_descent (text_font_t* font);// Get the descender depth in normalized units (typically ~-0.2)
-float text_font_get_line_gap(text_font_t* font);// Get the line gap in normalized units
-float text_measure_width    (text_font_t* font, const char* text); // Measure the width of a text string in normalized units. Multiply by size to get world units.
+float text_font_get_ascent  (const text_font_t* font);// Get the ascender height in normalized units (typically ~0.8-1.0)
+float text_font_get_descent (const text_font_t* font);// Get the descender depth in normalized units (typically ~-0.2)
+float text_font_get_line_gap(const text_font_t* font);// Get the line gap in normalized units
+float text_measure_width    (const text_font_t* font, const char* text); // Measure the width of a text string in normalized units. Multiply by size to get world units.
 
 #ifdef __cplusplus
 }

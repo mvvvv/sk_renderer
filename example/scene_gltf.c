@@ -14,108 +14,6 @@
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui.h>
 
-// Platform-specific file dialog support
-#if defined(_WIN32)
-	#define HAS_FILE_DIALOG 1
-	#define WIN32_LEAN_AND_MEAN
-	#include <windows.h>
-	#include <commdlg.h>
-#elif defined(__linux__) && !defined(__ANDROID__)
-	#define HAS_FILE_DIALOG 1
-	#include <stdio.h>
-#else
-	#define HAS_FILE_DIALOG 0
-#endif
-
-#if HAS_FILE_DIALOG
-// Opens a file dialog and returns the selected path, or NULL if cancelled.
-// filter_exts: semicolon-separated extensions (e.g., "jpg;png;hdr")
-// Caller must free the returned string.
-static char* _open_file_dialog(const char* title, const char* filter_desc, const char* filter_exts) {
-#if defined(_WIN32)
-	char filename[MAX_PATH] = {0};
-
-	// Build filter string: "Description\0*.ext1;*.ext2\0\0"
-	char filter[512];
-	char pattern[256] = {0};
-
-	// Convert "jpg;png;hdr" to "*.jpg;*.png;*.hdr"
-	const char* src = filter_exts;
-	char* dst = pattern;
-	char* dst_end = pattern + sizeof(pattern) - 3;
-	while (*src && dst < dst_end) {
-		if (dst != pattern) *dst++ = ';';
-		*dst++ = '*';
-		*dst++ = '.';
-		while (*src && *src != ';' && dst < dst_end) {
-			*dst++ = *src++;
-		}
-		if (*src == ';') src++;
-	}
-	*dst = '\0';
-
-	int32_t len = snprintf(filter, sizeof(filter) - 1, "%s (%s)%c%s%c", filter_desc, pattern, '\0', pattern, '\0');
-	filter[len + 1] = '\0';  // Double null terminator
-
-	OPENFILENAMEA ofn = {0};
-	ofn.lStructSize  = sizeof(ofn);
-	ofn.hwndOwner    = NULL;
-	ofn.lpstrFilter  = filter;
-	ofn.lpstrFile    = filename;
-	ofn.nMaxFile     = MAX_PATH;
-	ofn.lpstrTitle   = title;
-	ofn.Flags        = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-
-	if (GetOpenFileNameA(&ofn)) {
-		return strdup(filename);
-	}
-	return NULL;
-
-#elif defined(__linux__)
-	// Build pattern for zenity: "*.jpg *.png *.hdr" and kdialog: "*.jpg *.png *.hdr"
-	char pattern[256] = {0};
-	const char* src = filter_exts;
-	char* dst = pattern;
-	char* dst_end = pattern + sizeof(pattern) - 3;
-	while (*src && dst < dst_end) {
-		if (dst != pattern) *dst++ = ' ';
-		*dst++ = '*';
-		*dst++ = '.';
-		while (*src && *src != ';' && dst < dst_end) {
-			*dst++ = *src++;
-		}
-		if (*src == ';') src++;
-	}
-	*dst = '\0';
-
-	// Try zenity first (GTK), then kdialog (KDE)
-	char command[512];
-	snprintf(command, sizeof(command),
-		"zenity --file-selection --title=\"%s\" --file-filter=\"%s | %s\" 2>/dev/null || "
-		"kdialog --getopenfilename . \"%s\" --title \"%s\" 2>/dev/null",
-		title, filter_desc, pattern, pattern, title);
-
-	FILE* pipe = popen(command, "r");
-	if (!pipe) return NULL;
-
-	char path[1024] = {0};
-	if (fgets(path, sizeof(path), pipe)) {
-		// Remove trailing newline
-		size_t len = strlen(path);
-		if (len > 0 && path[len - 1] == '\n') {
-			path[len - 1] = '\0';
-		}
-	}
-	pclose(pipe);
-
-	if (path[0] != '\0') {
-		return strdup(path);
-	}
-	return NULL;
-#endif
-}
-#endif // HAS_FILE_DIALOG
-
 // GLTF scene - displays a loaded GLTF model with environment mapping
 typedef struct scene_gltf_t {
 	scene_t        base;
@@ -432,20 +330,20 @@ static void _scene_gltf_render_ui(scene_t* base) {
 	igText("Status: %s", state_str);
 	igSliderFloat("Scale", &scene->model_scale, 0.1f, 5.0f, "%.2f", 0);
 
-#if HAS_FILE_DIALOG
-	if (igButton("Load GLTF...", (ImVec2){-1, 0})) {
-		char* path = _open_file_dialog("Select GLTF Model", "GLTF Files", "glb;gltf");
-		if (path) {
-			_load_model(scene, path);
-			free(path);
+	if (su_file_dialog_supported()) {
+		if (igButton("Load GLTF...", (ImVec2){-1, 0})) {
+			char* path = su_file_dialog_open("Select GLTF Model", "GLTF Files", "glb;gltf");
+			if (path) {
+				_load_model(scene, path);
+				free(path);
+			}
 		}
+	} else {
+		igBeginDisabled(true);
+		igButton("Load GLTF...", (ImVec2){-1, 0});
+		igEndDisabled();
+		igTextDisabled("(File dialog not available)");
 	}
-#else
-	igBeginDisabled(true);
-	igButton("Load GLTF...", (ImVec2){-1, 0});
-	igEndDisabled();
-	igTextDisabled("(File dialog not available)");
-#endif
 
 	igSeparator();
 
@@ -453,19 +351,19 @@ static void _scene_gltf_render_ui(scene_t* base) {
 	igText("Skybox: %s", _get_filename(scene->skybox_path));
 	igText("Cubemap: %s", scene->cubemap_ready ? "Ready" : "Not loaded");
 
-#if HAS_FILE_DIALOG
-	if (igButton("Load Skybox...", (ImVec2){-1, 0})) {
-		char* path = _open_file_dialog("Select Skybox Image", "Image Files", "hdr;jpg;png");
-		if (path) {
-			_load_skybox(scene, path);
-			free(path);
+	if (su_file_dialog_supported()) {
+		if (igButton("Load Skybox...", (ImVec2){-1, 0})) {
+			char* path = su_file_dialog_open("Select Skybox Image", "Image Files", "hdr;jpg;png");
+			if (path) {
+				_load_skybox(scene, path);
+				free(path);
+			}
 		}
+	} else {
+		igBeginDisabled(true);
+		igButton("Load Skybox...", (ImVec2){-1, 0});
+		igEndDisabled();
 	}
-#else
-	igBeginDisabled(true);
-	igButton("Load Skybox...", (ImVec2){-1, 0});
-	igEndDisabled();
-#endif
 }
 
 const scene_vtable_t scene_gltf_vtable = {
