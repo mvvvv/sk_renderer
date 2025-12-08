@@ -30,9 +30,11 @@ typedef struct {
 	float p0[2];        // Start point
 	float p1[2];        // Control point
 	float p2[2];        // End point
-	float y_min;        // Minimum Y of curve bounding box
-	float y_max;        // Maximum Y of curve bounding box
-} text_curve_t;         // 32 bytes, 16-byte aligned
+	float x_min;        // Curve bounding box (precomputed for GPU)
+	float x_max;
+	float y_min;
+	float y_max;
+} text_curve_t;         // 40 bytes
 
 // Horizontal band - references curves that cross this Y range
 // Bands enable O(n/bands) curve testing instead of O(n) per pixel
@@ -221,6 +223,33 @@ static void _organize_curves_into_bands(
 // Curve Extraction
 ///////////////////////////////////////////////////////////////////////////////
 
+// Compute tight AABB for a quadratic Bezier curve (IQ's method)
+// https://iquilezles.org/articles/bezierbbox/
+static void _compute_curve_aabb(
+	float p0x, float p0y,
+	float p1x, float p1y,
+	float p2x, float p2y,
+	float* out_x_min, float* out_x_max,
+	float* out_y_min, float* out_y_max
+) {
+	float ax = p0x - 2.0f * p1x + p2x;
+	float ay = p0y - 2.0f * p1y + p2y;
+	float bx = p1x - p0x;
+	float by = p1y - p0y;
+
+	// Clamp t to [0,1] - handles degenerate cases naturally
+	float tx = (fabsf(ax) > 1e-8f) ? fminf(fmaxf(-bx / ax, 0.0f), 1.0f) : 0.0f;
+	float ty = (fabsf(ay) > 1e-8f) ? fminf(fmaxf(-by / ay, 0.0f), 1.0f) : 0.0f;
+
+	float qx = p0x + tx * (2.0f * bx + tx * ax);
+	float qy = p0y + ty * (2.0f * by + ty * ay);
+
+	*out_x_min = fminf(fminf(p0x, p2x), qx);
+	*out_x_max = fmaxf(fmaxf(p0x, p2x), qx);
+	*out_y_min = fminf(fminf(p0y, p2y), qy);
+	*out_y_max = fmaxf(fmaxf(p0y, p2y), qy);
+}
+
 // Extract quadratic Bezier curves from a glyph shape.
 // stb_truetype provides shapes as move/line/curve commands.
 static void _extract_glyph_curves(
@@ -268,14 +297,15 @@ static void _extract_glyph_curves(
 				curve->p2[0] = x;
 				curve->p2[1] = y;
 
-				// Compute Y bounds
-				float y_min = fminf(cy, y);
-				float y_max = fmaxf(cy, y);
-				curve->y_min = y_min;
-				curve->y_max = y_max;
+				_compute_curve_aabb(
+					curve->p0[0], curve->p0[1],
+					curve->p1[0], curve->p1[1],
+					curve->p2[0], curve->p2[1],
+					&curve->x_min, &curve->x_max,
+					&curve->y_min, &curve->y_max);
 
-				*out_min_y = fminf(*out_min_y, y_min);
-				*out_max_y = fmaxf(*out_max_y, y_max);
+				*out_min_y = fminf(*out_min_y, curve->y_min);
+				*out_max_y = fmaxf(*out_max_y, curve->y_max);
 
 				cx = x;
 				cy = y;
@@ -293,14 +323,15 @@ static void _extract_glyph_curves(
 				curve->p2[0] = x;
 				curve->p2[1] = y;
 
-				// Compute Y bounds (include control point for conservative bounds)
-				float y_min = fminf(fminf(cy, y), cy1);
-				float y_max = fmaxf(fmaxf(cy, y), cy1);
-				curve->y_min = y_min;
-				curve->y_max = y_max;
+				_compute_curve_aabb(
+					curve->p0[0], curve->p0[1],
+					curve->p1[0], curve->p1[1],
+					curve->p2[0], curve->p2[1],
+					&curve->x_min, &curve->x_max,
+					&curve->y_min, &curve->y_max);
 
-				*out_min_y = fminf(*out_min_y, y_min);
-				*out_max_y = fmaxf(*out_max_y, y_max);
+				*out_min_y = fminf(*out_min_y, curve->y_min);
+				*out_max_y = fmaxf(*out_max_y, curve->y_max);
 
 				cx = x;
 				cy = y;
@@ -323,13 +354,15 @@ static void _extract_glyph_curves(
 				curve->p2[0] = x;
 				curve->p2[1] = y;
 
-				float y_min = fminf(fminf(fminf(cy, y), cy1), cy2);
-				float y_max = fmaxf(fmaxf(fmaxf(cy, y), cy1), cy2);
-				curve->y_min = y_min;
-				curve->y_max = y_max;
+				_compute_curve_aabb(
+					curve->p0[0], curve->p0[1],
+					curve->p1[0], curve->p1[1],
+					curve->p2[0], curve->p2[1],
+					&curve->x_min, &curve->x_max,
+					&curve->y_min, &curve->y_max);
 
-				*out_min_y = fminf(*out_min_y, y_min);
-				*out_max_y = fmaxf(*out_max_y, y_max);
+				*out_min_y = fminf(*out_min_y, curve->y_min);
+				*out_max_y = fmaxf(*out_max_y, curve->y_max);
 
 				cx = x;
 				cy = y;
