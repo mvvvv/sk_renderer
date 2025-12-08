@@ -267,6 +267,7 @@ typedef enum skr_write_ {
 	skr_write_a       = 1 << 3,
 	skr_write_depth   = 1 << 4,
 	skr_write_stencil = 1 << 5,
+	skr_write_none    = 1 << 6,
 	skr_write_rgba    = skr_write_r | skr_write_g | skr_write_b | skr_write_a,
 	skr_write_default = skr_write_r | skr_write_g | skr_write_b | skr_write_a | skr_write_depth
 } skr_write_;
