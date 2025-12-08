@@ -109,7 +109,7 @@ int main(int argc, char* argv[]) {
 #else
 	window = SDL_CreateWindow("sk_renderer_test",
 		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		1280, 720,
+		2560, 1440,
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
 #endif
 	if (!window) {

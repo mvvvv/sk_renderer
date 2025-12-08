@@ -119,7 +119,9 @@ target_sources            (sk_renderer_test PRIVATE
 	scene_gltf.c
 	scene_shadows.c
 	scene_cloth.c
+	scene_text.c
 	bloom.c
+	text/text.c
 	tools/scene_util.c
 	imgui_backend/imgui_impl_sk_renderer.cpp
 	imgui_backend/imgui_sdl2_wrapper.cpp
@@ -174,6 +176,7 @@ skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH}/shaders ""
 	assets/shaders/shadow_receiver.hlsl
 	assets/shaders/stereo_display.hlsl
 	assets/shaders/test.hlsl
+	assets/shaders/text.hlsl
 	assets/shaders/texture3d.hlsl
 	assets/shaders/video.hlsl
 )

@@ -272,6 +272,21 @@ skr_shader_t su_shader_load(const char* filename, const char* opt_name);
 float su_hash_f(int32_t position, uint32_t seed);
 
 ///////////////////////////////////////////////////////////////////////////////
+// File Dialog
+///////////////////////////////////////////////////////////////////////////////
+
+// Check if file dialogs are supported on this platform
+// Returns true on Windows and Linux (non-Android)
+bool su_file_dialog_supported(void);
+
+// Opens a native file dialog and returns the selected path
+// title: Dialog window title
+// filter_desc: Human-readable description (e.g., "Image Files")
+// filter_exts: Semicolon-separated extensions (e.g., "jpg;png;hdr")
+// Returns: Selected file path (caller must free), or NULL if cancelled
+char* su_file_dialog_open(const char* title, const char* filter_desc, const char* filter_exts);
+
+///////////////////////////////////////////////////////////////////////////////
 // GLTF Loading
 ///////////////////////////////////////////////////////////////////////////////
 

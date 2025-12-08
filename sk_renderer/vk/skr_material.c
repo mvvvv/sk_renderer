@@ -29,6 +29,12 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 
 	// Store material info
 	out_material->info = info;
+
+	// Default write_mask to skr_write_default if not specified
+	if (out_material->info.write_mask == 0) {
+		out_material->info.write_mask = skr_write_default;
+	}
+
 	if (out_material->info.shader->meta) {
 		sksc_shader_meta_reference(out_material->info.shader->meta);
 	}
