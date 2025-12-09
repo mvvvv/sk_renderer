@@ -427,7 +427,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 
 	skr_buffer_t param_buffer = {0};
 	if (material->param_buffer_size > 0) {
-		skr_buffer_create(material->param_buffer, 1, material->param_buffer_size, skr_buffer_type_constant, skr_use_static, &param_buffer);
+		skr_buffer_create(material->param_buffer, 1, material->param_buffer_size, skr_buffer_type_constant, skr_use_dynamic, &param_buffer);
 
 		buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
 			.buffer = param_buffer.buffer,
