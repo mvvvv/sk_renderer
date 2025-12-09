@@ -94,7 +94,7 @@ static scene_t* _scene_text_create(void) {
 	scene->base.size       = sizeof(scene_text_t);
 	scene->time            = 0.0f;
 	scene->rotation_speed  = 0.3f;
-	scene->font_size       = 2.0f;
+	scene->font_size       = 0.5f;
 	scene->enable_rotation = false;
 	scene->align_mode      = 1;  // Center by default
 	scene->font_path       = strdup("CascadiaMono.ttf");
@@ -103,7 +103,7 @@ static scene_t* _scene_text_create(void) {
 	scene->cam_yaw          = 0.0f;
 	scene->cam_pitch        = 0.0f;
 	scene->cam_distance     = 10.0f;
-	scene->cam_target       = (float3){ 0.0f, -1.0f, -4.0f };
+	scene->cam_target       = (float3){ 0.0f, 0, -4.0f };
 	scene->cam_yaw_vel      = 0.0f;
 	scene->cam_pitch_vel    = 0.0f;
 	scene->cam_distance_vel = 0.0f;
@@ -237,67 +237,182 @@ static void _scene_text_render(scene_t* base, int32_t width, int32_t height,
 	// Clear previous frame's text
 	text_context_clear(scene->text_ctx);
 
-	// Get alignment from UI setting
-	text_align_t align = (text_align_t)scene->align_mode;
-
-	// Calculate rotation
+	// Calculate rotation (optional, controlled by UI)
 	float rot_angle = scene->enable_rotation ? scene->time * scene->rotation_speed : 0;
 	float4 rotation = float4_quat_from_euler((float3){ 0, rot_angle, 0 });
 
-	// Main title - large rotating text
+	// Dynamic grid layout with varied cell sizes
+	// Grid spans X: -10 to +10, Y: 3 to -8
+	const float Z = -4.0f;
+
+	// Grid metrics
+	const float GRID_LEFT   = -10.0f;
+	const float GRID_RIGHT  =  10.0f;
+	const float GRID_TOP    =   5.5f;
+	const float GRID_WIDTH  =  20.0f;
+	const float CELL_H      =   2.0f;  // Base cell height
+	const float CELL_W      =   6.0f;  // Base cell height
+	const float GAP         =   0.2f;  // Gap between cells
+	const float GAP_W       =   1.0f;  // Gap between cells
+
+	// === TITLE: Full width banner ===
 	{
-		float4x4 transform = float4x4_trs(
-			(float3){ 0, 1.5f, -4 },
-			rotation,
-			(float3){ 1, 1, 1 }
+		float4x4 transform = float4x4_trs((float3){ 0, GRID_TOP, Z }, rotation, (float3){ 1, 1, 1 });
+		text_add_in(scene->text_ctx,
+			"Vector Text Rendering",
+			transform,
+			(float2){ GRID_WIDTH, CELL_H },
+			scene->font_size * 2.0f,
+			text_fit_squeeze,
+			text_pivot_top_center,
+			text_align_center_center,
+			(float2){ 0, 0 },
+			(float4){ 1.0f, 1.0f, 1.0f, 1.0f }
 		);
-		text_add(scene->text_ctx, "Vector Text",
-		         transform, scene->font_size * 1.5f,
-		         (float4){ 1.0f, 1.0f, 1.0f, 1.0f }, align);
 	}
 
-	// Subtitle
+	// === LEFT COLUMN: Large paragraph block (spans 3 rows) ===
 	{
-		float4x4 transform = float4x4_trs(
-			(float3){ 0, 0.7f, -4 },
-			rotation,
-			(float3){ 1, 1, 1 }
+		float box_w = CELL_W;
+		float box_h = CELL_H * 3 + GAP * 2;
+		float4x4 transform = float4x4_trs((float3){ GRID_LEFT, GRID_TOP - (CELL_H + GAP), Z }, rotation, (float3){ 1, 1, 1 });
+		text_add_in(scene->text_ctx,
+			"He was born in the ash among the Velothi, anon Chimer, before the war with the northern men. Ayem came first to the village of the netchimen, and her shadow was that of Boethiah, who was the Prince of Plots, and things unknown and known would fold themselves around her until they were like stars or the messages of stars.",
+			transform,
+			(float2){ box_w, box_h },
+			scene->font_size * 0.5f,
+			text_fit_wrap,
+			text_pivot_top_left,
+			text_align_top_left,
+			(float2){ 0, 0 },
+			(float4){ 0.85f, 0.9f, 0.95f, 1.0f }  // Light steel
 		);
-		text_add(scene->text_ctx, "GPU Curve Evaluation",
-		         transform, scene->font_size * 0.7f,
-		         (float4){ 0.7f, 0.9f, 1.0f, 1.0f }, align);
 	}
 
-	// Demo text at different sizes - including Unicode!
-	const char* demo_texts[] = {
-		"Resolution Independent",
-		"Привет мир! Cyrillic",      // Russian: "Hello world!"
-		"日本語テキスト Chinese/Japanese", // "Japanese text"
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-		"0123456789 αβγδ €£¥",       // Greek letters and currency symbols
-	};
-	int32_t num_demos = sizeof(demo_texts) / sizeof(demo_texts[0]);
-
-	float y_offset = 0.0f;
-	for (int32_t i = 0; i < num_demos; i++) {
-		float size = scene->font_size * (0.6f - i * 0.08f);
-		if (size < 0.1f) size = 0.1f;
-
-		// Alternate colors
-		float4 color = (i % 2 == 0)
-			? (float4){ 0.9f, 0.9f, 0.7f, 1.0f }
-			: (float4){ 0.7f, 0.9f, 0.8f, 1.0f };
-
-		float4x4 transform = float4x4_trs(
-			(float3){ 0, y_offset, -4 },
-			rotation,
-			(float3){ 1, 1, 1 }
+	// === RIGHT COLUMN TOP: Alignment showcase ===
+	{
+		float box_w = CELL_W * 2 + GAP_W;
+		float box_h = CELL_H * 2;
+		float x = GRID_RIGHT - box_w;
+		float4x4 transform = float4x4_trs((float3){ x + box_w, GRID_TOP - (CELL_H + GAP), Z }, rotation, (float3){ 1, 1, 1 });
+		text_add_in(scene->text_ctx,
+			"Bezier curves evaluated directly in the fragment shader on the GPU, unlimited size, unlimited detail!",
+			transform,
+			(float2){ box_w, box_h },
+			scene->font_size * 0.75f,
+			text_fit_wrap,
+			text_pivot_top_right,
+			text_align_top_right,
+			(float2){ 0, 0 },
+			(float4){ 0.6f, 0.8f, 1.0f, 1.0f }  // Sky blue
 		);
-
-		text_add(scene->text_ctx, demo_texts[i], transform, size, color, align);
-		y_offset -= size * 1.5f;
 	}
-	
+
+	// === RIGHT COLUMN BOTTOM: Centered quote ===
+	{
+		float box_w = CELL_W;
+		float box_h = CELL_H;
+		float x = GRID_LEFT + CELL_W*2 + GAP_W*2;
+		float y = GRID_TOP - CELL_H * 2 - GAP * 1;
+		float4x4 transform = float4x4_trs((float3){ x + box_w / 2, y, Z }, rotation, (float3){ 1, 1, 1 });
+		text_add_in(scene->text_ctx,
+			"\"Why walk when you can ride?\"\n- Caravaner",
+			transform,
+			(float2){ box_w, box_h },
+			scene->font_size,
+			text_fit_squeeze,
+			text_pivot_top_center,
+			text_align_center_center,
+			(float2){ 0, 0 },
+			(float4){ 1.0f, 0.9f, 0.7f, 1.0f }  // Warm cream
+		);
+	}
+
+	// === BOTTOM LEFT: Unicode showcase ===
+	{
+		float box_w = CELL_W;
+		float box_h = CELL_H * 2 + GAP;
+		float y = GRID_TOP - CELL_H * 3 - GAP * 2;
+		float4x4 transform = float4x4_trs((float3){ GRID_LEFT, y, Z }, rotation, (float3){ 1, 1, 1 });
+		text_add_in(scene->text_ctx,
+			"Unicode Support\n\n"
+			"Latin: ABC xyz\n"
+			"Greek: αβγ δεζ\n"
+			"Cyrillic: АБВ где\n"
+			"Symbols: ★ ♠ ♥ ♦ ♣",
+			transform,
+			(float2){ box_w, box_h },
+			scene->font_size * 0.9f,
+			text_fit_wrap,
+			text_pivot_top_left,
+			text_align_top_left,
+			(float2){ 0, 0 },
+			(float4){ 0.7f, 1.0f, 0.8f, 1.0f }  // Mint
+		);
+	}
+
+	// === BOTTOM CENTER: Math & symbols ===
+	{
+		float box_w = CELL_W;
+		float box_h = CELL_H * 2 + GAP;
+		float y = GRID_TOP - CELL_H * 2 - GAP * 1;
+		float4x4 transform = float4x4_trs((float3){ 0, y, Z }, rotation, (float3){ 1, 1, 1 });
+		text_add_in(scene->text_ctx,
+			"Mathematics\n\n"
+			"π ≈ 3.14159...\n"
+			"e ≈ 2.71828...\n"
+			"φ ≈ 1.61803...\n"
+			"∞ × 0 ≠ ∞\n"
+			"∑ ∏ ∫ √ ∂\n"
+			"∀x ∈ ℝ: x² ≥ 0\n"
+			"∃n ∈ ℕ: n > 0",
+			transform,
+			(float2){ box_w, box_h },
+			scene->font_size * 0.9f,
+			text_fit_squeeze,
+			text_pivot_top_center,
+			text_align_top_center,
+			(float2){ 0, 0 },
+			(float4){ 1.0f, 0.8f, 0.9f, 1.0f }  // Rose
+		);
+	}
+
+	// === BOTTOM RIGHT: Fit mode demo ===
+	{
+		float box_w = CELL_W;
+		float box_h = CELL_H * 2 + GAP;
+		float y = GRID_TOP - CELL_H * 3 - GAP * 2;
+		float4x4 transform = float4x4_trs((float3){ GRID_RIGHT, y, Z }, rotation, (float3){ 1, 1, 1 });
+		text_add_in(scene->text_ctx,
+			"EXACT FIT MODE\nScales text to fill\nthe entire box",
+			transform,
+			(float2){ box_w, box_h },
+			scene->font_size,
+			text_fit_exact,
+			text_pivot_top_right,
+			text_align_top_center,
+			(float2){ 0, 0 },
+			(float4){ 0.9f, 0.7f, 0.5f, 1.0f }  // Copper
+		);
+	}
+
+	// === FOOTER: Technical info ===
+	{
+		float y = GRID_TOP - CELL_H * 5 - GAP * 4;
+		float4x4 transform = float4x4_trs((float3){ 0, y, Z }, rotation, (float3){ 1, 1, 1 });
+		text_add_in(scene->text_ctx,
+			"Quadratic Bezier curves • Horizontal band optimization • Lazy glyph loading • Full UTF-8 support",
+			transform,
+			(float2){ GRID_WIDTH, CELL_H },
+			scene->font_size * 0.7f,
+			text_fit_squeeze,
+			text_pivot_top_center,
+			text_align_top_center,
+			(float2){ 0, 0 },
+			(float4){ 0.5f, 0.5f, 0.55f, 1.0f }  // Dim gray
+		);
+	}
+
 	// Submit all text to render list
 	text_render(scene->text_ctx, ref_render_list);
 }
@@ -321,7 +436,7 @@ static void _scene_text_render_ui(scene_t* base) {
 		}
 	}
 
-	igSliderFloat("Font Size", &scene->font_size, 0.1f, 1.0f, "%.2f", 0);
+	igSliderFloat("Font Size", &scene->font_size, 0.1f, 4.0f, "%.2f", 0);
 	igSliderFloat("Rotation Speed", &scene->rotation_speed, 0.0f, 2.0f, "%.2f", 0);
 	igCheckbox("Enable Rotation", &scene->enable_rotation);
 
@@ -339,7 +454,7 @@ static void _scene_text_render_ui(scene_t* base) {
 		scene->cam_yaw          = 0.0f;
 		scene->cam_pitch        = 0.0f;
 		scene->cam_distance     = 10.0f;
-		scene->cam_target       = (float3){ 0.0f, -1.0f, -4.0f };
+		scene->cam_target       = (float3){ 0.0f, 0, -4.0f };
 		scene->cam_yaw_vel      = 0.0f;
 		scene->cam_pitch_vel    = 0.0f;
 		scene->cam_distance_vel = 0.0f;

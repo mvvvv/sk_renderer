@@ -52,6 +52,60 @@ typedef enum {
 	text_align_right
 } text_align_t;
 
+// Extended alignment flags (can be combined with |)
+// Controls how text aligns within its bounding box
+typedef enum {
+	text_align_x_left   = 1 << 0,  // On the X axis, start on the left
+	text_align_y_top    = 1 << 1,  // On the Y axis, start at the top
+	text_align_x_center = 1 << 2,  // On the X axis, center the item
+	text_align_y_center = 1 << 3,  // On the Y axis, center the item
+	text_align_x_right  = 1 << 4,  // On the X axis, start on the right
+	text_align_y_bottom = 1 << 5,  // On the Y axis, start at the bottom
+
+	// Common combinations
+	text_align_top_left     = text_align_x_left   | text_align_y_top,
+	text_align_top_center   = text_align_x_center | text_align_y_top,
+	text_align_top_right    = text_align_x_right  | text_align_y_top,
+	text_align_center_left  = text_align_x_left   | text_align_y_center,
+	text_align_center_center= text_align_x_center | text_align_y_center,
+	text_align_center_right = text_align_x_right  | text_align_y_center,
+	text_align_bottom_left  = text_align_x_left   | text_align_y_bottom,
+	text_align_bottom_center= text_align_x_center | text_align_y_bottom,
+	text_align_bottom_right = text_align_x_right  | text_align_y_bottom,
+} text_align2_t;
+
+// Pivot point flags - where the transform origin is relative to the text box
+// Same bit values as text_align2_t but with semantic naming for clarity
+typedef enum {
+	text_pivot_x_left   = 1 << 0,  // Origin at left edge
+	text_pivot_y_top    = 1 << 1,  // Origin at top edge
+	text_pivot_x_center = 1 << 2,  // Origin at horizontal center
+	text_pivot_y_center = 1 << 3,  // Origin at vertical center
+	text_pivot_x_right  = 1 << 4,  // Origin at right edge
+	text_pivot_y_bottom = 1 << 5,  // Origin at bottom edge
+
+	// Common combinations
+	text_pivot_top_left     = text_pivot_x_left   | text_pivot_y_top,
+	text_pivot_top_center   = text_pivot_x_center | text_pivot_y_top,
+	text_pivot_top_right    = text_pivot_x_right  | text_pivot_y_top,
+	text_pivot_center_left  = text_pivot_x_left   | text_pivot_y_center,
+	text_pivot_center       = text_pivot_x_center | text_pivot_y_center,
+	text_pivot_center_right = text_pivot_x_right  | text_pivot_y_center,
+	text_pivot_bottom_left  = text_pivot_x_left   | text_pivot_y_bottom,
+	text_pivot_bottom_center= text_pivot_x_center | text_pivot_y_bottom,
+	text_pivot_bottom_right = text_pivot_x_right  | text_pivot_y_bottom,
+} text_pivot_t;
+
+// How text fits within a bounding box
+typedef enum {
+	text_fit_none     = 0,       // No special behavior
+	text_fit_wrap     = 1 << 0,  // Wrap text to next line at box width
+	text_fit_clip     = 1 << 1,  // Truncate text that exceeds box
+	text_fit_squeeze  = 1 << 2,  // Scale down if too large (won't scale up)
+	text_fit_exact    = 1 << 3,  // Scale to fit exactly (up or down)
+	text_fit_overflow = 1 << 4,  // Ignore box, keep going
+} text_fit_t;
+
 ///////////////////////////////////////////////////////////////////////////////
 // Font Management
 ///////////////////////////////////////////////////////////////////////////////
@@ -135,6 +189,56 @@ void text_add(
 
 // text_measure_width() is an alias for text_measure_width_utf8()
 float text_measure_width(const text_font_t* font, const char* text);
+
+///////////////////////////////////////////////////////////////////////////////
+// Advanced Text Layout - UTF-8
+///////////////////////////////////////////////////////////////////////////////
+
+// Add text within a bounding box with full layout control.
+//
+// Parameters:
+//   ctx       - Text context
+//   text      - UTF-8 text string (NULL-terminated)
+//   transform - World transform for the text box origin
+//   box_size  - Size of the bounding box in world units (width, height)
+//   font_size - Base font size in world units (height of capital letters)
+//   fit       - How text should fit within the box (wrap, clip, squeeze, etc.)
+//   pivot     - Where the transform origin is relative to the box
+//   align     - How text aligns within the box (X and Y)
+//   offset    - Offset for scrolling text within the box
+//   color     - RGBA color
+//
+// Returns: Actual size of the rendered text (useful for layout)
+float2 text_add_in_utf8(
+	text_context_t* ctx,
+	const char*     text,
+	float4x4        transform,
+	float2          box_size,
+	float           font_size,
+	text_fit_t      fit,
+	text_pivot_t    pivot,
+	text_align2_t   align,
+	float2          offset,
+	float4          color
+);
+
+// Measure text size with wrapping support.
+// Returns (width, height) in normalized units. Multiply by font size for world units.
+float2 text_measure_utf8(text_font_t* font, const char* text, float wrap_width);
+
+// text_add_in() is an alias for text_add_in_utf8()
+float2 text_add_in(
+	text_context_t* ctx,
+	const char*     text,
+	float4x4        transform,
+	float2          box_size,
+	float           font_size,
+	text_fit_t      fit,
+	text_pivot_t    pivot,
+	text_align2_t   align,
+	float2          offset,
+	float4          color
+);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Rendering

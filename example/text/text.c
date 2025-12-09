@@ -1234,6 +1234,403 @@ void text_add(
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// Advanced Text Layout
+///////////////////////////////////////////////////////////////////////////////
+
+// Check if a character is a valid break point for word wrapping
+static inline bool _is_breakable(uint32_t c) {
+	return c == ' ' || c == '-' || c == '/' || c == '\\' ||
+	       c == '|' || c == '\n' || c == '\r' || c == '\t';
+}
+
+// Helper: Measure a line of text up to a given pointer
+static float _measure_line(text_font_t* font, const char* start, const char* end) {
+	float       width          = 0;
+	const char* p              = start;
+	uint32_t    prev_codepoint = 0;
+
+	while (p < end && *p) {
+		uint32_t codepoint = _utf8_next(&p);
+		if (codepoint == 0) break;
+
+		text_glyph_t* glyph = _get_glyph(font, codepoint);
+		if (!glyph) continue;
+
+		if (prev_codepoint) {
+			int32_t kern = stbtt_GetCodepointKernAdvance(&font->stb_font, prev_codepoint, codepoint);
+			width += kern * font->scale;
+		}
+
+		width += glyph->gpu.advance;
+		prev_codepoint = codepoint;
+	}
+
+	return width;
+}
+
+float2 text_measure_utf8(text_font_t* font, const char* text, float wrap_width) {
+	if (!font || !text) return (float2){ 0, 0 };
+
+	float line_height = font->ascent - font->descent + font->line_gap;
+	float max_width   = 0;
+	float total_height= line_height;  // At least one line
+
+	// No wrapping: measure all lines separated by newlines
+	if (wrap_width <= 0) {
+		const char* p = text;
+		const char* line_start = text;
+		while (*p) {
+			if (*p == '\n') {
+				float lw = _measure_line(font, line_start, p);
+				if (lw > max_width) max_width = lw;
+				if (*(p + 1)) total_height += line_height;
+				p++;
+				line_start = p;
+			} else {
+				p++;
+			}
+		}
+		// Final line
+		float lw = _measure_line(font, line_start, p);
+		if (lw > max_width) max_width = lw;
+		return (float2){ max_width, total_height };
+	}
+
+	// Word-based wrapping
+	const char* p               = text;
+	const char* line_start      = text;
+	const char* last_break      = NULL;   // Last breakable position
+	const char* last_break_next = NULL;   // Position after last break char
+	float       line_width      = 0;
+	float       width_at_break  = 0;
+	uint32_t    prev_codepoint  = 0;
+
+	while (*p) {
+		// Handle explicit newlines
+		if (*p == '\n') {
+			if (line_width > max_width) max_width = line_width;
+			total_height += line_height;
+			p++;
+			line_start      = p;
+			last_break      = NULL;
+			last_break_next = NULL;
+			line_width      = 0;
+			prev_codepoint  = 0;
+			continue;
+		}
+
+		const char* char_start = p;
+		uint32_t codepoint = _utf8_next(&p);
+		if (codepoint == 0) break;
+
+		text_glyph_t* glyph = _get_glyph(font, codepoint);
+		if (!glyph) continue;
+
+		float char_width = glyph->gpu.advance;
+		if (prev_codepoint) {
+			int32_t kern = stbtt_GetCodepointKernAdvance(&font->stb_font, prev_codepoint, codepoint);
+			char_width += kern * font->scale;
+		}
+
+		// Check if this is a breakable character
+		if (_is_breakable(codepoint)) {
+			last_break      = char_start;
+			last_break_next = p;
+			width_at_break  = line_width + char_width;
+		}
+
+		// Check if we need to wrap
+		if (line_width + char_width > wrap_width && line_width > 0) {
+			// Try to break at last breakable position
+			if (last_break && last_break > line_start) {
+				// Break at word boundary
+				if (width_at_break > max_width) max_width = width_at_break;
+				total_height += line_height;
+
+				// Start new line after the break
+				line_start      = last_break_next;
+				line_width      = _measure_line(font, last_break_next, p) + char_width;
+				last_break      = NULL;
+				last_break_next = NULL;
+				prev_codepoint  = 0;
+
+				// Re-measure from break point to current position
+				line_width = _measure_line(font, line_start, p);
+			} else {
+				// No break point found - break mid-word (emergency)
+				if (line_width > max_width) max_width = line_width;
+				total_height += line_height;
+				line_start      = char_start;
+				line_width      = char_width;
+				last_break      = NULL;
+				last_break_next = NULL;
+				prev_codepoint  = 0;
+			}
+		} else {
+			line_width += char_width;
+			prev_codepoint = codepoint;
+		}
+	}
+
+	// Account for final line
+	if (line_width > max_width) max_width = line_width;
+
+	return (float2){ max_width, total_height };
+}
+
+float2 text_add_in_utf8(
+	text_context_t* ctx,
+	const char*     text,
+	float4x4        transform,
+	float2          box_size,
+	float           font_size,
+	text_fit_t      fit,
+	text_pivot_t    pivot,
+	text_align2_t   align,
+	float2          offset,
+	float4          color
+) {
+	if (!ctx || !text || ctx->instance_count >= TEXT_MAX_INSTANCES) {
+		return (float2){ 0, 0 };
+	}
+	if (font_size <= 0) font_size = 1.0f;
+
+	text_font_t* font = ctx->font;
+	float line_height = font->ascent - font->descent + font->line_gap;
+
+	// Determine wrap width in normalized font units (0 = no wrapping)
+	// For exact mode, wrap at box width (will scale to fit after)
+	// For other modes, wrap at box width / font_size to account for scaling
+	float wrap_width = 0;
+	if (fit & text_fit_wrap) {
+		if (fit & text_fit_exact) {
+			wrap_width = box_size.x;  // Exact mode scales to fit, wrap at box size
+		} else {
+			wrap_width = box_size.x / font_size;  // Wrap at normalized width for font_size
+		}
+	}
+
+	// Measure the text to determine natural size (in normalized font units)
+	float2 natural_size = text_measure_utf8(font, text, wrap_width);
+
+	// Calculate scale factor based on fit mode
+	float scale = font_size;
+	if (fit & text_fit_exact) {
+		// Scale to fit exactly (ignores font_size)
+		float scale_x = (natural_size.x > 0) ? box_size.x / natural_size.x : 1.0f;
+		float scale_y = (natural_size.y > 0) ? box_size.y / natural_size.y : 1.0f;
+		scale = fminf(scale_x, scale_y);
+	} else if (fit & text_fit_squeeze) {
+		// Scale down only if text at font_size doesn't fit
+		float size_x = natural_size.x * font_size;
+		float size_y = natural_size.y * font_size;
+		if (size_x > box_size.x || size_y > box_size.y) {
+			float scale_x = (natural_size.x > 0) ? box_size.x / natural_size.x : font_size;
+			float scale_y = (natural_size.y > 0) ? box_size.y / natural_size.y : font_size;
+			scale = fminf(scale_x, scale_y);
+		}
+		// Otherwise scale stays at font_size
+	}
+
+	// Scaled text size
+	float2 text_size = { natural_size.x * scale, natural_size.y * scale };
+
+	// Calculate pivot offset (where the origin is on the box)
+	float2 pivot_offset = { 0, 0 };
+	if      (pivot & text_align_x_center) pivot_offset.x = -box_size.x / 2;
+	else if (pivot & text_align_x_right ) pivot_offset.x = -box_size.x;
+	if      (pivot & text_align_y_center) pivot_offset.y = -box_size.y / 2;
+	else if (pivot & text_align_y_bottom) pivot_offset.y = -box_size.y;
+
+	// Calculate alignment offset (where text sits in the box)
+	// X: positive moves text right within box
+	// Y: negative moves text down (since Y+ is up)
+	float2 align_offset = { 0, 0 };
+	if      (align & text_align_x_center) align_offset.x =  (box_size.x - text_size.x) / 2;
+	else if (align & text_align_x_right ) align_offset.x =   box_size.x - text_size.x;
+	if      (align & text_align_y_center) align_offset.y = -(box_size.y - text_size.y) / 2;
+	else if (align & text_align_y_bottom) align_offset.y = -(box_size.y - text_size.y);
+
+	// Calculate baseline Y position based on pivot
+	// The pivot determines where the box top is in local coordinates:
+	// - Top pivot: box top at y=0, extends downward to y=-box_size.y
+	// - Center pivot: box top at y=box_size.y/2, extends to y=-box_size.y/2
+	// - Bottom pivot: box top at y=box_size.y, extends to y=0
+	float box_top_y;
+	if      (pivot & text_align_y_bottom) box_top_y = box_size.y;
+	else if (pivot & text_align_y_center) box_top_y = box_size.y / 2;
+	else                                  box_top_y = 0;  // Top pivot
+
+	// First baseline is ascent below the box top
+	float baseline_y = box_top_y - font->ascent * scale;
+
+	// Combined offset: pivot (X only) + alignment + user scroll offset
+	// Note: pivot_offset.y is already accounted for in baseline_y calculation
+	float2 total_offset = {
+		pivot_offset.x + align_offset.x + offset.x,
+		align_offset.y + offset.y
+	};
+
+	// Build lines for rendering
+	const char* p          = text;
+	const char* line_start = text;
+	float       cursor_y   = baseline_y + total_offset.y;
+	float       line_width = 0;
+	uint32_t    prev_codepoint = 0;
+
+	// Helper to render a line
+	#define RENDER_LINE(start, end, y_pos) do { \
+		float lw = _measure_line(font, start, end) * scale; \
+		float line_x_offset = 0; \
+		if      (align & text_align_x_center) line_x_offset = (box_size.x - lw) / 2; \
+		else if (align & text_align_x_right ) line_x_offset =  box_size.x - lw; \
+		\
+		float cursor_x = pivot_offset.x + line_x_offset + offset.x; \
+		const char* lp = start; \
+		uint32_t lprev = 0; \
+		while (lp < end && *lp && ctx->instance_count < TEXT_MAX_INSTANCES) { \
+			uint32_t cp = _utf8_next(&lp); \
+			if (cp == 0 || cp == '\n') break; \
+			text_glyph_t* glyph = _get_glyph(font, cp); \
+			if (!glyph) continue; \
+			if (lprev) { \
+				int32_t kern = stbtt_GetCodepointKernAdvance(&font->stb_font, lprev, cp); \
+				cursor_x += kern * font->scale * scale; \
+			} \
+			bool in_clip_bounds = !(fit & text_fit_clip) || \
+				(cursor_x >= pivot_offset.x - scale && \
+				 cursor_x <= pivot_offset.x + box_size.x + scale && \
+				 y_pos >= pivot_offset.y - scale && \
+				 y_pos <= pivot_offset.y + box_size.y + scale); \
+			if (glyph->gpu.curve_count > 0 && in_clip_bounds) { \
+				float4x4 local = float4x4_trs( \
+					(float3){ cursor_x, y_pos, 0 }, \
+					(float4){ 0, 0, 0, 1 }, \
+					(float3){ scale, scale, 1 } \
+				); \
+				float4x4 final = float4x4_mul(transform, local); \
+				text_instance_t* inst = &ctx->instances[ctx->instance_count++]; \
+				inst->pos[0]   = final.m[3]; \
+				inst->pos[1]   = final.m[7]; \
+				inst->pos[2]   = final.m[11]; \
+				inst->right[0] = final.m[0]; \
+				inst->right[1] = final.m[4]; \
+				inst->right[2] = final.m[8]; \
+				inst->up[0]    = final.m[1]; \
+				inst->up[1]    = final.m[5]; \
+				inst->up[2]    = final.m[9]; \
+				inst->glyph_index = glyph->gpu_index; \
+				inst->_pad = 0; \
+				uint32_t r = (uint32_t)(color.x * 255.0f) & 0xFF; \
+				uint32_t g = (uint32_t)(color.y * 255.0f) & 0xFF; \
+				uint32_t b = (uint32_t)(color.z * 255.0f) & 0xFF; \
+				uint32_t a = (uint32_t)(color.w * 255.0f) & 0xFF; \
+				inst->color = r | (g << 8) | (b << 16) | (a << 24); \
+			} \
+			cursor_x += glyph->gpu.advance * scale; \
+			lprev = cp; \
+		} \
+	} while(0)
+
+	// Process text with word-based line breaking
+	p = text;
+	line_start = text;
+	line_width = 0;
+	prev_codepoint = 0;
+
+	const char* last_break      = NULL;   // Last breakable position
+	const char* last_break_next = NULL;   // Position after last break char
+
+	while (*p) {
+		// Handle explicit newlines
+		if (*p == '\n') {
+			RENDER_LINE(line_start, p, cursor_y);
+			cursor_y -= line_height * scale;
+			p++;
+			line_start      = p;
+			last_break      = NULL;
+			last_break_next = NULL;
+			line_width      = 0;
+			prev_codepoint  = 0;
+			continue;
+		}
+
+		const char* char_start = p;
+		uint32_t codepoint = _utf8_next(&p);
+		if (codepoint == 0) break;
+
+		text_glyph_t* glyph = _get_glyph(font, codepoint);
+		if (!glyph) continue;
+
+		float char_width = glyph->gpu.advance;
+		if (prev_codepoint) {
+			int32_t kern = stbtt_GetCodepointKernAdvance(&font->stb_font, prev_codepoint, codepoint);
+			char_width += kern * font->scale;
+		}
+
+		// Track breakable positions
+		if (_is_breakable(codepoint)) {
+			last_break      = char_start;
+			last_break_next = p;
+		}
+
+		// Check wrap
+		if ((fit & text_fit_wrap) && line_width + char_width > wrap_width && line_width > 0) {
+			// Try to break at last breakable position
+			if (last_break && last_break > line_start) {
+				// Break at word boundary - render up to and including the break char
+				RENDER_LINE(line_start, last_break_next, cursor_y);
+				cursor_y -= line_height * scale;
+
+				// Start new line after the break
+				line_start      = last_break_next;
+				line_width      = _measure_line(font, last_break_next, p);
+				last_break      = NULL;
+				last_break_next = NULL;
+				prev_codepoint  = 0;
+			} else {
+				// No break point found - break mid-word (emergency)
+				RENDER_LINE(line_start, char_start, cursor_y);
+				cursor_y -= line_height * scale;
+
+				line_start      = char_start;
+				line_width      = char_width;
+				last_break      = NULL;
+				last_break_next = NULL;
+				prev_codepoint  = 0;
+			}
+		} else {
+			line_width += char_width;
+			prev_codepoint = codepoint;
+		}
+	}
+
+	// Render final line
+	if (line_start < p) {
+		RENDER_LINE(line_start, p, cursor_y);
+	}
+
+	#undef RENDER_LINE
+
+	return text_size;
+}
+
+float2 text_add_in(
+	text_context_t* ctx,
+	const char*     text,
+	float4x4        transform,
+	float2          box_size,
+	float           font_size,
+	text_fit_t      fit,
+	text_pivot_t    pivot,
+	text_align2_t   align,
+	float2          offset,
+	float4          color
+) {
+	return text_add_in_utf8(ctx, text, transform, box_size, font_size, fit, pivot, align, offset, color);
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // Rendering
 ///////////////////////////////////////////////////////////////////////////////
 
