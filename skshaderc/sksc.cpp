@@ -36,8 +36,9 @@ bool sksc_compile(const char *filename, const char *hlsl_text, sksc_settings_t *
 	*out_file->meta = {};
 	 out_file->meta->references = 1;
 
-	array_t<sksc_shader_file_stage_t> stages   = {};
-	array_t<sksc_meta_item_t>         var_meta = sksc_meta_find_defaults(hlsl_text);
+	array_t<sksc_shader_file_stage_t> stages       = {};
+	array_t<sksc_meta_item_t>         var_meta     = sksc_meta_find_defaults(hlsl_text);
+	array_t<sksc_ast_default_t>       ast_defaults = sksc_hlsl_find_initializers(hlsl_text);
 
 	skr_stage_ compile_stages[3] = { skr_stage_vertex, skr_stage_pixel, skr_stage_compute };
 	char*      entrypoints   [3] = { settings->vs_entrypoint, settings->ps_entrypoint, settings->cs_entrypoint };
@@ -65,8 +66,9 @@ bool sksc_compile(const char *filename, const char *hlsl_text, sksc_settings_t *
 			free(spirv_stage.code);
 	}
 
-	sksc_meta_assign_defaults(var_meta, out_file->meta);
+	sksc_meta_assign_defaults(ast_defaults, var_meta, out_file->meta);
 	var_meta.free();
+	ast_defaults.free();
 	out_file->stage_count = (uint32_t)stages.count;
 	out_file->stages      = stages.data;
 
@@ -111,7 +113,7 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 	sksc_log(sksc_log_level_info, "|--Buffer Info--");
 	for (size_t i = 0; i < meta->buffer_count; i++) {
 		sksc_shader_buffer_t *buff = &meta->buffers[i];
-		sksc_log(sksc_log_level_info, "|  %s - %u bytes", buff->name, buff->size);
+		sksc_log(sksc_log_level_info, "|  %s - %u bytes%s", buff->name, buff->size, buff->defaults ? " (has defaults)" : "");
 		for (size_t v = 0; v < buff->var_count; v++) {
 			sksc_shader_var_t *var = &buff->vars[v];
 			const char *type_name = "misc";
@@ -122,7 +124,30 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 			case sksc_shader_var_uint:   type_name = "uint";  break;
 			case sksc_shader_var_uint8:  type_name = "uint8"; break;
 			}
-			sksc_log(sksc_log_level_info, "|    %-15s: +%-4u %5ub - %s[%u]", var->name, var->offset, var->size, type_name, var->type_count);
+
+			// Show default value if present
+			char default_str[256] = "";
+			if (buff->defaults != nullptr) {
+				uint8_t *def_ptr = ((uint8_t *)buff->defaults) + var->offset;
+				int32_t written = 0;
+				written += snprintf(default_str + written, sizeof(default_str) - written, " = ");
+				for (uint32_t c = 0; c < var->type_count; c++) {
+					if (written >= (int32_t)sizeof(default_str) - 16) {
+						written += snprintf(default_str + written, sizeof(default_str) - written, "...");
+						break;
+					}
+					if (c > 0) written += snprintf(default_str + written, sizeof(default_str) - written, ", ");
+					switch (var->type) {
+					case sksc_shader_var_float:  written += snprintf(default_str + written, sizeof(default_str) - written, "%.3g", ((float*)def_ptr)[c]);   break;
+					case sksc_shader_var_double: written += snprintf(default_str + written, sizeof(default_str) - written, "%.3g", ((double*)def_ptr)[c]);  break;
+					case sksc_shader_var_int:    written += snprintf(default_str + written, sizeof(default_str) - written, "%d",   ((int32_t*)def_ptr)[c]); break;
+					case sksc_shader_var_uint:   written += snprintf(default_str + written, sizeof(default_str) - written, "%u",   ((uint32_t*)def_ptr)[c]); break;
+					case sksc_shader_var_uint8:  written += snprintf(default_str + written, sizeof(default_str) - written, "%u",   def_ptr[c]);             break;
+					default: break;
+					}
+				}
+			}
+			sksc_log(sksc_log_level_info, "|    %-15s: +%-4u %5ub - %s[%u]%s", var->name, var->offset, var->size, type_name, var->type_count, default_str);
 		}
 	}
 

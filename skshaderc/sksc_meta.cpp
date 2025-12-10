@@ -16,6 +16,281 @@ int  strcmp_nocase (char const *a, char const *b);
 void parse_semantic(const char* str, char* out_str, int32_t* out_idx);
 
 ///////////////////////////////////////////
+// HLSL Source Initializer Parser        //
+///////////////////////////////////////////
+
+static bool _is_identifier_char(char c) {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+static bool _is_whitespace(char c) {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+static const char *_skip_to_line_end(const char *c) {
+	while (*c && *c != '\n') c++;
+	return c;
+}
+
+static const char *_skip_block_comment(const char *c) {
+	c += 2; // skip /*
+	while (*c && !(*c == '*' && *(c+1) == '/')) c++;
+	if (*c) c += 2; // skip */
+	return c;
+}
+
+static const char *_skip_whitespace_and_comments(const char *c) {
+	while (*c) {
+		if (_is_whitespace(*c)) {
+			c++;
+		} else if (*c == '/' && *(c+1) == '/') {
+			c = _skip_to_line_end(c);
+		} else if (*c == '/' && *(c+1) == '*') {
+			c = _skip_block_comment(c);
+		} else {
+			break;
+		}
+	}
+	return c;
+}
+
+// Skip a balanced brace block { ... }
+static const char *_skip_brace_block(const char *c) {
+	if (*c != '{') return c;
+	c++;
+	int32_t depth = 1;
+	while (*c && depth > 0) {
+		if (*c == '{') depth++;
+		else if (*c == '}') depth--;
+		else if (*c == '/' && *(c+1) == '/') c = _skip_to_line_end(c) - 1;
+		else if (*c == '/' && *(c+1) == '*') { c = _skip_block_comment(c) - 1; }
+		c++;
+	}
+	return c;
+}
+
+static bool _is_identifier_start(char c) {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+// Parse numeric values from an initializer expression
+// Handles: 1.0, float3(1,2,3), {1,2,3,4}, -0.5, etc.
+static int32_t _parse_initializer_values(const char *start, const char *end, double *out_values, int32_t max_values) {
+	int32_t count = 0;
+	const char *c = start;
+
+	while (c < end && count < max_values) {
+		c = _skip_whitespace_and_comments(c);
+		if (c >= end) break;
+
+		// Handle true/false before identifier skip
+		if (strncmp(c, "true", 4) == 0 && !_is_identifier_char(c[4])) {
+			out_values[count++] = 1.0;
+			c += 4;
+			continue;
+		}
+		if (strncmp(c, "false", 5) == 0 && !_is_identifier_char(c[5])) {
+			out_values[count++] = 0.0;
+			c += 5;
+			continue;
+		}
+
+		// Skip type constructors like float3(, float4x4(, etc
+		// Only treat as identifier if it starts with letter/underscore, not digit
+		if (_is_identifier_start(*c)) {
+			while (c < end && _is_identifier_char(*c)) c++;
+			c = _skip_whitespace_and_comments(c);
+			continue;
+		}
+
+		// Skip opening parens/braces
+		if (*c == '(' || *c == '{') { c++; continue; }
+		// Skip closing parens/braces
+		if (*c == ')' || *c == '}') { c++; continue; }
+		// Skip commas
+		if (*c == ',') { c++; continue; }
+
+		// Try to parse a number
+		if (*c == '-' || *c == '+' || *c == '.' || (*c >= '0' && *c <= '9')) {
+			char *num_end;
+			double val = strtod(c, &num_end);
+			if (num_end > c) {
+				out_values[count++] = val;
+				c = num_end;
+				// Skip 'f' suffix
+				if (*c == 'f' || *c == 'F') c++;
+				continue;
+			}
+		}
+
+		// Unknown token, skip it
+		c++;
+	}
+	return count;
+}
+
+array_t<sksc_ast_default_t> sksc_hlsl_find_initializers(const char *hlsl_text) {
+	array_t<sksc_ast_default_t> result = {};
+	const char *c = hlsl_text;
+
+	// Known HLSL scalar/vector/matrix type prefixes
+	static const char * const type_prefixes[] = {
+		"float", "half", "double", "int", "uint", "bool", "min16float", "min10float", "min16int", "min12int", "min16uint"
+	};
+	static const int32_t num_prefixes = sizeof(type_prefixes) / sizeof(type_prefixes[0]);
+
+	while (*c) {
+		c = _skip_whitespace_and_comments(c);
+		if (!*c) break;
+
+		// Skip preprocessor directives
+		if (*c == '#') {
+			c = _skip_to_line_end(c);
+			continue;
+		}
+
+		// Check for keywords that introduce blocks we should skip
+		// struct, cbuffer, tbuffer, class, interface, namespace
+		if (strncmp(c, "struct",    6) == 0 && !_is_identifier_char(c[6])) { c += 6; c = _skip_whitespace_and_comments(c); while (*c && *c != '{') c++; c = _skip_brace_block(c); continue; }
+		if (strncmp(c, "cbuffer",   7) == 0 && !_is_identifier_char(c[7])) { c += 7; c = _skip_whitespace_and_comments(c); while (*c && *c != '{') c++; c = _skip_brace_block(c); continue; }
+		if (strncmp(c, "tbuffer",   7) == 0 && !_is_identifier_char(c[7])) { c += 7; c = _skip_whitespace_and_comments(c); while (*c && *c != '{') c++; c = _skip_brace_block(c); continue; }
+		if (strncmp(c, "class",     5) == 0 && !_is_identifier_char(c[5])) { c += 5; c = _skip_whitespace_and_comments(c); while (*c && *c != '{') c++; c = _skip_brace_block(c); continue; }
+		if (strncmp(c, "interface", 9) == 0 && !_is_identifier_char(c[9])) { c += 9; c = _skip_whitespace_and_comments(c); while (*c && *c != '{') c++; c = _skip_brace_block(c); continue; }
+		if (strncmp(c, "namespace", 9) == 0 && !_is_identifier_char(c[9])) { c += 9; c = _skip_whitespace_and_comments(c); while (*c && *c != '{') c++; c = _skip_brace_block(c); continue; }
+
+		// Check for function definitions (has parens before brace)
+		// Look ahead to see if this looks like a function
+		const char *lookahead = c;
+		while (*lookahead && _is_identifier_char(*lookahead)) lookahead++;
+		lookahead = _skip_whitespace_and_comments(lookahead);
+		// Skip array dimensions
+		while (*lookahead == '[') { while (*lookahead && *lookahead != ']') lookahead++; if (*lookahead) lookahead++; lookahead = _skip_whitespace_and_comments(lookahead); }
+		while (*lookahead && _is_identifier_char(*lookahead)) lookahead++;
+		lookahead = _skip_whitespace_and_comments(lookahead);
+		if (*lookahead == '(') {
+			// This might be a function, skip to after the parens
+			lookahead++;
+			int32_t paren_depth = 1;
+			while (*lookahead && paren_depth > 0) {
+				if (*lookahead == '(') paren_depth++;
+				else if (*lookahead == ')') paren_depth--;
+				lookahead++;
+			}
+			lookahead = _skip_whitespace_and_comments(lookahead);
+			// Skip semantics like : SV_Target
+			if (*lookahead == ':') {
+				lookahead++;
+				lookahead = _skip_whitespace_and_comments(lookahead);
+				while (*lookahead && _is_identifier_char(*lookahead)) lookahead++;
+				lookahead = _skip_whitespace_and_comments(lookahead);
+			}
+			if (*lookahead == '{') {
+				c = _skip_brace_block(lookahead);
+				continue;
+			}
+		}
+
+		// Check if this is a known type
+		bool is_type = false;
+		int32_t type_len = 0;
+		for (int32_t i = 0; i < num_prefixes; i++) {
+			size_t len = strlen(type_prefixes[i]);
+			if (strncmp(c, type_prefixes[i], len) == 0) {
+				// Check it's not part of a larger identifier
+				char next = c[len];
+				// Allow digits for float2, float3x3, etc, or end of type
+				if (!_is_identifier_char(next) || (next >= '0' && next <= '9')) {
+					is_type = true;
+					type_len = (int32_t)len;
+					break;
+				}
+			}
+		}
+
+		if (!is_type) {
+			// Skip this identifier/token
+			if (_is_identifier_char(*c)) {
+				while (*c && _is_identifier_char(*c)) c++;
+			} else {
+				c++;
+			}
+			continue;
+		}
+
+		// We found a type, now parse: type name = initializer;
+		const char *type_start = c;
+		c += type_len;
+		// Skip dimension suffixes like 2, 3, 4, 2x2, 3x3, 4x4
+		while (*c && ((*c >= '0' && *c <= '9') || *c == 'x')) c++;
+
+		c = _skip_whitespace_and_comments(c);
+
+		// Get variable name
+		if (!_is_identifier_char(*c)) continue;
+		const char *name_start = c;
+		while (*c && _is_identifier_char(*c)) c++;
+		const char *name_end = c;
+
+		c = _skip_whitespace_and_comments(c);
+
+		// Skip array dimensions
+		while (*c == '[') {
+			while (*c && *c != ']') c++;
+			if (*c) c++;
+			c = _skip_whitespace_and_comments(c);
+		}
+
+		// Skip semantics : SEMANTIC
+		if (*c == ':') {
+			c++;
+			c = _skip_whitespace_and_comments(c);
+			while (*c && _is_identifier_char(*c)) c++;
+			c = _skip_whitespace_and_comments(c);
+		}
+
+		// Check for initializer
+		if (*c != '=') {
+			// No initializer, skip to semicolon
+			while (*c && *c != ';') c++;
+			if (*c) c++;
+			continue;
+		}
+		c++; // skip =
+		c = _skip_whitespace_and_comments(c);
+
+		// Find end of initializer (semicolon)
+		const char *init_start = c;
+		int32_t brace_depth = 0;
+		int32_t paren_depth = 0;
+		while (*c && !(*c == ';' && brace_depth == 0 && paren_depth == 0)) {
+			if (*c == '{') brace_depth++;
+			else if (*c == '}') brace_depth--;
+			else if (*c == '(') paren_depth++;
+			else if (*c == ')') paren_depth--;
+			c++;
+		}
+		const char *init_end = c;
+
+		// Parse the initializer values
+		sksc_ast_default_t def = {};
+		size_t name_len = name_end - name_start;
+		if (name_len >= sizeof(def.name)) name_len = sizeof(def.name) - 1;
+		memcpy(def.name, name_start, name_len);
+		def.name[name_len] = '\0';
+
+		def.value_count = _parse_initializer_values(init_start, init_end, def.values, 16);
+
+		if (def.value_count > 0) {
+			result.add(def);
+		}
+
+		if (*c == ';') c++;
+	}
+
+	return result;
+}
+
+///////////////////////////////////////////
 
 bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader_meta_t *ref_meta) {
 	// Create reflection data
@@ -451,7 +726,49 @@ array_t<sksc_meta_item_t> sksc_meta_find_defaults(const char *hlsl_text) {
 
 ///////////////////////////////////////////
 
-void sksc_meta_assign_defaults(array_t<sksc_meta_item_t> items, sksc_shader_meta_t *ref_meta) {
+static void _sksc_write_var_default(sksc_shader_buffer_t *buff, sksc_shader_var_t *var, double *values, int32_t value_count) {
+	if (buff->defaults == nullptr) {
+		buff->defaults = malloc(buff->size);
+		memset(buff->defaults, 0, buff->size);
+	}
+
+	uint8_t *write_at = ((uint8_t *)buff->defaults) + var->offset;
+	int32_t  count    = value_count < var->type_count ? value_count : var->type_count;
+
+	for (int32_t i = 0; i < count; i++) {
+		double d = values[i];
+		switch (var->type) {
+		case sksc_shader_var_float:  { float    val = (float   )d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); } break;
+		case sksc_shader_var_double: { double   val =           d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); } break;
+		case sksc_shader_var_int:    { int32_t  val = (int32_t )d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); } break;
+		case sksc_shader_var_uint:   { uint32_t val = (uint32_t)d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); } break;
+		case sksc_shader_var_uint8:  { uint8_t  val = (uint8_t )d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); } break;
+		default: break;
+		}
+	}
+}
+
+///////////////////////////////////////////
+
+void sksc_meta_assign_defaults(array_t<sksc_ast_default_t> ast_defaults, array_t<sksc_meta_item_t> comment_overrides, sksc_shader_meta_t *ref_meta) {
+	sksc_shader_buffer_t *buff = ref_meta->global_buffer_id == -1 ? nullptr : &ref_meta->buffers[ref_meta->global_buffer_id];
+
+	// First, apply AST defaults (actual HLSL initializers)
+	for (size_t i = 0; i < ast_defaults.count; i++) {
+		sksc_ast_default_t *ast = &ast_defaults[i];
+
+		for (size_t v = 0; buff && v < buff->var_count; v++) {
+			if (strcmp(buff->vars[v].name, ast->name) != 0) continue;
+
+			if (buff->vars[v].type == sksc_shader_var_none) continue;
+
+			_sksc_write_var_default(buff, &buff->vars[v], ast->values, ast->value_count);
+			break;
+		}
+	}
+
+	// Then apply comment overrides (//--name: tag = value)
+	// These can add extra metadata (tags) and override AST default values
 	int32_t(*count_ch)(const char *str, char ch) = [](const char *str, char ch) {
 		const char *c      = str;
 		int32_t     result = 0;
@@ -462,16 +779,17 @@ void sksc_meta_assign_defaults(array_t<sksc_meta_item_t> items, sksc_shader_meta
 		return result;
 	};
 
-	for (size_t i = 0; i < items.count; i++) {
-		sksc_meta_item_t*     item  = &items[i];
-		sksc_shader_buffer_t* buff  = ref_meta->global_buffer_id == -1 ? nullptr : &ref_meta->buffers[ref_meta->global_buffer_id];
-		int32_t               found = 0;
+	for (size_t i = 0; i < comment_overrides.count; i++) {
+		sksc_meta_item_t *item  = &comment_overrides[i];
+		int32_t           found = 0;
+
 		for (size_t v = 0; buff && v < buff->var_count; v++) {
 			if (strcmp(buff->vars[v].name, item->name) != 0) continue;
-			
+
 			found += 1;
 			strncpy(buff->vars[v].extra, item->tag, sizeof(buff->vars[v].extra));
 
+			// If no value specified, keep the AST default (if any)
 			if (item->value[0] == '\0') break;
 
 			int32_t commas = count_ch(item->value, ',');
@@ -481,35 +799,27 @@ void sksc_meta_assign_defaults(array_t<sksc_meta_item_t> items, sksc_shader_meta
 			} else if (commas + 1 != buff->vars[v].type_count) {
 				sksc_log_at(sksc_log_level_warn, item->row, item->col, "Default value for --%s has an incorrect number of arguments", item->name);
 			} else {
-				if (buff->defaults == nullptr) {
-					buff->defaults = malloc(buff->size);
-					memset(buff->defaults, 0, buff->size);
-				}
-				uint8_t *write_at = ((uint8_t *)buff->defaults) + buff->vars[v].offset;
+				// Parse comment values into double array and write
+				double values[16];
+				int32_t value_count = 0;
 
 				char *start = item->value;
 				char *end   = strchr(start, ',');
 				char  param[64];
-				for (size_t c = 0; c <= commas; c++) {
-					int32_t length = (int32_t)(end == nullptr ? mini(sizeof(param)-1, strlen(item->value)) : end - start);
+				for (int32_t c = 0; c <= commas && value_count < 16; c++) {
+					int32_t length = (int32_t)(end == nullptr ? mini(sizeof(param)-1, strlen(start)) : end - start);
 					memcpy(param, start, mini(sizeof(param), length));
 					param[length] = '\0';
 
-					double d = atof(param);
-
-					switch (buff->vars[v].type) {
-					case sksc_shader_var_float:  {float    val = (float   )d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); }break;
-					case sksc_shader_var_double: {double   val =           d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); }break;
-					case sksc_shader_var_int:    {int32_t  val = (int32_t )d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); }break;
-					case sksc_shader_var_uint:   {uint32_t val = (uint32_t)d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); }break;
-					case sksc_shader_var_uint8:  {uint8_t  val = (uint8_t )d; memcpy(write_at, &val, sizeof(val)); write_at += sizeof(val); }break;
-					}
+					values[value_count++] = atof(param);
 
 					if (end != nullptr) {
 						start = end + 1;
 						end   = strchr(start, ',');
 					}
 				}
+
+				_sksc_write_var_default(buff, &buff->vars[v], values, value_count);
 			}
 			break;
 		}
@@ -527,7 +837,7 @@ void sksc_meta_assign_defaults(array_t<sksc_meta_item_t> items, sksc_shader_meta
 			found += 1;
 			strncpy(ref_meta->name, item->value, sizeof(ref_meta->name));
 		}
-		
+
 		if (found != 1) {
 			sksc_log_at(sksc_log_level_warn, item->row, item->col, "Can't find shader var named '%s'", item->name);
 		}
