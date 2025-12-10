@@ -86,6 +86,7 @@ typedef struct {
 typedef struct {
 	VkInstance               instance;
 	VkPhysicalDevice         physical_device;
+	VkPhysicalDeviceProperties properties;
 	VkDevice                 device;
 	VkQueue                  graphics_queue;
 	VkQueue                  present_queue;

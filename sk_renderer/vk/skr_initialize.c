@@ -335,14 +335,13 @@ bool skr_init(skr_settings_t settings) {
 	}
 
 	// Get device properties for timing and logging
-	VkPhysicalDeviceProperties device_props;
-	vkGetPhysicalDeviceProperties(_skr_vk.physical_device, &device_props);
+	vkGetPhysicalDeviceProperties(_skr_vk.physical_device, &_skr_vk.properties);
 
 	// Print selected device if we didn't find discrete GPU
-	skr_log(skr_log_info, "Using GPU: %s", device_props.deviceName);
+	skr_log(skr_log_info, "Using GPU: %s", _skr_vk.properties.deviceName);
 
 	// Store timestamp period for GPU timing
-	_skr_vk.timestamp_period = device_props.limits.timestampPeriod;
+	_skr_vk.timestamp_period = _skr_vk.properties.limits.timestampPeriod;
 
 	// Find queue families
 	uint32_t queue_family_count = 0;

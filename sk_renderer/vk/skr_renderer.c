@@ -572,10 +572,22 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		skr_material_t* material = list->items[i].material;
 		if (material == prev_material) continue;
 
+		// Align offset
+		VkDeviceSize align = _skr_vk.properties.limits.minUniformBufferOffsetAlignment;
+		uint32_t padding = 0;
+		if (list->material_data_used % align != 0) {
+			padding = (uint32_t)(align - (list->material_data_used % align));
+		}
+
 		// Resize material param data if needed
-		while (list->material_data_used + material->param_buffer_size > list->material_data_capacity) {
+		while (list->material_data_used + padding + material->param_buffer_size > list->material_data_capacity) {
 			list->material_data_capacity = list->material_data_capacity * 2;
 			list->material_data          = _skr_realloc(list->material_data, list->material_data_capacity);
+		}
+
+		if (padding > 0) {
+			memset(&list->material_data[list->material_data_used], 0, padding);
+			list->material_data_used += padding;
 		}
 
 		memcpy(&list->material_data[list->material_data_used], material->param_buffer, material->param_buffer_size);
@@ -595,6 +607,17 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 	prev_material = NULL;
 	for (uint32_t i = 0; i < list->count; ) {
 		const skr_render_item_t* item = &list->items[i];
+
+		if (item->material != prev_material) {
+			if (prev_material != NULL) {
+				VkDeviceSize align = _skr_vk.properties.limits.minUniformBufferOffsetAlignment;
+				material_data_offset += prev_material->param_buffer_size;
+				if (material_data_offset % align != 0) {
+					material_data_offset += (uint32_t)(align - (material_data_offset % align));
+				}
+			}
+			prev_material = item->material;
+		}
 
 		// Get pipeline from the cache
 		VkPipeline pipeline = _skr_pipeline_get(item->material->pipeline_material_idx, _skr_vk.current_renderpass_idx, item->mesh->vert_type->pipeline_idx);
@@ -727,11 +750,6 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		}
 
 		i += batch_count;
-
-		if (item->material != prev_material) {
-			prev_material         = item->material;
-			material_data_offset += item->material->param_buffer_size;
-		}
 	}
 	_skr_cmd_release(cmd);
 }
