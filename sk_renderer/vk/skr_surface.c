@@ -66,12 +66,14 @@ format_found:
 	// Choose present mode: IMMEDIATE for lowest latency (allows tearing), FIFO for vsync
 	VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
 	//VkPresentModeKHR present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+	/*
 	for (uint32_t i = 0; i < present_mode_count; i++) {
 		if (present_modes[i] == 1000361000) { // VK_PRESENT_MODE_FIFO_LATEST_READY_EXT
 			present_mode = present_modes[i];
 			break;
 		}
 	}
+	*/
 
 	// Determine extent
 	VkExtent2D extent = capabilities.currentExtent;
