@@ -264,13 +264,19 @@ void skr_compute_set_param(skr_compute_t* ref_compute, const char* name, sksc_sh
 	}
 
 	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(ref_compute->shader->meta, var_index);
-	if (!var || var->type != type) {
-		skr_log(skr_log_warning, "Compute parameter '%s' type mismatch", name);
-		return;
-	}
+	if (!var) return;
 
-	uint32_t element_size = _skr_shader_var_size(type);
-	uint32_t copy_size    = element_size * count;
+	// When type is uint8, treat count as raw byte count and skip type check
+	uint32_t copy_size;
+	if (type == sksc_shader_var_uint8) {
+		copy_size = count;
+	} else {
+		if (var->type != type) {
+			skr_log(skr_log_warning, "Compute parameter '%s' type mismatch", name);
+			return;
+		}
+		copy_size = _skr_shader_var_size(type) * count;
+	}
 
 	if (var->offset + copy_size > ref_compute->param_buffer_size) {
 		skr_log(skr_log_warning, "Compute parameter '%s' write would exceed buffer size", name);
@@ -291,13 +297,19 @@ void skr_compute_get_param(const skr_compute_t* compute, const char* name, sksc_
 	}
 
 	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(compute->shader->meta, var_index);
-	if (!var || var->type != type) {
-		skr_log(skr_log_warning, "Compute parameter '%s' type mismatch", name);
-		return;
-	}
+	if (!var) return;
 
-	uint32_t element_size = _skr_shader_var_size(type);
-	uint32_t copy_size    = element_size * count;
+	// When type is uint8, treat count as raw byte count and skip type check
+	uint32_t copy_size;
+	if (type == sksc_shader_var_uint8) {
+		copy_size = count;
+	} else {
+		if (var->type != type) {
+			skr_log(skr_log_warning, "Compute parameter '%s' type mismatch", name);
+			return;
+		}
+		copy_size = _skr_shader_var_size(type) * count;
+	}
 
 	if (var->offset + copy_size > compute->param_buffer_size) {
 		skr_log(skr_log_warning, "Compute parameter '%s' read would exceed buffer size", name);
