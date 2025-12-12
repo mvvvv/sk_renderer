@@ -1309,15 +1309,31 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 		return skr_err_unsupported;
 	}
 
+	// Handle MSAA sample count
+	VkSampleCountFlagBits vk_samples = VK_SAMPLE_COUNT_1_BIT;
+	if (info.multisample > 1) {
+		switch (info.multisample) {
+		case 2:  vk_samples = VK_SAMPLE_COUNT_2_BIT;  break;
+		case 4:  vk_samples = VK_SAMPLE_COUNT_4_BIT;  break;
+		case 8:  vk_samples = VK_SAMPLE_COUNT_8_BIT;  break;
+		case 16: vk_samples = VK_SAMPLE_COUNT_16_BIT; break;
+		default: vk_samples = VK_SAMPLE_COUNT_4_BIT;  break;  // Default to 4x
+		}
+	}
+
+	// Handle array layers
+	int32_t layer_count = info.array_layers > 1 ? info.array_layers : 1;
+	bool is_array = layer_count > 1;
+
 	// Store external image reference
 	out_tex->image       = info.image;
 	out_tex->memory      = info.memory;  // May be VK_NULL_HANDLE for truly external memory
 	out_tex->size        = info.size;
 	out_tex->format      = info.format;
-	out_tex->flags       = 0;
-	out_tex->samples     = VK_SAMPLE_COUNT_1_BIT;
+	out_tex->flags       = is_array ? skr_tex_flags_array : 0;
+	out_tex->samples     = vk_samples;
 	out_tex->mip_levels  = 1;
-	out_tex->layer_count = 1;
+	out_tex->layer_count = layer_count;
 	out_tex->aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
 	out_tex->is_external = !info.owns_image;  // If we don't own it, it's external
 
@@ -1334,14 +1350,14 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 		VkImageViewCreateInfo view_info = {
 			.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 			.image    = info.image,
-			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.viewType = is_array ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D,
 			.format   = vk_format,
 			.subresourceRange = {
 				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 				.baseMipLevel   = 0,
 				.levelCount     = 1,
 				.baseArrayLayer = 0,
-				.layerCount     = 1,
+				.layerCount     = layer_count,
 			},
 		};
 

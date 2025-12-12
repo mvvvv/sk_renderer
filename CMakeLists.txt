@@ -4,6 +4,7 @@ project(sk_renderer VERSION 0.1.0)
 # Build options
 option(SKR_BUILD_SKSHADERC "Build skshaderc shader compiler" ON)
 option(SKR_BUILD_EXAMPLES "Build sk_renderer example application" ON)
+option(SKR_BUILD_XR_EXAMPLE "Build OpenXR example application (Linux/Windows only)" OFF)
 
 include(FetchContent)
 
@@ -121,3 +122,11 @@ if(SKR_BUILD_EXAMPLES)
 		add_subdirectory(example)
 	endif()
 endif() # SKR_BUILD_EXAMPLES
+
+###############################################################################
+# OpenXR Example (desktop only)
+###############################################################################
+
+if(SKR_BUILD_XR_EXAMPLE AND NOT ANDROID)
+	add_subdirectory(example_xr)
+endif()
