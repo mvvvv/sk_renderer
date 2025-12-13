@@ -10,10 +10,10 @@ include(FetchContent)
 ###################################
 
 FetchContent_Declare(
-    openxr_loader
-    GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
-    GIT_TAG        release-1.1.43
-    GIT_SHALLOW    TRUE
+	openxr_loader
+	GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
+	GIT_TAG        release-1.1.43
+	GIT_SHALLOW    TRUE
 )
 
 # Only build the loader, not samples/tests
@@ -22,6 +22,7 @@ set(BUILD_LOADER ON CACHE BOOL "" FORCE)
 set(BUILD_API_LAYERS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BUILD_CONFORMANCE_TESTS OFF CACHE BOOL "" FORCE)
+set(DYNAMIC_LOADER OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(openxr_loader)
 
@@ -29,20 +30,25 @@ FetchContent_MakeAvailable(openxr_loader)
 # Executable
 ###################################
 
-add_executable(sk_renderer_xr_test
-    main.c
-    app_xr.c
+add_skapp(sk_renderer_xr_test
+	PACKAGE_NAME net.stereokit.renderer_test_xr
+	APP_NAME "sk_renderer_test_xr"
+	MANIFEST ${CMAKE_CURRENT_SOURCE_DIR}/AndroidManifest.xml)
+
+target_sources(sk_renderer_xr_test PRIVATE
+	main.c
+	app_xr.c
 )
 
 target_link_libraries(sk_renderer_xr_test PRIVATE
-    sk_renderer
-    openxr_loader
+	sk_renderer
+	openxr_loader
 )
 
 target_include_directories(sk_renderer_xr_test PRIVATE
-    ${openxr_loader_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../example/tools  # For float_math.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/../sk_renderer    # For vk/skr_vulkan.h
+	${openxr_loader_SOURCE_DIR}/include
+	${CMAKE_CURRENT_SOURCE_DIR}/../example/tools  # For float_math.h
+	${CMAKE_CURRENT_SOURCE_DIR}/../sk_renderer    # For vk/skr_vulkan.h
 )
 
 # We need Vulkan headers for the OpenXR Vulkan extension
@@ -51,7 +57,7 @@ target_link_libraries(sk_renderer_xr_test PRIVATE Vulkan::Headers)
 
 # Math library on Unix
 if(UNIX AND NOT APPLE)
-    target_link_libraries(sk_renderer_xr_test PRIVATE m)
+	target_link_libraries(sk_renderer_xr_test PRIVATE m)
 endif()
 
 ###################################
@@ -61,23 +67,18 @@ endif()
 set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR}/assets)
 
 # Use skshaderc to compile test.hlsl from the example directory
-# Note: paths must be relative to CMAKE_CURRENT_SOURCE_DIR
 # The 4th parameter (_) is a placeholder for OUT_LIST so shader goes to ARGN
-skshaderc_compile_assets(sk_renderer_xr_test ${ASSET_PATH}/shaders "" _
-    ../example/assets/shaders/test.hlsl
+skshaderc_compile_assets(sk_renderer_xr_test ${CMAKE_CURRENT_BINARY_DIR}/generated/shaders "" _
+	../example/assets/shaders/test.hlsl
 )
-
-# Create asset directory
-add_custom_command(TARGET sk_renderer_xr_test PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${ASSET_PATH}/shaders
-    COMMENT "Creating asset directories for XR example"
-)
+target_skapp_assets(sk_renderer_xr_test ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
 ###################################
 # Run target
 ###################################
 
 add_custom_target(run_xr DEPENDS sk_renderer_xr_test
-    COMMAND $<TARGET_FILE:sk_renderer_xr_test>
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+	COMMAND $<TARGET_FILE:sk_renderer_xr_test>
+	WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
+

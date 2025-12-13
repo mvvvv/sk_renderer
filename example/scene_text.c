@@ -368,7 +368,7 @@ static void _scene_text_render(scene_t* base, int32_t width, int32_t height,
 			"∃n ∈ ℕ: n > 0",
 			transform,
 			(float2){ box_w, box_h },
-			scene->font_size * 0.9f,
+			scene->font_size,
 			text_fit_squeeze,
 			text_pivot_top_center,
 			text_align_top_center,
@@ -398,13 +398,13 @@ static void _scene_text_render(scene_t* base, int32_t width, int32_t height,
 
 	// === FOOTER: Technical info ===
 	{
-		float y = GRID_TOP - CELL_H * 5 - GAP * 4;
+		float y = GRID_TOP - CELL_H * 5 - GAP * 2;
 		float4x4 transform = float4x4_trs((float3){ 0, y, Z }, rotation, (float3){ 1, 1, 1 });
 		text_add_in(scene->text_ctx,
 			"Quadratic Bezier curves • Horizontal band optimization • Lazy glyph loading • Full UTF-8 support",
 			transform,
 			(float2){ GRID_WIDTH, CELL_H },
-			scene->font_size * 0.7f,
+			scene->font_size * 0.75f,
 			text_fit_squeeze,
 			text_pivot_top_center,
 			text_align_top_center,

@@ -8,10 +8,10 @@
 
 #include <sk_renderer.h>
 #include <sksc_file.h>
+#include <sk_app.h>
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include <math.h>
 
 ///////////////////////////////////////////
@@ -69,93 +69,53 @@ static float   s_time = 0.0f;
 // Helper functions
 ///////////////////////////////////////////
 
-// Pack RGBA into uint32
-static uint32_t color_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-	return ((uint32_t)a << 24) | ((uint32_t)b << 16) | ((uint32_t)g << 8) | r;
-}
-
 // Create projection matrix from OpenXR asymmetric FOV
-static float4x4 xr_projection(XrFovf fov, float near_plane, float far_plane) {
-	const float left   = near_plane * tanf(fov.angleLeft);
-	const float right  = near_plane * tanf(fov.angleRight);
-	const float down   = near_plane * tanf(fov.angleDown);
-	const float up     = near_plane * tanf(fov.angleUp);
+// Exact StereoKit approach: create in their format, then transpose
+static float4x4 xr_projection(XrFovf fov, float clip_near, float clip_far) {
+	const float tan_left   = tanf(fov.angleLeft);
+	const float tan_right  = tanf(fov.angleRight);
+	const float tan_down   = tanf(fov.angleDown);
+	const float tan_up     = tanf(fov.angleUp);
 
-	const float width  = right - left;
-	const float height = up - down;
+	const float tan_width  = tan_right - tan_left;
+	const float tan_height = tan_up - tan_down;
+	const float range      = clip_far / (clip_near - clip_far);
 
-	// Row-major, right-handed, zero-to-one depth, Vulkan Y-flip
-	return (float4x4){{
-		2.0f * near_plane / width, 0.0f, (right + left) / width, 0.0f,
-		0.0f, -2.0f * near_plane / height, (up + down) / height, 0.0f,
-		0.0f, 0.0f, far_plane / (near_plane - far_plane), -(far_plane * near_plane) / (far_plane - near_plane),
-		0.0f, 0.0f, -1.0f, 0.0f
+	// StereoKit's pre-transpose layout (row-major [row][col]):
+	// [0][0] = 2/tanW, [1][1] = 2/tanH
+	// [2][0] = offset_x, [2][1] = offset_y, [2][2] = range, [2][3] = -1
+	// [3][2] = range * near
+	float4x4 sk = {{
+		2.0f / tan_width, 0.0f, 0.0f, 0.0f,
+		0.0f, 2.0f / tan_height, 0.0f, 0.0f,
+		(tan_right + tan_left) / tan_width, (tan_up + tan_down) / tan_height, range, -1.0f,
+		0.0f, 0.0f, range * clip_near, 0.0f
 	}};
+
+	// Transpose (StereoKit does this), then apply Vulkan Y-flip
+	float4x4 result = float4x4_transpose(sk);
+	result.m[5] *= -1.0f;  // Vulkan Y-flip: negate Y scale
+	result.m[6] *= -1.0f;  // Vulkan Y-flip: negate Y offset
+	return result;
 }
 
-// Create view matrix from OpenXR pose
+// Create view matrix from OpenXR pose (inverse of pose transform)
 static float4x4 xr_view_matrix(XrPosef pose) {
-	// OpenXR provides camera pose (position + orientation)
-	// We need the inverse for the view matrix
-	XrQuaternionf q = pose.orientation;
-	XrVector3f    p = pose.position;
+	float4 q = (float4){pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w};
+	float3 p = (float3){pose.position.x, pose.position.y, pose.position.z};
 
-	// Quaternion to rotation matrix (transposed for view matrix)
-	float xx = q.x * q.x;
-	float yy = q.y * q.y;
-	float zz = q.z * q.z;
-	float xy = q.x * q.y;
-	float xz = q.x * q.z;
-	float yz = q.y * q.z;
-	float wx = q.w * q.x;
-	float wy = q.w * q.y;
-	float wz = q.w * q.z;
+	// Invert the pose: conjugate rotation, rotate negated position
+	float4 q_inv = float4_quat_conjugate(q);
+	float3 p_inv = float4_quat_rotate(q_inv, float3_mul_s(p, -1.0f));
 
-	// Rotation matrix (transposed = inverse for unit quaternion)
-	float r00 = 1.0f - 2.0f * (yy + zz);
-	float r01 = 2.0f * (xy + wz);
-	float r02 = 2.0f * (xz - wy);
-	float r10 = 2.0f * (xy - wz);
-	float r11 = 1.0f - 2.0f * (xx + zz);
-	float r12 = 2.0f * (yz + wx);
-	float r20 = 2.0f * (xz + wy);
-	float r21 = 2.0f * (yz - wx);
-	float r22 = 1.0f - 2.0f * (xx + yy);
-
-	// Apply inverse translation
-	float tx = -(r00 * p.x + r01 * p.y + r02 * p.z);
-	float ty = -(r10 * p.x + r11 * p.y + r12 * p.z);
-	float tz = -(r20 * p.x + r21 * p.y + r22 * p.z);
-
-	return (float4x4){{
-		r00, r01, r02, tx,
-		r10, r11, r12, ty,
-		r20, r21, r22, tz,
-		0.0f, 0.0f, 0.0f, 1.0f
-	}};
+	return float4x4_trs(p_inv, q_inv, (float3){1, 1, 1});
 }
 
 // Create world matrix from OpenXR pose
 static float4x4 xr_world_matrix(XrPosef pose, float scale) {
-	XrQuaternionf q = pose.orientation;
-	XrVector3f    p = pose.position;
-
-	float xx = q.x * q.x;
-	float yy = q.y * q.y;
-	float zz = q.z * q.z;
-	float xy = q.x * q.y;
-	float xz = q.x * q.z;
-	float yz = q.y * q.z;
-	float wx = q.w * q.x;
-	float wy = q.w * q.y;
-	float wz = q.w * q.z;
-
-	return (float4x4){{
-		scale * (1.0f - 2.0f * (yy + zz)), scale * (2.0f * (xy - wz)), scale * (2.0f * (xz + wy)), p.x,
-		scale * (2.0f * (xy + wz)), scale * (1.0f - 2.0f * (xx + zz)), scale * (2.0f * (yz - wx)), p.y,
-		scale * (2.0f * (xz - wy)), scale * (2.0f * (yz + wx)), scale * (1.0f - 2.0f * (xx + yy)), p.z,
-		0.0f, 0.0f, 0.0f, 1.0f
-	}};
+	float4 q = (float4){pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w};
+	float3 p = (float3){pose.position.x, pose.position.y, pose.position.z};
+	return float4x4_trs(p, q, (float3){scale, scale, scale});
 }
 
 ///////////////////////////////////////////
@@ -163,14 +123,14 @@ static float4x4 xr_world_matrix(XrPosef pose, float scale) {
 ///////////////////////////////////////////
 
 static void create_cube_mesh(void) {
-	// Per-face colors
+	// Per-face colors (ABGR format)
 	uint32_t colors[6] = {
-		color_rgba(255, 100, 100, 255),  // +X red
-		color_rgba(100, 255, 100, 255),  // +Y green
-		color_rgba(100, 100, 255, 255),  // +Z blue
-		color_rgba(200, 100, 100, 255),  // -X dark red
-		color_rgba(100, 200, 100, 255),  // -Y dark green
-		color_rgba(100, 100, 200, 255),  // -Z dark blue
+		0xFF6464FF,  // +X red
+		0xFF64FF64,  // +Y green
+		0xFFFF6464,  // +Z blue
+		0xFF6464C8,  // -X dark red
+		0xFF64C864,  // -Y dark green
+		0xFFC86464,  // -Z dark blue
 	};
 
 	float s = 0.5f;  // Half-size
@@ -228,27 +188,16 @@ static void create_cube_mesh(void) {
 ///////////////////////////////////////////
 
 static bool load_shader(void) {
-	// Try to load test.hlsl.sks from assets
-	FILE* f = fopen("assets/shaders/test.hlsl.sks", "rb");
-	if (!f) {
-		// Try alternate path
-		f = fopen("../example/assets/shaders/test.hlsl.sks", "rb");
-	}
-	if (!f) {
+	void*  data = NULL;
+	size_t size = 0;
+
+	if (!ska_asset_read("shaders/test.hlsl.sks", &data, &size)) {
 		skr_log(skr_log_critical, "Failed to open shader file");
 		return false;
 	}
 
-	fseek(f, 0, SEEK_END);
-	long size = ftell(f);
-	fseek(f, 0, SEEK_SET);
-
-	void* data = malloc(size);
-	fread(data, 1, size, f);
-	fclose(f);
-
 	skr_err_ err = skr_shader_create(data, (uint32_t)size, &s_shader);
-	free(data);
+	ska_file_free_data(data);
 
 	if (err != skr_err_success) {
 		skr_log(skr_log_critical, "Failed to create shader");
@@ -365,33 +314,23 @@ void app_xr_render_stereo(skr_tex_t* color_target, skr_tex_t* resolve_target, sk
 
 		float4x4 view_mat = xr_view_matrix(view->pose);
 		float4x4 proj_mat = xr_projection(view->fov, 0.05f, 100.0f);
-		float4x4 viewproj = float4x4_mul(proj_mat, view_mat);
 
-		// Camera position from pose
-		float3 cam_pos = { view->pose.position.x, view->pose.position.y, view->pose.position.z };
-
-		// Camera direction (forward is -Z in OpenXR)
-		XrQuaternionf q = view->pose.orientation;
-		float3 cam_dir = {
-			2.0f * (q.x * q.z + q.w * q.y),
-			2.0f * (q.y * q.z - q.w * q.x),
-			1.0f - 2.0f * (q.x * q.x + q.y * q.y)
-		};
-		cam_dir = float3_mul_s(cam_dir, -1.0f);  // Negate for forward
+		float4 q       = (float4){view->pose.orientation.x, view->pose.orientation.y, view->pose.orientation.z, view->pose.orientation.w};
+		float3 cam_pos = (float3){view->pose.position.x, view->pose.position.y, view->pose.position.z};
+		float3 cam_dir = float4_quat_rotate(q, (float3){0, 0, -1});  // Forward is -Z
 
 		sys.view[v]           = view_mat;
 		sys.view_inv[v]       = float4x4_invert(view_mat);
 		sys.projection[v]     = proj_mat;
 		sys.projection_inv[v] = float4x4_invert(proj_mat);
-		sys.viewproj[v]       = viewproj;
-		sys.cam_pos[v]        = (float4){ cam_pos.x, cam_pos.y, cam_pos.z, 1.0f };
-		sys.cam_dir[v]        = (float4){ cam_dir.x, cam_dir.y, cam_dir.z, 0.0f };
+		sys.viewproj[v]       = float4x4_mul(proj_mat, view_mat);
+		sys.cam_pos[v]        = (float4){cam_pos.x, cam_pos.y, cam_pos.z, 1};
+		sys.cam_dir[v]        = (float4){cam_dir.x, cam_dir.y, cam_dir.z, 0};
 	}
 
 	// Add cubes to render list
 	for (int32_t i = 0; i < s_cube_count; i++) {
-		float scale = (i < 2) ? 0.05f : 0.05f;  // Hand cubes and spawned cubes same size
-		instance_t inst = { .world = xr_world_matrix(s_cubes[i], scale) };
+		instance_t inst = { .world = xr_world_matrix(s_cubes[i], 0.05f) };
 		skr_render_list_add(&s_render_list, &s_cube_mesh, &s_material, &inst, sizeof(inst), 1);
 	}
 
@@ -401,7 +340,7 @@ void app_xr_render_stereo(skr_tex_t* color_target, skr_tex_t* resolve_target, sk
 		depth_target,
 		resolve_target,  // Resolve MSAA to this target
 		skr_clear_all,
-		(skr_vec4_t){ 0.0f, 0.0f, 0.0f, 1.0f },
+		(skr_vec4_t){ 0.0f, 0.0f, 0.0f, 0.0f },
 		1.0f,
 		0
 	);
@@ -417,3 +356,5 @@ void app_xr_render_stereo(skr_tex_t* color_target, skr_tex_t* resolve_target, sk
 	// Clear render list for next frame
 	skr_render_list_clear(&s_render_list);
 }
+
+

@@ -4,18 +4,11 @@
 #include "openxr_util.h"
 #include "app_xr.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#define sleep_ms(ms) Sleep(ms)
-#else
-#include <unistd.h>
-#define sleep_ms(ms) usleep((ms) * 1000)
-#endif
+#include <sk_app.h>
 
 ///////////////////////////////////////////
 // OpenXR Error Checking
@@ -36,7 +29,7 @@ static const char *xr_result_to_string(XrResult result) {
 #define XR_CHECK(call) do { \
 	XrResult _result = (call); \
 	if (XR_FAILED(_result)) \
-		printf("[OpenXR ERROR] %s:%d %s returned %s (%d)\n", __FILE__, __LINE__, #call, xr_result_to_string(_result), _result); \
+		ska_log(ska_log_error, "[OpenXR] %s:%d %s returned %s (%d)", __FILE__, __LINE__, #call, xr_result_to_string(_result), _result); \
 } while(0)
 
 ///////////////////////////////////////////
@@ -88,16 +81,16 @@ static void xr_swapchain_destroy(xr_swapchain_t* swapchain);
 
 static XrBool32 XRAPI_CALL xr_debug_callback(XrDebugUtilsMessageSeverityFlagsEXT severity, XrDebugUtilsMessageTypeFlagsEXT types, const XrDebugUtilsMessengerCallbackDataEXT* data, void* user_data) {
 	(void)user_data;
-	const char* severity_str = "INFO";
-	if      (severity & XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT  ) severity_str = "ERROR";
-	else if (severity & XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) severity_str = "WARNING";
-
 	const char* type_str = "";
-	if      (types & XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT ) type_str = "VALIDATION";
-	else if (types & XR_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) type_str = "PERFORMANCE";
-	else if (types & XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT) type_str = "CONFORMANCE";
+	if      (types & XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT ) type_str = "VALIDATION ";
+	else if (types & XR_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) type_str = "PERFORMANCE ";
+	else if (types & XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT) type_str = "CONFORMANCE ";
 
-	printf("[XR %s %s] %s: %s\n", severity_str, type_str, data->functionName, data->message);
+	ska_log_ level = ska_log_info;
+	if      (severity & XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT  ) level = ska_log_error;
+	else if (severity & XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) level = ska_log_warn;
+
+	ska_log(level, "[XR %s] %s: %s", type_str, data->functionName, data->message);
 	return XR_FALSE;
 }
 
@@ -148,9 +141,9 @@ static skr_device_request_t xr_device_init_callback(void* vk_instance, void* use
 		if (s_vk_device_ext_str[i] == ' ') s_vk_device_ext_str[i] = '\0';
 	}
 
-	printf("OpenXR requires %u Vulkan device extensions:\n", s_vk_device_ext_count);
+	ska_log(ska_log_info, "OpenXR requires %u Vulkan device extensions:", s_vk_device_ext_count);
 	for (uint32_t i = 0; i < s_vk_device_ext_count; i++) {
-		printf("  - %s\n", s_vk_device_exts[i]);
+		ska_log(ska_log_info, "  - %s", s_vk_device_exts[i]);
 	}
 
 	return (skr_device_request_t){
@@ -165,6 +158,36 @@ static skr_device_request_t xr_device_init_callback(void* vk_instance, void* use
 ///////////////////////////////////////////
 
 bool openxr_init(const char* app_name) {
+#ifdef __ANDROID__
+	// On Android, must initialize the OpenXR loader with JNI context before any other calls
+	PFN_xrInitializeLoaderKHR xrInitializeLoaderKHR = NULL;
+	XrResult loader_result = xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR", (PFN_xrVoidFunction*)&xrInitializeLoaderKHR);
+
+	if (loader_result != XR_SUCCESS || !xrInitializeLoaderKHR) {
+		ska_log(ska_log_warn, "xrGetInstanceProcAddr for xrInitializeLoaderKHR failed (result=%d, fn=%p)", loader_result, (void*)xrInitializeLoaderKHR);
+	} else {
+		JavaVM* vm       = (JavaVM*)ska_android_get_vm();
+		jobject activity = (jobject)ska_android_get_activity();
+		ska_log(ska_log_info, "Android loader init: VM=%p, Activity=%p", (void*)vm, (void*)activity);
+
+		if (!vm || !activity) {
+			ska_log(ska_log_error, "sk_app Android context not available");
+			return false;
+		}
+
+		XrResult init_result = xrInitializeLoaderKHR((XrLoaderInitInfoBaseHeaderKHR*)&(XrLoaderInitInfoAndroidKHR){
+			.type               = XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR,
+			.applicationVM      = vm,
+			.applicationContext = activity });
+
+		if (XR_FAILED(init_result)) {
+			ska_log(ska_log_error, "xrInitializeLoaderKHR failed (result=%d)", init_result);
+			return false;
+		}
+		ska_log(ska_log_info, "OpenXR Android loader initialized successfully");
+	}
+#endif
+
 	// Check available extensions
 	uint32_t ext_count = 0;
 	xrEnumerateInstanceExtensionProperties(NULL, 0, &ext_count, NULL);
@@ -179,14 +202,17 @@ bool openxr_init(const char* app_name) {
 	const char* ask_extensions[] = {
 		XR_KHR_VULKAN_ENABLE_EXTENSION_NAME,
 		XR_EXT_DEBUG_UTILS_EXTENSION_NAME,
+#ifdef __ANDROID__
+		XR_KHR_LOADER_INIT_ANDROID_EXTENSION_NAME,
+#endif
 	};
-	const char* use_extensions[8];
+	const char* use_extensions[16];
 	uint32_t    use_count = 0;
 
-	printf("OpenXR extensions available:\n");
+	ska_log(ska_log_info, "OpenXR extensions available:");
 	bool has_vulkan = false;
 	for (uint32_t i = 0; i < ext_count; i++) {
-		printf("- %s\n", xr_exts[i].extensionName);
+		ska_log(ska_log_info, "- %s", xr_exts[i].extensionName);
 
 		for (uint32_t ask = 0; ask < sizeof(ask_extensions)/sizeof(ask_extensions[0]); ask++) {
 			if (strcmp(ask_extensions[ask], xr_exts[i].extensionName) == 0) {
@@ -201,7 +227,7 @@ bool openxr_init(const char* app_name) {
 	free(xr_exts);
 
 	if (!has_vulkan) {
-		printf("Error: OpenXR runtime does not support Vulkan\n");
+		ska_log(ska_log_error, "OpenXR runtime does not support Vulkan");
 		return false;
 	}
 
@@ -214,8 +240,8 @@ bool openxr_init(const char* app_name) {
 	strncpy(create_info.applicationInfo.applicationName, app_name, XR_MAX_APPLICATION_NAME_SIZE - 1);
 	XrResult result = xrCreateInstance(&create_info, &xr_instance);
 	if (XR_FAILED(result) || xr_instance == XR_NULL_HANDLE) {
-		printf("Error: Failed to create OpenXR instance (result=%d)\n", result);
-		printf("Make sure an OpenXR runtime is installed and active.\n");
+		ska_log(ska_log_error, "Failed to create OpenXR instance (result=%d)", result);
+		ska_log(ska_log_error, "Make sure an OpenXR runtime is installed and active.");
 		return false;
 	}
 
@@ -250,14 +276,27 @@ bool openxr_init(const char* app_name) {
 		&xr_system_id);
 
 	if (XR_FAILED(result)) {
-		printf("Error: Failed to get OpenXR system (result=%d)\n", result);
-		printf("Make sure a VR headset is connected.\n");
+		ska_log(ska_log_error, "Failed to get OpenXR system (result=%d)", result);
+		ska_log(ska_log_error, "Make sure a VR headset is connected.");
 		return false;
 	}
 
-	// Get blend mode
+	// Get blend mode - prefer ALPHA_BLEND for AR passthrough, fall back to OPAQUE
 	uint32_t blend_count = 0;
-	xrEnumerateEnvironmentBlendModes(xr_instance, xr_system_id, xr_config_view, 1, &blend_count, &xr_blend);
+	XrEnvironmentBlendMode blend_modes[8];
+	xrEnumerateEnvironmentBlendModes(xr_instance, xr_system_id, xr_config_view, 8, &blend_count, blend_modes);
+
+	xr_blend = blend_modes[0];
+	for (uint32_t i = 0; i < blend_count; i++) {
+		if (blend_modes[i] == XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND) {
+			xr_blend = XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND;
+			break;
+		}
+	}
+
+	const char* blend_name = (xr_blend == XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND) ? "ALPHA_BLEND" :
+	                         (xr_blend == XR_ENVIRONMENT_BLEND_MODE_ADDITIVE)    ? "ADDITIVE" : "OPAQUE";
+	ska_log(ska_log_info, "Using blend mode: %s", blend_name);
 
 	// Get required Vulkan instance extensions from OpenXR
 	uint32_t vk_ext_size = 0;
@@ -274,15 +313,15 @@ bool openxr_init(const char* app_name) {
 		token                         = strtok(NULL, " ");
 	}
 
-	printf("OpenXR requires %u Vulkan instance extensions:\n", vk_ext_count);
+	ska_log(ska_log_info, "OpenXR requires %u Vulkan instance extensions:", vk_ext_count);
 	for (uint32_t i = 0; i < vk_ext_count; i++) {
-		printf("  - %s\n", vk_extensions[i]);
+		ska_log(ska_log_info, "  - %s", vk_extensions[i]);
 	}
 
 	// Get graphics requirements (must call before creating session)
 	XrGraphicsRequirementsVulkanKHR gfx_requirements = { XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR };
 	ext_xrGetVulkanGraphicsRequirementsKHR(xr_instance, xr_system_id, &gfx_requirements);
-	printf("OpenXR Vulkan requirements: API %u.%u.%u - %u.%u.%u\n",
+	ska_log(ska_log_info, "OpenXR Vulkan requirements: API %u.%u.%u - %u.%u.%u",
 		XR_VERSION_MAJOR(gfx_requirements.minApiVersionSupported),
 		XR_VERSION_MINOR(gfx_requirements.minApiVersionSupported),
 		XR_VERSION_PATCH(gfx_requirements.minApiVersionSupported),
@@ -302,7 +341,7 @@ bool openxr_init(const char* app_name) {
 		.device_init_callback     = xr_device_init_callback,
 		.device_init_user_data    = NULL,
 	})) {
-		printf("Error: Failed to initialize sk_renderer\n");
+		ska_log(ska_log_error, "Failed to initialize sk_renderer");
 		free(vk_ext_str);
 		free(vk_extensions);
 		free(s_vk_device_ext_str);
@@ -333,7 +372,7 @@ bool openxr_init(const char* app_name) {
 		.systemId = xr_system_id
 	}, &xr_session);
 	if (XR_FAILED(result) || xr_session == XR_NULL_HANDLE) {
-		printf("Error: Failed to create OpenXR session (result=%d)\n", result);
+		ska_log(ska_log_error, "Failed to create OpenXR session (result=%d)", result);
 		return false;
 	}
 
@@ -354,9 +393,9 @@ bool openxr_init(const char* app_name) {
 	}
 	xrEnumerateViewConfigurationViews(xr_instance, xr_system_id, xr_config_view, xr_view_count, &xr_view_count, xr_config_views);
 
-	printf("OpenXR views: %u\n", xr_view_count);
+	ska_log(ska_log_info, "OpenXR views: %u", xr_view_count);
 	for (uint32_t i = 0; i < xr_view_count; i++) {
-		printf("  View %u: %ux%u, %u samples\n", i,
+		ska_log(ska_log_info, "  View %u: %ux%u, %u samples", i,
 			xr_config_views[i].recommendedImageRectWidth,
 			xr_config_views[i].recommendedImageRectHeight,
 			xr_config_views[i].recommendedSwapchainSampleCount);
@@ -382,13 +421,13 @@ bool openxr_init(const char* app_name) {
 	}
 	free(formats);
 
-	printf("Using swapchain format: %lld\n", (long long)swapchain_format);
+	ska_log(ska_log_info, "Using swapchain format: %lld", (long long)swapchain_format);
 
 	// Create a single stereo swapchain (without MSAA - we'll render to separate MSAA texture and resolve)
 	// Use recommended settings from first view (both eyes should match for stereo)
 	XrViewConfigurationView* view = &xr_config_views[0];
 
-	printf("Creating stereo swapchain: %ux%u, %d layers (MSAA %dx to separate texture)\n",
+	ska_log(ska_log_info, "Creating stereo swapchain: %ux%u, %d layers (MSAA %dx to separate texture)",
 		view->recommendedImageRectWidth,
 		view->recommendedImageRectHeight,
 		xr_view_count,
@@ -409,7 +448,7 @@ bool openxr_init(const char* app_name) {
 	XrSwapchain handle;
 	XrResult    sc_result = xrCreateSwapchain(xr_session, &swapchain_info, &handle);
 	if (XR_FAILED(sc_result)) {
-		printf("Error: Failed to create swapchain (result=%d)\n", sc_result);
+		ska_log(ska_log_error, "Failed to create swapchain (result=%d)", sc_result);
 		return false;
 	}
 
@@ -724,10 +763,8 @@ static bool openxr_render_layer(XrTime predicted_time, XrCompositionLayerProject
 
 	// Acquire single stereo swapchain image (array texture with both views)
 	uint32_t img_idx;
-	XR_CHECK(xrAcquireSwapchainImage(xr_swapchain.handle,
-		&(XrSwapchainImageAcquireInfo){ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO }, &img_idx));
-	XR_CHECK(xrWaitSwapchainImage(xr_swapchain.handle,
-		&(XrSwapchainImageWaitInfo){ .type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, .timeout = XR_INFINITE_DURATION }));
+	XR_CHECK(xrAcquireSwapchainImage(xr_swapchain.handle, &(XrSwapchainImageAcquireInfo){ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO }, &img_idx));
+	XR_CHECK(xrWaitSwapchainImage   (xr_swapchain.handle, &(XrSwapchainImageWaitInfo){ .type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, .timeout = XR_INFINITE_DURATION }));
 
 	// Set up composition layer views - each view references a different array layer
 	for (uint32_t i = 0; i < view_count; i++) {
@@ -744,15 +781,13 @@ static bool openxr_render_layer(XrTime predicted_time, XrCompositionLayerProject
 	skr_tex_t* color_target   = &xr_color_msaa;  // MSAA render target
 	skr_tex_t* resolve_target = &xr_swapchain.color_textures[img_idx];  // Swapchain for resolve
 	skr_tex_t* depth_target   = &xr_depth_texture;  // MSAA depth
-	app_xr_render_stereo(color_target, resolve_target, depth_target, xr_views, view_count,
-	                     xr_swapchain.width, xr_swapchain.height);
+	app_xr_render_stereo(color_target, resolve_target, depth_target, xr_views, view_count, xr_swapchain.width, xr_swapchain.height);
 
 	// End sk_renderer frame - must happen BEFORE releasing swapchain images
 	skr_renderer_frame_end(NULL, 0);
 
 	// Release swapchain image
-	XR_CHECK(xrReleaseSwapchainImage(xr_swapchain.handle,
-		&(XrSwapchainImageReleaseInfo){ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO }));
+	XR_CHECK(xrReleaseSwapchainImage(xr_swapchain.handle, &(XrSwapchainImageReleaseInfo){ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO }));
 
 	layer->space     = xr_app_space;
 	layer->viewCount = view_count;
@@ -768,15 +803,17 @@ int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
 
-	printf("sk_renderer OpenXR Example\n");
-	printf("==========================\n\n");
+	ska_init();
+
+	ska_log(ska_log_info, "sk_renderer OpenXR Example");
+	ska_log(ska_log_info, "==========================");
 
 	if (!openxr_init("sk_renderer XR Test")) {
-		printf("\nFailed to initialize OpenXR.\n");
-		printf("Make sure:\n");
-		printf("  1. An OpenXR runtime is installed (e.g., Monado, SteamVR)\n");
-		printf("  2. The runtime is set as active\n");
-		printf("  3. A VR headset is connected\n");
+		ska_log(ska_log_error, "Failed to initialize OpenXR.");
+		ska_log(ska_log_error, "Make sure:");
+		ska_log(ska_log_error, "  1. An OpenXR runtime is installed (e.g., Monado, SteamVR)");
+		ska_log(ska_log_error, "  2. The runtime is set as active");
+		ska_log(ska_log_error, "  3. A VR headset is connected");
 		skr_shutdown();
 		return 1;
 	}
@@ -796,7 +833,7 @@ int main(int argc, char* argv[]) {
 			// Sleep if not visible
 			if (xr_session_state != XR_SESSION_STATE_VISIBLE &&
 			    xr_session_state != XR_SESSION_STATE_FOCUSED) {
-				sleep_ms(250);
+				ska_time_sleep(250);
 			}
 		}
 	}
@@ -807,6 +844,10 @@ int main(int argc, char* argv[]) {
 	openxr_shutdown();
 	skr_shutdown();
 
-	printf("\nCleanly shut down.\n");
+	ska_log(ska_log_info, "Cleanly shut down.");
 	return 0;
 }
+
+
+
+

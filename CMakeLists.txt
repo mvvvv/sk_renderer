@@ -120,13 +120,6 @@ if(SKR_BUILD_EXAMPLES)
 		endif()
 
 		add_subdirectory(example)
+		add_subdirectory(example_xr)
 	endif()
 endif() # SKR_BUILD_EXAMPLES
-
-###############################################################################
-# OpenXR Example (desktop only)
-###############################################################################
-
-if(SKR_BUILD_XR_EXAMPLE AND NOT ANDROID)
-	add_subdirectory(example_xr)
-endif()
