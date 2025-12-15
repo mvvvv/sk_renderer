@@ -77,9 +77,11 @@ typedef struct skr_tex_external_info_t {
 	VkImageView       view;           // Optional - will create if VK_NULL_HANDLE
 	VkDeviceMemory    memory;         // Optional - VK_NULL_HANDLE for external memory
 	skr_tex_fmt_      format;         // Texture format
-	skr_vec3i_t       size;           // Dimensions
+	skr_vec3i_t       size;           // Dimensions (for array textures, z = layer count)
 	VkImageLayout     current_layout; // Current layout of the image
 	skr_tex_sampler_t sampler;        // Sampler settings
+	int32_t           multisample;    // MSAA sample count (1, 2, 4, 8, etc.), 0 or 1 = no MSAA
+	int32_t           array_layers;   // Array layer count (0 or 1 = single texture, >1 = array texture)
 	bool              owns_image;     // If true, sk_renderer destroys image on tex_destroy
 } skr_tex_external_info_t;
 

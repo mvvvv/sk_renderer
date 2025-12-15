@@ -122,7 +122,45 @@ bool skr_init(skr_settings_t settings) {
 	VkResult vr = volkInitialize();
 	SKR_VK_CHECK_RET(vr, volkInitialize, false);
 
-	// Create instance
+	///////////////////////////////////////////////////////////////////////////
+	// Extension definitions
+	///////////////////////////////////////////////////////////////////////////
+
+	// Instance extensions
+	const char* required_instance_exts[] = {
+		VK_KHR_SURFACE_EXTENSION_NAME,
+	};
+	const char* optional_instance_exts[] = {
+		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+		"VK_EXT_present_mode_fifo_latest_ready",
+	};
+	const uint32_t required_instance_ext_count = sizeof(required_instance_exts) / sizeof(required_instance_exts[0]);
+	const uint32_t optional_instance_ext_count = sizeof(optional_instance_exts) / sizeof(optional_instance_exts[0]);
+
+	// Device extensions
+	const char* required_device_exts[] = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	};
+	const char* optional_device_exts[] = {
+		VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+		VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME,
+	};
+	const uint32_t required_device_ext_count = sizeof(required_device_exts) / sizeof(required_device_exts[0]);
+	const uint32_t optional_device_ext_count = sizeof(optional_device_exts) / sizeof(optional_device_exts[0]);
+
+	// Video decode extensions (all required together for video support)
+	const char* video_device_exts[] = {
+		"VK_KHR_synchronization2",
+		"VK_KHR_video_queue",
+		"VK_KHR_video_decode_queue",
+		"VK_KHR_video_decode_h264",
+	};
+	const uint32_t video_device_ext_count = sizeof(video_device_exts) / sizeof(video_device_exts[0]);
+
+	///////////////////////////////////////////////////////////////////////////
+	// Instance creation
+	///////////////////////////////////////////////////////////////////////////
+
 	VkApplicationInfo app_info = {
 		.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		.pApplicationName   = settings.app_name ? settings.app_name : "sk_renderer_app",
@@ -132,50 +170,59 @@ bool skr_init(skr_settings_t settings) {
 		.apiVersion         = VK_API_VERSION_1_1,
 	};
 
-	// Build list of desired extensions
-	const char* desired_extensions[32];
-	uint32_t    desired_extension_count = 0;
-	for (uint32_t i = 0; i < settings.required_extension_count && i < 32; i++) {
-		desired_extensions[desired_extension_count++] = settings.required_extensions[i];
-	}
-	if (_skr_vk.validation_enabled && desired_extension_count < 32) {
-		desired_extensions[desired_extension_count++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-	}
-	if (desired_extension_count < 32) {
-		desired_extensions[desired_extension_count++] = "VK_EXT_present_mode_fifo_latest_ready";
-	}
+	// Get available instance extensions
+	uint32_t available_inst_ext_count = 0;
+	vkEnumerateInstanceExtensionProperties(NULL, &available_inst_ext_count, NULL);
+	VkExtensionProperties* available_inst_exts = _skr_malloc(available_inst_ext_count * sizeof(VkExtensionProperties));
+	vkEnumerateInstanceExtensionProperties(NULL, &available_inst_ext_count, available_inst_exts);
 
-	// Video decode extensions (checked when skr_gpu_video flag is set)
-	const char* video_extensions[] = {
-		"VK_KHR_synchronization2",
-		"VK_KHR_video_queue",
-		"VK_KHR_video_decode_queue",
-		"VK_KHR_video_decode_h264",
-	};
-	const uint32_t video_ext_count = sizeof(video_extensions) / sizeof(video_extensions[0]);
+	// Helper to check if an extension is available
+	#define EXT_AVAILABLE(name, available, count) ({ \
+		bool _found = false; \
+		for (uint32_t _i = 0; _i < (count); _i++) { \
+			if (strcmp((name), (available)[_i].extensionName) == 0) { _found = true; break; } \
+		} \
+		_found; \
+	})
 
-	// Get available extensions
-	uint32_t available_ext_count = 0;
-	vkEnumerateInstanceExtensionProperties(NULL, &available_ext_count, NULL);
-	VkExtensionProperties* available_exts = _skr_malloc(available_ext_count * sizeof(VkExtensionProperties));
-	vkEnumerateInstanceExtensionProperties(NULL, &available_ext_count, available_exts);
+	// Build final instance extension list
+	const char* instance_exts[64];
+	uint32_t    instance_ext_count = 0;
 
-	// Filter extensions to only those available
-	const char* extensions[32];
-	uint32_t    extension_count = 0;
-	for (uint32_t i = 0; i < desired_extension_count; i++) {
-		bool found = false;
-		for (uint32_t j = 0; j < available_ext_count; j++) {
-			if (strcmp(desired_extensions[i], available_exts[j].extensionName) == 0) {
-				found = true;
-				break;
-			}
-		}
-		if (found) {
-			extensions[extension_count++] = desired_extensions[i];
+	// Add application-required extensions first
+	for (uint32_t i = 0; i < settings.required_extension_count && instance_ext_count < 64; i++) {
+		if (EXT_AVAILABLE(settings.required_extensions[i], available_inst_exts, available_inst_ext_count)) {
+			instance_exts[instance_ext_count++] = settings.required_extensions[i];
+		} else {
+			skr_log(skr_log_critical, "Required instance extension '%s' not available", settings.required_extensions[i]);
+			_skr_free(available_inst_exts);
+			return false;
 		}
 	}
-	_skr_free(available_exts);
+
+	// Add sk_renderer required extensions
+	for (uint32_t i = 0; i < required_instance_ext_count && instance_ext_count < 64; i++) {
+		if (EXT_AVAILABLE(required_instance_exts[i], available_inst_exts, available_inst_ext_count)) {
+			instance_exts[instance_ext_count++] = required_instance_exts[i];
+		} else {
+			skr_log(skr_log_critical, "Required instance extension '%s' not available", required_instance_exts[i]);
+			_skr_free(available_inst_exts);
+			return false;
+		}
+	}
+
+	// Add optional extensions if available
+	for (uint32_t i = 0; i < optional_instance_ext_count && instance_ext_count < 64; i++) {
+		// Skip debug utils if validation not enabled
+		if (strcmp(optional_instance_exts[i], VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0 && !_skr_vk.validation_enabled) {
+			continue;
+		}
+		if (EXT_AVAILABLE(optional_instance_exts[i], available_inst_exts, available_inst_ext_count)) {
+			instance_exts[instance_ext_count++] = optional_instance_exts[i];
+		}
+	}
+
+	_skr_free(available_inst_exts);
 
 	// Build list of desired layers
 	const char* desired_layers[8];
@@ -205,9 +252,7 @@ bool skr_init(skr_settings_t settings) {
 			layers[layer_count++] = desired_layers[i];
 		} else {
 			skr_log(skr_log_warning, "Layer '%s' not available, skipping", desired_layers[i]);
-			if (strcmp(desired_layers[i], "VK_LAYER_KHRONOS_validation") == 0) {
-				_skr_vk.validation_enabled = false;
-			}
+			if (strcmp(desired_layers[i], "VK_LAYER_KHRONOS_validation") == 0) _skr_vk.validation_enabled = false;
 		}
 	}
 	_skr_free(available_layers);
@@ -215,8 +260,8 @@ bool skr_init(skr_settings_t settings) {
 	VkInstanceCreateInfo instance_info = {
 		.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		.pApplicationInfo        = &app_info,
-		.enabledExtensionCount   = extension_count,
-		.ppEnabledExtensionNames = extensions,
+		.enabledExtensionCount   = instance_ext_count,
+		.ppEnabledExtensionNames = instance_exts,
 		.enabledLayerCount       = layer_count,
 		.ppEnabledLayerNames     = layers,
 	};
@@ -224,9 +269,9 @@ bool skr_init(skr_settings_t settings) {
 	VkResult result = vkCreateInstance(&instance_info, NULL, &_skr_vk.instance);
 	if (result != VK_SUCCESS) {
 		skr_log(skr_log_critical, "Failed to create Vulkan instance: 0x%X", result);
-		skr_log(skr_log_info,     "  Enabled extensions (%u):", extension_count);
-		for (uint32_t i = 0; i < extension_count; i++)
-			skr_log(skr_log_info, "    - %s", extensions[i]);
+		skr_log(skr_log_info,     "  Enabled extensions (%u):", instance_ext_count);
+		for (uint32_t i = 0; i < instance_ext_count; i++)
+			skr_log(skr_log_info, "    - %s", instance_exts[i]);
 		if (layer_count > 0) {
 			skr_log(skr_log_info, "  Enabled layers (%u):", layer_count);
 			for (uint32_t i = 0; i < layer_count; i++) {
@@ -247,10 +292,22 @@ bool skr_init(skr_settings_t settings) {
 		}
 	}
 
-	// Pick physical device
-	if (settings.physical_device) {
+	// Call device initialization callback if provided (e.g., for OpenXR integration)
+	// This allows external systems to query for physical device and device extensions
+	// after VkInstance is available but before VkDevice is created.
+	skr_device_request_t device_request = {0};
+	if (settings.device_init_callback) {
+		device_request = settings.device_init_callback(_skr_vk.instance, settings.device_init_user_data);
+	}
+
+	// Pick physical device - callback's choice takes precedence over settings
+	VkPhysicalDevice requested_physical_device = device_request.physical_device
+		? (VkPhysicalDevice)device_request.physical_device
+		: (VkPhysicalDevice)settings.physical_device;
+
+	if (requested_physical_device) {
 		// Use the device specified by the application (e.g., from OpenXR)
-		_skr_vk.physical_device = (VkPhysicalDevice)settings.physical_device;
+		_skr_vk.physical_device = requested_physical_device;
 		VkPhysicalDeviceProperties props;
 		vkGetPhysicalDeviceProperties(_skr_vk.physical_device, &props);
 		skr_log(skr_log_info, "Using application-specified GPU: %s", props.deviceName);
@@ -287,16 +344,16 @@ bool skr_init(skr_settings_t settings) {
 				vkEnumerateDeviceExtensionProperties(devices[i], NULL, &ext_count, exts);
 
 				uint32_t video_found = 0;
-				for (uint32_t v = 0; v < video_ext_count; v++) {
+				for (uint32_t v = 0; v < video_device_ext_count; v++) {
 					for (uint32_t e = 0; e < ext_count; e++) {
-						if (strcmp(exts[e].extensionName, video_extensions[v]) == 0) {
+						if (strcmp(exts[e].extensionName, video_device_exts[v]) == 0) {
 							video_found++;
 							break;
 						}
 					}
 				}
 				_skr_free(exts);
-				has_video = (video_found == video_ext_count);
+				has_video = (video_found == video_device_ext_count);
 			}
 
 			// Check required flags - skip device if any required flag is missing
@@ -428,12 +485,9 @@ bool skr_init(skr_settings_t settings) {
 		};
 	}
 
-	// Build list of desired device extensions
-	const char* desired_device_extensions[] = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
-		VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME,
-	};
+	///////////////////////////////////////////////////////////////////////////
+	// Device creation
+	///////////////////////////////////////////////////////////////////////////
 
 	// Get available device extensions
 	uint32_t available_device_ext_count = 0;
@@ -441,49 +495,51 @@ bool skr_init(skr_settings_t settings) {
 	VkExtensionProperties* available_device_exts = _skr_malloc(available_device_ext_count * sizeof(VkExtensionProperties));
 	vkEnumerateDeviceExtensionProperties(_skr_vk.physical_device, NULL, &available_device_ext_count, available_device_exts);
 
-	// Filter device extensions to only those available
-	const char* device_extensions[32];
-	uint32_t    device_extension_count = 0;
-	bool has_swapchain       = false;
-	bool has_push_descriptor = false;
-	bool has_viewport_layer  = false;
+	// Build final device extension list
+	const char* device_exts[64];
+	uint32_t    device_ext_count = 0;
 
-	for (uint32_t i = 0; i < sizeof(desired_device_extensions) / sizeof(desired_device_extensions[0]); i++) {
-		bool found = false;
-		for (uint32_t j = 0; j < available_device_ext_count; j++) {
-			if (strcmp(desired_device_extensions[i], available_device_exts[j].extensionName) == 0) {
-				found = true;
-				break;
-			}
-		}
-		if (found) {
-			device_extensions[device_extension_count++] = desired_device_extensions[i];
-			if (strcmp(desired_device_extensions[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
-				has_swapchain = true;
-			}
-			if (strcmp(desired_device_extensions[i], VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME) == 0) {
-				has_push_descriptor = true;
-			}
-			if (strcmp(desired_device_extensions[i], VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME) == 0) {
-				has_viewport_layer = true;
-			}
+	// Add required device extensions
+	for (uint32_t i = 0; i < required_device_ext_count && device_ext_count < 64; i++) {
+		if (EXT_AVAILABLE(required_device_exts[i], available_device_exts, available_device_ext_count)) {
+			device_exts[device_ext_count++] = required_device_exts[i];
 		} else {
-			skr_log(skr_log_warning, "Device extension '%s' not available, skipping", desired_device_extensions[i]);
+			skr_log(skr_log_critical, "Required device extension '%s' not available", required_device_exts[i]);
+			_skr_free(available_device_exts);
+			return false;
 		}
 	}
+
+	// Add device extensions from callback (e.g., from OpenXR)
+	for (uint32_t i = 0; i < device_request.required_device_extension_count && device_ext_count < 64; i++) {
+		if (EXT_AVAILABLE(device_request.required_device_extensions[i], available_device_exts, available_device_ext_count)) {
+			device_exts[device_ext_count++] = device_request.required_device_extensions[i];
+		} else {
+			skr_log(skr_log_critical, "Required device extension '%s' not available", device_request.required_device_extensions[i]);
+			_skr_free(available_device_exts);
+			return false;
+		}
+	}
+
+	// Add optional device extensions if available
+	_skr_vk.has_push_descriptors = false;
+	bool has_viewport_layer      = false;
+	for (uint32_t i = 0; i < optional_device_ext_count && device_ext_count < 64; i++) {
+		if (EXT_AVAILABLE(optional_device_exts[i], available_device_exts, available_device_ext_count)) {
+			device_exts[device_ext_count++] = optional_device_exts[i];
+			if (strcmp(optional_device_exts[i], VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME            ) == 0) _skr_vk.has_push_descriptors = true;
+			if (strcmp(optional_device_exts[i], VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME) == 0) has_viewport_layer           = true;
+		}
+	}
+
 	_skr_free(available_device_exts);
 
-	// Check required extensions
-	if (!has_swapchain) {
-		skr_log(skr_log_critical, "Required device extension '%s' not available", VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-		return false;
+	// Log optional extension status
+	if (!_skr_vk.has_push_descriptors) {
+		skr_log(skr_log_info, "Device extension '%s' not available, using descriptor set fallback", VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
 	}
 	if (!has_viewport_layer) {
-		skr_log(skr_log_critical, "Device extension '%s' not available, multi-view rendering will not work", VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME);
-	}
-	_skr_vk.has_push_descriptors = has_push_descriptor;
-	if (!has_push_descriptor) {
-		skr_log(skr_log_info, "Device extension '%s' not available, using descriptor set fallback", VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+		skr_log(skr_log_warning, "Device extension '%s' not available, multi-view rendering will not work", VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME);
 	}
 
 	// Query available device features
@@ -502,8 +558,8 @@ bool skr_init(skr_settings_t settings) {
 		.pNext                   = NULL,
 		.queueCreateInfoCount    = queue_info_count,
 		.pQueueCreateInfos       = queue_infos,
-		.enabledExtensionCount   = device_extension_count,
-		.ppEnabledExtensionNames = device_extensions,
+		.enabledExtensionCount   = device_ext_count,
+		.ppEnabledExtensionNames = device_exts,
 		.pEnabledFeatures        = &device_features,
 	};
 

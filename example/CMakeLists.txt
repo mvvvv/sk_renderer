@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.19)
 project(sk_renderer_example VERSION 0.1.0)
 
 include(FetchContent)
@@ -7,22 +7,25 @@ include(FetchContent)
 # Dependencies
 ###############################################################################
 
-# SDL2 for windowing and platform abstraction
-set(SDL_PIPEWIRE OFF CACHE BOOL "Disable PipeWire support" FORCE)
-FetchContent_Declare( sdl2
-	GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-	GIT_TAG        release-2.30.10
+# sk_app for windowing and platform abstraction
+set(SKA_BUILD_EXAMPLES OFF CACHE BOOL "Disable sk_app examples" FORCE)
+# Ensure sk_app is built with PIC for Android shared library
+if(ANDROID)
+	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+FetchContent_Declare(sk_app
+	GIT_REPOSITORY https://github.com/StereoKit/sk_app.git
+	GIT_TAG        main
 	GIT_SHALLOW    TRUE
 	GIT_PROGRESS   TRUE
-	OPTIONS
-		"SDL_TEST_LIBRARY OFF"
-		"SDL_SHARED ON"
-		"SDL_STATIC OFF"
 )
-FetchContent_MakeAvailable(sdl2)
+FetchContent_MakeAvailable(sk_app)
+if(ANDROID)
+	set_target_properties(sk_app PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # stb for image loading
-FetchContent_Declare( stb
+FetchContent_Declare(stb
 	GIT_REPOSITORY https://github.com/nothings/stb.git
 	GIT_TAG        master
 	GIT_SHALLOW    TRUE
@@ -31,7 +34,7 @@ FetchContent_Declare( stb
 FetchContent_MakeAvailable(stb)
 
 # cgltf for GLTF model loading
-FetchContent_Declare( cgltf
+FetchContent_Declare(cgltf
 	GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
 	GIT_TAG        v1.14
 	GIT_SHALLOW    TRUE
@@ -40,7 +43,7 @@ FetchContent_Declare( cgltf
 FetchContent_MakeAvailable(cgltf)
 
 # cimgui C bindings for ImGui
-FetchContent_Declare( cimgui
+FetchContent_Declare(cimgui
 	GIT_REPOSITORY https://github.com/cimgui/cimgui.git
 	GIT_TAG        1.91.6
 	GIT_SHALLOW    TRUE
@@ -77,24 +80,21 @@ endif()
 # sk_renderer_test target
 ###############################################################################
 
-if(ANDROID)
-	add_library(sk_renderer_test SHARED)
-else()
-	add_executable(sk_renderer_test)
-endif()
+# Use sk_app's add_skapp() helper for cross-platform builds
+add_skapp(sk_renderer_test
+	PACKAGE_NAME net.stereokit.renderer_test
+	APP_NAME "sk_renderer_test"
+)
 
 set_target_properties(sk_renderer_test PROPERTIES
 	C_STANDARD 11
 	C_STANDARD_REQUIRED ON
-	CXX_STANDARD 11
-	CXX_STANDARD_REQUIRED ON)
+	CXX_STANDARD 17
+	CXX_STANDARD_REQUIRED ON
+)
 
-if (ANDROID)
-	set_target_properties(sk_renderer_test PROPERTIES OUTPUT_NAME "main")
-elseif (UNIX)
+if(UNIX AND NOT ANDROID)
 	target_link_libraries(sk_renderer_test PRIVATE m)
-elseif(WIN32)
-	target_link_libraries(sk_renderer_test PRIVATE SDL2::SDL2main)
 endif()
 
 # Static link MinGW runtime and pthread when cross-compiling to Windows
@@ -104,9 +104,16 @@ if(MINGW)
 	target_include_directories(sk_renderer_test PRIVATE ${CMAKE_SOURCE_DIR}/sk_renderer/threads)
 endif()
 
-target_link_libraries     (sk_renderer_test PRIVATE SDL2::SDL2 sk_renderer)
-target_include_directories(sk_renderer_test PRIVATE ${stb_SOURCE_DIR} ${cgltf_SOURCE_DIR} ${cimgui_SOURCE_DIR}/imgui ${cimgui_SOURCE_DIR}/backends ${cimgui_SOURCE_DIR})
-target_sources            (sk_renderer_test PRIVATE
+target_link_libraries(sk_renderer_test PRIVATE sk_renderer)
+target_include_directories(sk_renderer_test PRIVATE
+	${stb_SOURCE_DIR}
+	${cgltf_SOURCE_DIR}
+	${cimgui_SOURCE_DIR}/imgui
+	${cimgui_SOURCE_DIR}
+	${sk_app_SOURCE_DIR}/examples/imgui_example
+)
+
+target_sources(sk_renderer_test PRIVATE
 	main.c
 	app.c
 	scene_meshes.c
@@ -124,15 +131,16 @@ target_sources            (sk_renderer_test PRIVATE
 	text/text.c
 	tools/scene_util.c
 	imgui_backend/imgui_impl_sk_renderer.cpp
-	imgui_backend/imgui_sdl2_wrapper.cpp
+	${sk_app_SOURCE_DIR}/examples/imgui_example/imgui_impl_sk_app.cpp
 	${cimgui_SOURCE_DIR}/imgui/imgui.cpp
 	${cimgui_SOURCE_DIR}/imgui/imgui_draw.cpp
 	${cimgui_SOURCE_DIR}/imgui/imgui_tables.cpp
 	${cimgui_SOURCE_DIR}/imgui/imgui_widgets.cpp
 	${cimgui_SOURCE_DIR}/imgui/imgui_demo.cpp
-	${cimgui_SOURCE_DIR}/imgui/backends/imgui_impl_sdl2.cpp
 	${cimgui_SOURCE_DIR}/cimgui.cpp
 )
+target_skapp_assets(sk_renderer_test
+	${CMAKE_CURRENT_SOURCE_DIR}/assets)
 
 # Video playback (conditional on FFmpeg)
 if(SKR_HAS_VIDEO)
@@ -146,12 +154,6 @@ endif()
 # Shader compilation
 ###############################################################################
 
-if(ANDROID)
-	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR}/assets)
-else()
-	set(ASSET_PATH ${CMAKE_CURRENT_BINARY_DIR})
-endif()
-
 # Compile ImGui shader to header file (no debug info, embedded in binary)
 # Output goes to imgui_backend/ to keep all ImGui backend files together
 skshaderc_compile_headers(sk_renderer_test ${CMAKE_CURRENT_SOURCE_DIR}/imgui_backend "-e -t s"
@@ -159,7 +161,7 @@ skshaderc_compile_headers(sk_renderer_test ${CMAKE_CURRENT_SOURCE_DIR}/imgui_bac
 )
 
 # Compile other shaders to .sks files
-skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH}/shaders ""
+skshaderc_compile_assets(sk_renderer_test ${CMAKE_CURRENT_BINARY_DIR}/generated/shaders "" _
 	assets/shaders/bloom_composite.hlsl
 	assets/shaders/bloom_downsample.hlsl
 	assets/shaders/bloom_upsample.hlsl
@@ -180,35 +182,13 @@ skshaderc_compile_assets(sk_renderer_test ${ASSET_PATH}/shaders ""
 	assets/shaders/texture3d.hlsl
 	assets/shaders/video.hlsl
 )
-
-###############################################################################
-# Android build configuration
-###############################################################################
-
-if(ANDROID)
-	set(PROJECT_NAME               "sk_renderer_test")  # Tell AndroidBuild which target to package
-	set(ANDROID_PACKAGE_NAME       "net.stereokit.renderer_test")
-	set(ANDROID_MIN_SDK_VERSION    29)
-	set(ANDROID_TARGET_SDK_VERSION 36)
-	set(ANDROID_BUILD_TOOLS_VERSION "36.1.0")
-	include(${CMAKE_SOURCE_DIR}/example/android/AndroidBuild.cmake)
-endif()
+target_skapp_assets(sk_renderer_test
+	${CMAKE_CURRENT_BINARY_DIR}/generated)
 
 ###############################################################################
 # "run" command
 ###############################################################################
 
-if(ANDROID)
-	# Android run target is defined in AndroidBuild.cmake
-else()
+if(NOT ANDROID)
 	add_custom_target(run DEPENDS sk_renderer_test COMMAND $<TARGET_FILE:sk_renderer_test>)
 endif()
-
-###############################################################################
-# Asset copying
-###############################################################################
-
-# Copy Assets to the folder with the executable
-add_custom_command(TARGET sk_renderer_test POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/assets ${ASSET_PATH}
-	COMMENT "Copying App Assets")

@@ -373,6 +373,22 @@ typedef enum skr_gpu_ {
 	skr_gpu_video      = 1 << 2,  // GPU with hardware video decode support
 } skr_gpu_;
 
+// Callback info returned from device_init_callback
+// Allows external systems (e.g., OpenXR) to specify device requirements
+// after VkInstance is created but before VkDevice is created.
+typedef struct skr_device_request_t {
+	void*        physical_device;               // VkPhysicalDevice to use (NULL = auto-select)
+	const char** required_device_extensions;    // Device extensions to enable
+	uint32_t     required_device_extension_count;
+} skr_device_request_t;
+
+// Callback type for device initialization
+// Called after VkInstance creation, before VkDevice creation.
+// vk_instance: The created VkInstance (for querying physical devices, etc.)
+// user_data: User-provided context pointer
+// Returns: Device requirements (physical device, extensions)
+typedef skr_device_request_t (*skr_device_init_callback_t)(void* vk_instance, void* user_data);
+
 typedef struct skr_settings_t {
 	const char*  app_name;
 	int32_t      app_version;
@@ -389,6 +405,13 @@ typedef struct skr_settings_t {
 
 	const char** required_extensions;
 	uint32_t     required_extension_count;
+
+	// Device initialization callback (optional, for OpenXR integration etc.)
+	// If provided, called after VkInstance creation to get device requirements.
+	// The callback can query external systems for required physical device and extensions.
+	skr_device_init_callback_t device_init_callback;
+	void*                      device_init_user_data;
+
 	void*      (*malloc_func) (size_t size);
 	void*      (*calloc_func) (size_t count, size_t size);
 	void*      (*realloc_func)(void* ptr, size_t size);

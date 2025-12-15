@@ -350,8 +350,13 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 	if (!app) return;
 
 	// Position window on the right side of the screen (locked)
-	igSetNextWindowPos ((ImVec2){(float)width - 300, 0}, ImGuiCond_Always, (ImVec2){0, 0});
-	igSetNextWindowSize((ImVec2){300, (float)height}, ImGuiCond_Always);
+	#if defined(ANDROID)
+	float size = 600;
+	#else
+	float size = 300;
+	#endif
+	igSetNextWindowPos ((ImVec2){(float)width - size, 0}, ImGuiCond_Always, (ImVec2){0, 0});
+	igSetNextWindowSize((ImVec2){size, (float)height}, ImGuiCond_Always);
 
 	// Build a simple info window with no move/resize
 	igBegin("sk_renderer", NULL, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
