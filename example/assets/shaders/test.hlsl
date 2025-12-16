@@ -25,6 +25,9 @@ struct psIn {
 
 Texture2D    tex         : register(t3);
 SamplerState tex_sampler : register(s3);
+float4       tex_trans;
+
+//--tex_trans = 0,0,1,1
 
 psIn vs(vsIn input, uint id : SV_InstanceID) {
 	const float3 light_dir = normalize(float3(1, 4, 2));
@@ -38,7 +41,7 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	output.pos = mul(output.pos, viewproj[view_idx]);
 	float3 normal = normalize(mul(float4(input.norm, 0), inst[inst_idx].world).xyz);
 	output.color = (float3(.05,.05,.1) + saturate(dot(normal, light_dir)*0.8).xxx) * input.color.rgb;
-	output.uv = input.uv;
+	output.uv    = (input.uv * tex_trans.zw) + tex_trans.xy;
 	output.layer = view_idx;  // Route each view to its corresponding array layer
 	return output;
 }

@@ -175,10 +175,11 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Main loop
-	int      frame_count = 0;
-	bool     running     = true;
-	bool     suspended   = false;
-	double   last_time   = ska_time_get_elapsed_s();
+	int      frame_count    = 0;
+	bool     running        = true;
+	bool     suspended      = false;
+	double   last_time      = ska_time_get_elapsed_s();
+	uint64_t last_frame_ns  = ska_time_get_elapsed_ns();
 
 	while (running) {
 		frame_count++;
@@ -252,9 +253,15 @@ int main(int argc, char* argv[]) {
 		// Finalize ImGui rendering to get draw data
 		igRender();
 
-		// Get next swapchain image
+		// Get next swapchain image (vsync blocking happens here via vkAcquireNextImageKHR)
 		skr_tex_t*   target         = NULL;
 		skr_acquire_ acquire_result = skr_surface_next_tex(&surface, &target);
+
+		// Frame time measured after surface_next_tex (the vsync sync point when GPU-fast)
+		uint64_t now_ns     = ska_time_get_elapsed_ns();
+		float    frame_time = (float)(now_ns - last_frame_ns) / 1000000.0f;
+		last_frame_ns       = now_ns;
+		app_set_frame_time(app, frame_time);
 
 		if (acquire_result == skr_acquire_success && target) {
 			// Render (ImGui is rendered inside app_render, in the same pass)

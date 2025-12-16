@@ -127,6 +127,7 @@ target_sources(sk_renderer_test PRIVATE
 	scene_shadows.c
 	scene_cloth.c
 	scene_text.c
+	scene_tex_copy.c
 	bloom.c
 	text/text.c
 	tools/scene_util.c
@@ -180,6 +181,7 @@ skshaderc_compile_assets(sk_renderer_test ${CMAKE_CURRENT_BINARY_DIR}/generated/
 	assets/shaders/test.hlsl
 	assets/shaders/text.hlsl
 	assets/shaders/texture3d.hlsl
+	assets/shaders/unlit.hlsl
 	assets/shaders/video.hlsl
 )
 target_skapp_assets(sk_renderer_test

@@ -26,3 +26,7 @@ VkStencilOp          _skr_to_vk_stencil_op  (skr_stencil_op_   op);
 uint32_t             _skr_tex_fmt_to_size  (skr_tex_fmt_    format);
 uint32_t             _skr_vert_fmt_to_size (skr_vertex_fmt_ format);
 uint32_t             _skr_index_fmt_to_size(skr_index_fmt_  format);
+
+// Block info for compressed formats (block_width, block_height, bytes_per_block)
+// For uncompressed formats: block_width=1, block_height=1, bytes_per_block=pixel_size
+void                 _skr_tex_fmt_block_info(skr_tex_fmt_ format, uint32_t* out_block_width, uint32_t* out_block_height, uint32_t* out_bytes_per_block);

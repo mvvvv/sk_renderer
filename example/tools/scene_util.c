@@ -237,24 +237,41 @@ skr_mesh_t su_mesh_create_pyramid(float base_size, float height, skr_vec4_t colo
 }
 
 skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, bool double_sided, skr_vec4_t color) {
-	float half_w = width * 0.5f;
-	float half_h = height * 0.5f;
-
-	// Determine axes based on normal
-	skr_vec3_t tangent, bitangent;
-	if (fabsf(normal.y) > 0.9f) {
-		// Normal is mostly Y, quad on XZ plane
-		tangent   = (skr_vec3_t){1.0f, 0.0f, 0.0f};
-		bitangent = (skr_vec3_t){0.0f, 0.0f, 1.0f};
-	} else if (fabsf(normal.z) > 0.9f) {
-		// Normal is mostly Z, quad on XY plane
-		tangent   = (skr_vec3_t){1.0f, 0.0f, 0.0f};
-		bitangent = (skr_vec3_t){0.0f, 1.0f, 0.0f};
-	} else {
-		// Normal is mostly X, quad on YZ plane
-		tangent   = (skr_vec3_t){0.0f, 1.0f, 0.0f};
-		bitangent = (skr_vec3_t){0.0f, 0.0f, 1.0f};
+	// Normalize the input normal
+	float len = sqrtf(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+	if (len > 0.0001f) {
+		normal.x /= len;
+		normal.y /= len;
+		normal.z /= len;
 	}
+
+	// Build orthonormal basis using lookat-style approach
+	// Choose up vector - use (0,1,0) unless normal is nearly parallel to it
+	skr_vec3_t up = {0.0f, 1.0f, 0.0f};
+	if (fabsf(normal.y) > 0.99f) {
+		up = (skr_vec3_t){0.0f, 0.0f, 1.0f};  // Use Z-up when normal is along Y
+	}
+
+	// tangent = cross(normal, up), then normalize
+	// Using (normal × up) instead of (up × normal) to get correct winding order
+	skr_vec3_t tangent = {
+		normal.y * up.z - normal.z * up.y,
+		normal.z * up.x - normal.x * up.z,
+		normal.x * up.y - normal.y * up.x
+	};
+	len = sqrtf(tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z);
+	if (len > 0.0001f) {
+		tangent.x /= len;
+		tangent.y /= len;
+		tangent.z /= len;
+	}
+
+	// bitangent = cross(normal, tangent)
+	skr_vec3_t bitangent = {
+		normal.y * tangent.z - normal.z * tangent.y,
+		normal.z * tangent.x - normal.x * tangent.z,
+		normal.x * tangent.y - normal.y * tangent.x
+	};
 
 	int vert_count = double_sided ? 8 : 4;
 	int idx_count  = double_sided ? 12 : 6;
@@ -264,6 +281,8 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 	uint32_t           color_u32 = _color_vec4_to_u32(color);
 
 	// Front face vertices
+	// Note: tangent points in -U direction due to cross product order (for correct winding),
+	// so we flip U in the UV assignment to get standard left-to-right texture mapping
 	for (int i = 0; i < 4; i++) {
 		float u = (i & 1) ? 1.0f : 0.0f;
 		float v = (i & 2) ? 1.0f : 0.0f;
@@ -279,23 +298,23 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 		verts[i] = (su_vertex_t){
 			.position = {pos.x, pos.y, pos.z},
 			.normal   = normal,
-			.uv       = {u, v},
+			.uv       = {1.0f - u, v},  // Flip U for correct texture orientation
 			.color    = color_u32
 		};
 	}
 
-	inds[0] = 3; inds[1] = 1; inds[2] = 0;
-	inds[3] = 2; inds[4] = 3; inds[5] = 0;
+	inds[0] = 0; inds[1] = 1; inds[2] = 3;
+	inds[3] = 0; inds[4] = 3; inds[5] = 2;
 
-	// Back face if double-sided
+	// Back face if double-sided (reverse winding)
 	if (double_sided) {
 		skr_vec3_t back_normal = {-normal.x, -normal.y, -normal.z};
 		for (int i = 0; i < 4; i++) {
 			verts[i + 4] = verts[i];
 			verts[i + 4].normal = back_normal;
 		}
-		inds[6] = 4; inds[7] = 6; inds[8] = 5;
-		inds[9] = 6; inds[10] = 4; inds[11] = 7;
+		inds[6] = 7; inds[7] = 5; inds[8] = 4;
+		inds[9] = 6; inds[10] = 7; inds[11] = 4;
 	}
 
 	skr_mesh_t mesh;
