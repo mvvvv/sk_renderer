@@ -48,7 +48,6 @@ struct app_t {
 	skr_render_list_t render_list;
 
 	// Performance tracking
-	uint64_t total_time_prev;
 	float   frame_time_ms;
 	float   gpu_time_total_ms;
 	float   gpu_time_min_ms;
@@ -272,13 +271,11 @@ void app_resize(app_t* app, int32_t width, int32_t height, skr_tex_t* render_tar
 
 void app_update(app_t* app, float delta_time) {
 	if (!app || !app->scene_current) return;
-
-	// Store frame time for GUI display
-	uint64_t curr_time = ska_time_get_elapsed_ns();
-	app->frame_time_ms   = (float)((curr_time - app->total_time_prev) / 1000000.0);
-	app->total_time_prev = curr_time;
-
 	scene_update(app->scene_types[app->scene_index], app->scene_current, delta_time);
+}
+
+void app_set_frame_time(app_t* app, float frame_time_ms) {
+	if (app) app->frame_time_ms = frame_time_ms;
 }
 
 void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t height) {
@@ -411,8 +408,11 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 	igText("GPU Time: %.2f ms (%.1f FPS)", gpu_ms, 1000.0f / gpu_ms);
 
 	// Frame time graph (4ms to 18ms range)
-	const float graph_min = 0.0f;
-	const float graph_max = 18.0f;
+	const float cpu_graph_min = 6.0f;
+	const float cpu_graph_max = 10.0f;
+
+	const float gpu_graph_min = 0.0f;
+	const float gpu_graph_max = 3.0f;
 
 	// Get available width for full-width plots
 	ImVec2 content_region;
@@ -425,10 +425,10 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 
 	// Plot frame time - using values_offset for circular buffer
 	igPlotLines_FloatPtr("##frame_graph", app->frame_time_history, FRAME_HISTORY_SIZE,
-		app->history_index, frame_overlay, graph_min, graph_max, (ImVec2){plot_width, 60}, sizeof(float));
+		app->history_index, frame_overlay, cpu_graph_min, cpu_graph_max, (ImVec2){plot_width, 60}, sizeof(float));
 
 	igPlotLines_FloatPtr("##gpu_graph", app->gpu_time_history, FRAME_HISTORY_SIZE,
-		app->history_index, gpu_overlay, graph_min, graph_max, (ImVec2){plot_width, 60}, sizeof(float));
+		app->history_index, gpu_overlay, gpu_graph_min, gpu_graph_max, (ImVec2){plot_width, 60}, sizeof(float));
 
 	igEnd();
 }
