@@ -16,6 +16,14 @@ typedef struct skr_future_t {
 	uint64_t generation;    // Generation counter to detect fence reuse (must match slot's generation)
 } skr_future_t;
 
+// Texture readback handle for async GPU->CPU texture data transfer
+typedef struct skr_tex_readback_t {
+	void*        data;      // CPU-accessible data pointer (valid after future completes)
+	uint32_t     size;      // Data size in bytes
+	skr_future_t future;    // Poll with skr_future_check(), block with skr_future_wait()
+	void*        _internal; // Internal state (staging buffer/memory) - do not access directly
+} skr_tex_readback_t;
+
 typedef struct skr_buffer_t {
 	VkBuffer            buffer;
 	VkDeviceMemory      memory;

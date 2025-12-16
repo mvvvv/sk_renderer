@@ -13,6 +13,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+
+#include <sk_app.h>
 
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui.h>
@@ -45,11 +48,18 @@ struct app_t {
 	skr_render_list_t render_list;
 
 	// Performance tracking
+	uint64_t total_time_prev;
 	float   frame_time_ms;
 	float   gpu_time_total_ms;
 	float   gpu_time_min_ms;
 	float   gpu_time_max_ms;
 	int32_t gpu_time_samples;
+
+	// Frame time history for graphs (circular buffer)
+	#define FRAME_HISTORY_SIZE 512
+	float   frame_time_history[512];
+	float   gpu_time_history[512];
+	int32_t history_index;
 };
 
 static const char* _tex_fmt_name(skr_tex_fmt_ fmt) {
@@ -169,7 +179,8 @@ app_t* app_create(int32_t start_scene) {
 	app->scene_types[8]  = &scene_shadows_vtable;
 	app->scene_types[9]  = &scene_cloth_vtable;
 	app->scene_types[10] = &scene_text_vtable;
-	app->scene_count = 11;
+	app->scene_types[11] = &scene_tex_copy_vtable;
+	app->scene_count = 12;
 #ifdef SKR_HAS_VIDEO
 	app->scene_types[app->scene_count++] = &scene_video_vtable;
 #endif
@@ -179,7 +190,7 @@ app_t* app_create(int32_t start_scene) {
 
 	// Start with the requested scene (default to 0 if out of range or -1)
 	app->scene_index = -1;
-	int32_t initial_scene = (start_scene >= 0 && start_scene < app->scene_count) ? start_scene : 10%app->scene_count;
+	int32_t initial_scene = (start_scene >= 0 && start_scene < app->scene_count) ? start_scene : 11;
 	_switch_scene(app, initial_scene);
 
 	return app;
@@ -263,7 +274,9 @@ void app_update(app_t* app, float delta_time) {
 	if (!app || !app->scene_current) return;
 
 	// Store frame time for GUI display
-	app->frame_time_ms = delta_time * 1000.0f;
+	uint64_t curr_time = ska_time_get_elapsed_ns();
+	app->frame_time_ms   = (float)((curr_time - app->total_time_prev) / 1000000.0);
+	app->total_time_prev = curr_time;
 
 	scene_update(app->scene_types[app->scene_index], app->scene_current, delta_time);
 }
@@ -389,8 +402,33 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 		if (gpu_ms > app->gpu_time_max_ms) app->gpu_time_max_ms = gpu_ms;
 	}
 
+	// Store history in circular buffer
+	app->frame_time_history[app->history_index] = frame_ms;
+	app->gpu_time_history  [app->history_index] = gpu_ms > 0.0f ? gpu_ms : app->gpu_time_history[(app->history_index + FRAME_HISTORY_SIZE - 1) % FRAME_HISTORY_SIZE];
+	app->history_index = (app->history_index + 1) % FRAME_HISTORY_SIZE;
+
 	igText("Frame Time: %.2f ms (%.1f FPS)", frame_ms, 1000.0f / frame_ms);
 	igText("GPU Time: %.2f ms (%.1f FPS)", gpu_ms, 1000.0f / gpu_ms);
+
+	// Frame time graph (4ms to 18ms range)
+	const float graph_min = 0.0f;
+	const float graph_max = 18.0f;
+
+	// Get available width for full-width plots
+	ImVec2 content_region;
+	igGetContentRegionAvail(&content_region);
+	float plot_width = content_region.x;
+
+	char frame_overlay[32], gpu_overlay[32];
+	snprintf(frame_overlay, sizeof(frame_overlay), "Frame: %.1f ms", frame_ms);
+	snprintf(gpu_overlay,   sizeof(gpu_overlay),   "GPU: %.1f ms",   gpu_ms > 0.0f ? gpu_ms : 0.0f);
+
+	// Plot frame time - using values_offset for circular buffer
+	igPlotLines_FloatPtr("##frame_graph", app->frame_time_history, FRAME_HISTORY_SIZE,
+		app->history_index, frame_overlay, graph_min, graph_max, (ImVec2){plot_width, 60}, sizeof(float));
+
+	igPlotLines_FloatPtr("##gpu_graph", app->gpu_time_history, FRAME_HISTORY_SIZE,
+		app->history_index, gpu_overlay, graph_min, graph_max, (ImVec2){plot_width, 60}, sizeof(float));
 
 	igEnd();
 }

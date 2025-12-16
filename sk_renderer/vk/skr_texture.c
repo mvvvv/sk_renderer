@@ -1423,3 +1423,378 @@ skr_err_ skr_tex_update_external(skr_tex_t* ref_tex, skr_tex_external_update_t u
 
 	return skr_err_success;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// Texture Copy and Readback
+///////////////////////////////////////////////////////////////////////////////
+
+skr_err_ skr_tex_copy(const skr_tex_t* src, skr_tex_t* dst,
+                      uint32_t src_mip, uint32_t src_layer,
+                      uint32_t dst_mip, uint32_t dst_layer) {
+	// Validate inputs
+	if (!src || !dst) return skr_err_invalid_parameter;
+	if (src->image == VK_NULL_HANDLE || dst->image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
+
+	// Check mip/layer bounds
+	if (src_mip >= src->mip_levels || src_layer >= src->layer_count) {
+		skr_log(skr_log_critical, "skr_tex_copy: source mip/layer out of bounds");
+		return skr_err_invalid_parameter;
+	}
+	if (dst_mip >= dst->mip_levels || dst_layer >= dst->layer_count) {
+		skr_log(skr_log_critical, "skr_tex_copy: destination mip/layer out of bounds");
+		return skr_err_invalid_parameter;
+	}
+
+	// Calculate mip dimensions
+	int32_t src_width  = src->size.x >> src_mip; if (src_width  < 1) src_width  = 1;
+	int32_t src_height = src->size.y >> src_mip; if (src_height < 1) src_height = 1;
+	int32_t dst_width  = dst->size.x >> dst_mip; if (dst_width  < 1) dst_width  = 1;
+	int32_t dst_height = dst->size.y >> dst_mip; if (dst_height < 1) dst_height = 1;
+
+	// For MSAA resolve, dimensions must match
+	bool is_resolve = (src->samples > VK_SAMPLE_COUNT_1_BIT && dst->samples == VK_SAMPLE_COUNT_1_BIT);
+	if (is_resolve && (src_width != dst_width || src_height != dst_height)) {
+		skr_log(skr_log_critical, "skr_tex_copy: MSAA resolve requires matching dimensions");
+		return skr_err_invalid_parameter;
+	}
+
+	// For regular copy, dimensions must also match (we don't support scaling)
+	if (!is_resolve && (src_width != dst_width || src_height != dst_height)) {
+		skr_log(skr_log_critical, "skr_tex_copy: dimensions must match (use blit for scaling)");
+		return skr_err_invalid_parameter;
+	}
+
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+
+	// Transition source to TRANSFER_SRC_OPTIMAL
+	_skr_tex_transition(ctx.cmd, (skr_tex_t*)src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+
+	// Transition destination to TRANSFER_DST_OPTIMAL
+	_skr_tex_transition(ctx.cmd, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+
+	if (is_resolve) {
+		// MSAA resolve
+		VkImageResolve resolve_region = {
+			.srcSubresource = {
+				.aspectMask     = src->aspect_mask,
+				.mipLevel       = src_mip,
+				.baseArrayLayer = src_layer,
+				.layerCount     = 1,
+			},
+			.srcOffset = {0, 0, 0},
+			.dstSubresource = {
+				.aspectMask     = dst->aspect_mask,
+				.mipLevel       = dst_mip,
+				.baseArrayLayer = dst_layer,
+				.layerCount     = 1,
+			},
+			.dstOffset = {0, 0, 0},
+			.extent    = {src_width, src_height, 1},
+		};
+
+		vkCmdResolveImage(ctx.cmd,
+			src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			dst->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, &resolve_region);
+	} else {
+		// Regular image copy
+		VkImageCopy copy_region = {
+			.srcSubresource = {
+				.aspectMask     = src->aspect_mask,
+				.mipLevel       = src_mip,
+				.baseArrayLayer = src_layer,
+				.layerCount     = 1,
+			},
+			.srcOffset = {0, 0, 0},
+			.dstSubresource = {
+				.aspectMask     = dst->aspect_mask,
+				.mipLevel       = dst_mip,
+				.baseArrayLayer = dst_layer,
+				.layerCount     = 1,
+			},
+			.dstOffset = {0, 0, 0},
+			.extent    = {src_width, src_height, 1},
+		};
+
+		vkCmdCopyImage(ctx.cmd,
+			src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			dst->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, &copy_region);
+	}
+
+	// Transition both back to shader-readable layouts
+	_skr_tex_transition_for_shader_read(ctx.cmd, (skr_tex_t*)src, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+	_skr_tex_transition_for_shader_read(ctx.cmd, dst, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+	_skr_cmd_release(ctx.cmd);
+
+	return skr_err_success;
+}
+
+skr_err_ skr_tex_create_copy(const skr_tex_t* src, skr_tex_fmt_ format, skr_tex_flags_ flags, int32_t multisample, skr_tex_t* out_tex) {
+	if (!src || !out_tex)             return skr_err_invalid_parameter;
+	if (src->image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
+
+	// Resolve parameters
+	skr_tex_fmt_ dst_format  = (format      == skr_tex_fmt_none) ? src->format           : format;
+	int32_t      dst_samples = (multisample == 0)                ? (int32_t)src->samples : multisample;
+
+	// Create destination texture
+	// Use the source's sampler settings for convenience
+	skr_tex_sampler_t sampler = src->sampler_settings;
+
+	skr_err_ err = skr_tex_create(dst_format, flags, sampler, src->size, dst_samples, src->mip_levels, NULL, out_tex);
+	if (err != skr_err_success) {
+		return err;
+	}
+
+	// Copy all mip levels and layers
+	bool is_resolve = (src->samples > VK_SAMPLE_COUNT_1_BIT && dst_samples == 1);
+
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+
+	// Transition source to TRANSFER_SRC_OPTIMAL
+	_skr_tex_transition(ctx.cmd, (skr_tex_t*)src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+
+	// Transition destination to TRANSFER_DST_OPTIMAL
+	_skr_tex_transition(ctx.cmd, out_tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+
+	// For MSAA resolve, we can only resolve mip 0 (MSAA textures typically have 1 mip)
+	uint32_t mip_count = is_resolve ? 1 : src->mip_levels;
+
+	for (uint32_t mip = 0; mip < mip_count; mip++) {
+		int32_t mip_width  = src->size.x >> mip; if (mip_width  < 1) mip_width  = 1;
+		int32_t mip_height = src->size.y >> mip; if (mip_height < 1) mip_height = 1;
+
+		for (uint32_t layer = 0; layer < src->layer_count; layer++) {
+			if (is_resolve) {
+				VkImageResolve resolve_region = {
+					.srcSubresource = {
+						.aspectMask     = src->aspect_mask,
+						.mipLevel       = mip,
+						.baseArrayLayer = layer,
+						.layerCount     = 1,
+					},
+					.srcOffset = {0, 0, 0},
+					.dstSubresource = {
+						.aspectMask     = out_tex->aspect_mask,
+						.mipLevel       = mip,
+						.baseArrayLayer = layer,
+						.layerCount     = 1,
+					},
+					.dstOffset = {0, 0, 0},
+					.extent    = {mip_width, mip_height, 1},
+				};
+
+				vkCmdResolveImage(ctx.cmd,
+					src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					out_tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					1, &resolve_region);
+			} else {
+				VkImageCopy copy_region = {
+					.srcSubresource = {
+						.aspectMask     = src->aspect_mask,
+						.mipLevel       = mip,
+						.baseArrayLayer = layer,
+						.layerCount     = 1,
+					},
+					.srcOffset = {0, 0, 0},
+					.dstSubresource = {
+						.aspectMask     = out_tex->aspect_mask,
+						.mipLevel       = mip,
+						.baseArrayLayer = layer,
+						.layerCount     = 1,
+					},
+					.dstOffset = {0, 0, 0},
+					.extent    = {mip_width, mip_height, 1},
+				};
+
+				vkCmdCopyImage(ctx.cmd,
+					src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					out_tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					1, &copy_region);
+			}
+		}
+	}
+
+	// Transition both back to shader-readable layouts
+	_skr_tex_transition_for_shader_read(ctx.cmd, (skr_tex_t*)src, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+	_skr_tex_transition_for_shader_read(ctx.cmd, out_tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+	_skr_cmd_release(ctx.cmd);
+
+	return skr_err_success;
+}
+
+// Internal structure for readback state
+typedef struct _skr_tex_readback_internal_t {
+	VkBuffer       staging_buffer;
+	VkDeviceMemory staging_memory;
+} _skr_tex_readback_internal_t;
+
+skr_err_ skr_tex_readback(const skr_tex_t* tex, uint32_t mip_level, uint32_t array_layer, skr_tex_readback_t* out_readback) {
+	if (!tex || !out_readback)        return skr_err_invalid_parameter;
+	if (tex->image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
+
+	// Check mip/layer bounds
+	if (mip_level >= tex->mip_levels || array_layer >= tex->layer_count) {
+		skr_log(skr_log_critical, "skr_tex_readback: mip/layer out of bounds");
+		return skr_err_invalid_parameter;
+	}
+
+	// MSAA textures cannot be directly read back - must resolve first
+	if (tex->samples > VK_SAMPLE_COUNT_1_BIT) {
+		skr_log(skr_log_critical, "skr_tex_readback: MSAA textures cannot be read back directly. Use skr_tex_copy to resolve first.");
+		return skr_err_unsupported;
+	}
+
+	// Check readable flag
+	if (!(tex->flags & skr_tex_flags_readable)) {
+		skr_log(skr_log_critical, "skr_tex_readback: texture was not created with skr_tex_flags_readable");
+		return skr_err_unsupported;
+	}
+
+	// Calculate mip dimensions and data size
+	int32_t mip_width  = tex->size.x >> mip_level; if (mip_width  < 1) mip_width  = 1;
+	int32_t mip_height = tex->size.y >> mip_level; if (mip_height < 1) mip_height = 1;
+	int32_t mip_depth  = (tex->flags & skr_tex_flags_3d) ? (tex->size.z >> mip_level) : 1;
+	if (mip_depth < 1) mip_depth = 1;
+
+	// Calculate data size (handle compressed formats)
+	uint32_t block_width, block_height, bytes_per_block;
+	_skr_tex_fmt_block_info(tex->format, &block_width, &block_height, &bytes_per_block);
+
+	uint32_t blocks_x  = (mip_width  + block_width  - 1) / block_width;
+	uint32_t blocks_y  = (mip_height + block_height - 1) / block_height;
+	uint32_t data_size = blocks_x * blocks_y * mip_depth * bytes_per_block;
+
+	if (data_size == 0) {
+		skr_log(skr_log_critical, "skr_tex_readback: unsupported format or zero data size");
+		return skr_err_unsupported;
+	}
+
+	// Create staging buffer with TRANSFER_DST usage
+	VkBufferCreateInfo buffer_info = {
+		.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size        = data_size,
+		.usage       = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	};
+
+	VkBuffer staging_buffer;
+	VkResult vr = vkCreateBuffer(_skr_vk.device, &buffer_info, NULL, &staging_buffer);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_readback: vkCreateBuffer failed");
+		return skr_err_device_error;
+	}
+
+	// Allocate host-visible memory
+	VkMemoryRequirements mem_requirements;
+	vkGetBufferMemoryRequirements(_skr_vk.device, staging_buffer, &mem_requirements);
+
+	uint32_t memory_type_index = _skr_find_memory_type(_skr_vk.physical_device, mem_requirements,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	if (memory_type_index == UINT32_MAX) {
+		vkDestroyBuffer(_skr_vk.device, staging_buffer, NULL);
+		skr_log(skr_log_critical, "skr_tex_readback: no suitable memory type found");
+		return skr_err_out_of_memory;
+	}
+
+	VkMemoryAllocateInfo alloc_info = {
+		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.allocationSize  = mem_requirements.size,
+		.memoryTypeIndex = memory_type_index,
+	};
+
+	VkDeviceMemory staging_memory;
+	vr = vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, &staging_memory);
+	if (vr != VK_SUCCESS) {
+		vkDestroyBuffer(_skr_vk.device, staging_buffer, NULL);
+		skr_log(skr_log_critical, "skr_tex_readback: vkAllocateMemory failed");
+		return skr_err_out_of_memory;
+	}
+
+	vkBindBufferMemory(_skr_vk.device, staging_buffer, staging_memory, 0);
+
+	// Map the staging buffer (persistent mapping)
+	void* mapped_data;
+	vr = vkMapMemory(_skr_vk.device, staging_memory, 0, data_size, 0, &mapped_data);
+	if (vr != VK_SUCCESS) {
+		vkFreeMemory   (_skr_vk.device, staging_memory, NULL);
+		vkDestroyBuffer(_skr_vk.device, staging_buffer, NULL);
+		skr_log(skr_log_critical, "skr_tex_readback: vkMapMemory failed");
+		return skr_err_device_error;
+	}
+
+	// Acquire command buffer and issue copy
+	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+
+	// Transition texture to TRANSFER_SRC_OPTIMAL
+	_skr_tex_transition(ctx.cmd, (skr_tex_t*)tex, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+
+	// Copy image to buffer
+	VkBufferImageCopy copy_region = {
+		.bufferOffset      = 0,
+		.bufferRowLength   = 0,  // Tightly packed
+		.bufferImageHeight = 0,
+		.imageSubresource  = {
+			.aspectMask     = tex->aspect_mask,
+			.mipLevel       = mip_level,
+			.baseArrayLayer = array_layer,
+			.layerCount     = 1,
+		},
+		.imageOffset = {0, 0, 0},
+		.imageExtent = {mip_width, mip_height, mip_depth},
+	};
+
+	vkCmdCopyImageToBuffer(ctx.cmd, tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_buffer, 1, &copy_region);
+
+	// Transition texture back to shader-readable
+	_skr_tex_transition_for_shader_read(ctx.cmd, (skr_tex_t*)tex, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+	// Get future before releasing command buffer
+	skr_future_t future = skr_future_get();
+
+	_skr_cmd_release(ctx.cmd);
+
+	// Allocate internal state
+	_skr_tex_readback_internal_t* internal = (_skr_tex_readback_internal_t*)_skr_malloc(sizeof(_skr_tex_readback_internal_t));
+	if (!internal) {
+		vkUnmapMemory  (_skr_vk.device, staging_memory);
+		vkFreeMemory   (_skr_vk.device, staging_memory, NULL);
+		vkDestroyBuffer(_skr_vk.device, staging_buffer, NULL);
+		return skr_err_out_of_memory;
+	}
+
+	internal->staging_buffer = staging_buffer;
+	internal->staging_memory = staging_memory;
+
+	// Populate output
+	out_readback->data      = mapped_data;
+	out_readback->size      = data_size;
+	out_readback->future    = future;
+	out_readback->_internal = internal;
+
+	return skr_err_success;
+}
+
+void skr_tex_readback_destroy(skr_tex_readback_t* ref_readback) {
+	if (!ref_readback || !ref_readback->_internal) return;
+
+	_skr_tex_readback_internal_t* internal = (_skr_tex_readback_internal_t*)ref_readback->_internal;
+
+	// Wait for GPU to complete before destroying (in case user forgot)
+	skr_future_wait(&ref_readback->future);
+
+	// Unmap and free staging resources
+	vkUnmapMemory  (_skr_vk.device, internal->staging_memory);
+	vkFreeMemory   (_skr_vk.device, internal->staging_memory, NULL);
+	vkDestroyBuffer(_skr_vk.device, internal->staging_buffer, NULL);
+
+	_skr_free(internal);
+
+	// Zero out the readback struct
+	*ref_readback = (skr_tex_readback_t){0};
+}

@@ -50,6 +50,7 @@ extern const scene_vtable_t scene_gltf_vtable;
 extern const scene_vtable_t scene_shadows_vtable;
 extern const scene_vtable_t scene_cloth_vtable;
 extern const scene_vtable_t scene_text_vtable;
+extern const scene_vtable_t scene_tex_copy_vtable;
 #ifdef SKR_HAS_VIDEO
 extern const scene_vtable_t scene_video_vtable;
 #endif

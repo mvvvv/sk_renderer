@@ -488,12 +488,14 @@ SKR_API skr_err_          skr_mesh_set_vertex_buffer       (      skr_mesh_t* re
 SKR_API skr_buffer_t*     skr_mesh_get_vertex_buffer       (const skr_mesh_t*     mesh, uint32_t binding);
 
 SKR_API skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data, skr_tex_t* out_tex);
+SKR_API skr_err_          skr_tex_create_copy              (const skr_tex_t*     src, skr_tex_fmt_ format, skr_tex_flags_ flags, int32_t multisample, skr_tex_t* out_tex);
 SKR_API skr_err_          skr_tex_create_external          (skr_tex_external_info_t info, skr_tex_t* out_tex);
-SKR_API skr_err_          skr_tex_update_external          (skr_tex_t* ref_tex, skr_tex_external_update_t update);
+SKR_API skr_err_          skr_tex_update_external          (      skr_tex_t* ref_tex, skr_tex_external_update_t update);
 SKR_API bool              skr_tex_is_valid                 (const skr_tex_t*     tex);
 SKR_API void              skr_tex_destroy                  (      skr_tex_t* ref_tex);
-SKR_API skr_tex_t         skr_tex_duplicate                (const skr_tex_t*     tex, skr_tex_fmt_ to_format, skr_tex_flags_ to_flags);
-SKR_API void*             skr_tex_get_data                 (const skr_tex_t*     tex, int32_t array_idx, int32_t mip_level);
+SKR_API skr_err_          skr_tex_copy                     (const skr_tex_t*     src, skr_tex_t* dst, uint32_t src_mip, uint32_t src_layer, uint32_t dst_mip, uint32_t dst_layer);
+SKR_API skr_err_          skr_tex_readback                 (const skr_tex_t*     tex, uint32_t mip_level, uint32_t array_layer, skr_tex_readback_t* out_readback);
+SKR_API void              skr_tex_readback_destroy         (      skr_tex_readback_t* ref_readback);
 SKR_API skr_vec3i_t       skr_tex_get_size                 (const skr_tex_t*     tex);
 SKR_API skr_tex_fmt_      skr_tex_get_format               (const skr_tex_t*     tex);
 SKR_API skr_tex_flags_    skr_tex_get_flags                (const skr_tex_t*     tex);
