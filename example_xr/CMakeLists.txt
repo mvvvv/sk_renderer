@@ -9,6 +9,7 @@ include(FetchContent)
 # OpenXR Loader via FetchContent
 ###################################
 
+message(STATUS "VULKAN_HEADERS_INSTALL_DIR = ${VULKAN_HEADERS_INSTALL_DIR}")
 FetchContent_Declare(
 	openxr_loader
 	GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
@@ -51,9 +52,9 @@ target_include_directories(sk_renderer_xr_test PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/../sk_renderer    # For vk/skr_vulkan.h
 )
 
-# We need Vulkan headers for the OpenXR Vulkan extension
-find_package(Vulkan REQUIRED)
-target_link_libraries(sk_renderer_xr_test PRIVATE Vulkan::Headers)
+# Vulkan headers are already available via FetchContent in the root CMakeLists.txt
+# (vulkan_headers target and Vulkan_INCLUDE_DIR are set there)
+target_include_directories(sk_renderer_xr_test PRIVATE ${Vulkan_INCLUDE_DIR})
 
 # Math library on Unix
 if(UNIX AND NOT APPLE)
