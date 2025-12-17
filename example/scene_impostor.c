@@ -160,7 +160,9 @@ static scene_t* _scene_impostor_create(void) {
 		skr_tex_create(format,
 			skr_tex_flags_readable | skr_tex_flags_gen_mips,
 			su_sampler_linear_clamp,
-			(skr_vec3i_t){width, height, 1}, 1, 0, pixels, &scene->tree_texture);
+			(skr_vec3i_t){width, height, 1}, 1, 0,
+			&(skr_tex_data_t){.data = pixels, .mip_count = 1, .layer_count = 1},
+			&scene->tree_texture);
 		skr_tex_set_name     (&scene->tree_texture, "tree");
 		skr_tex_generate_mips(&scene->tree_texture, &scene->mipgen_shader);
 		su_image_free(pixels);
@@ -173,7 +175,9 @@ static scene_t* _scene_impostor_create(void) {
 		skr_tex_create(format,
 			skr_tex_flags_readable | skr_tex_flags_gen_mips,
 			su_sampler_linear_wrap,  // Wrap for tiling
-			(skr_vec3i_t){width, height, 1}, 1, 0, pixels, &scene->ground_texture);
+			(skr_vec3i_t){width, height, 1}, 1, 0,
+			&(skr_tex_data_t){.data = pixels, .mip_count = 1, .layer_count = 1},
+			&scene->ground_texture);
 		skr_tex_set_name     (&scene->ground_texture, "ground");
 		skr_tex_generate_mips(&scene->ground_texture, NULL);
 		su_image_free(pixels);

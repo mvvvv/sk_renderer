@@ -186,8 +186,8 @@ endif()
 
 # functions for compiling shaders easily
 function(SKSHADERC_COMPILE_ASSETS TARGET OUT_PATH COMMAND_STRING OUT_LIST)
-	message(STATUS "sk_gpu compiling shader assets with args '${SKSHADERC_EXE_PATH} ${COMMAND_STRING}'")
-	set(SKSHADERC_COMPILE_COMMANDS "-o ${OUT_PATH} -e $<$<CONFIG:Debug>:-d> ${COMMAND_STRING}")
+	set(SKSHADERC_COMPILE_COMMANDS "-e $<$<CONFIG:Debug>:-d> -o ${OUT_PATH} ${COMMAND_STRING}")
+	message(STATUS "sk_renderer compiling shader assets with args 'skshaderc ${SKSHADERC_COMPILE_COMMANDS} [shaders]'")
 	separate_arguments(SKSHADERC_COMPILE_COMMANDS)
 
 	set(SHADER_LIST)
@@ -214,8 +214,8 @@ function(SKSHADERC_COMPILE_ASSETS TARGET OUT_PATH COMMAND_STRING OUT_LIST)
 endfunction()
 
 function(SKSHADERC_COMPILE_HEADERS ADD_TARGET OUTPUT_FOLDER COMMAND_STRING)
-	set(SKSHADERC_COMPILE_COMMANDS "-h -o ${OUTPUT_FOLDER} $<$<CONFIG:Debug>:-d> ${COMMAND_STRING}")
-	message(STATUS "sk_gpu compiling shader headers with args '${SKSHADERC_EXE_PATH} ${SKSHADERC_COMPILE_COMMANDS}'")
+	set(SKSHADERC_COMPILE_COMMANDS "-h $<$<CONFIG:Debug>:-d> -o ${OUTPUT_FOLDER} ${COMMAND_STRING}")
+	message(STATUS "sk_renderer compiling shader headers with args 'skshaderc ${SKSHADERC_COMPILE_COMMANDS} [shaders]'")
 	separate_arguments(SKSHADERC_COMPILE_COMMANDS)
 
 	set(SHADER_LIST)

@@ -362,7 +362,9 @@ skr_tex_t su_tex_create_checkerboard(int32_t resolution, int32_t square_size, ui
 		flags,
 		su_sampler_linear_clamp,
 		(skr_vec3i_t){resolution, resolution, 1},
-		1, 0, pixels, &tex
+		1, 0,
+		&(skr_tex_data_t){.data = pixels, .mip_count = 1, .layer_count = 1},
+		&tex
 	);
 
 	free(pixels);
@@ -381,7 +383,9 @@ skr_tex_t su_tex_create_solid_color(uint32_t color) {
 		skr_tex_flags_readable,
 		su_sampler_linear_clamp,
 		(skr_vec3i_t){1, 1, 1},
-		1, 1, &color, &tex
+		1, 1,
+		&(skr_tex_data_t){.data = &color, .mip_count = 1, .layer_count = 1},
+		&tex
 	);
 	return tex;
 }
@@ -405,7 +409,9 @@ skr_tex_t su_tex_load(const char* filename, const char* opt_name, bool generate_
 		flags,
 		su_sampler_linear_wrap,
 		(skr_vec3i_t){width, height, 1},
-		1, 0, pixels, &tex
+		1, 0,
+		&(skr_tex_data_t){.data = pixels, .mip_count = 1, .layer_count = 1},
+		&tex
 	);
 
 	if (opt_name)      skr_tex_set_name     (&tex, opt_name);
@@ -1239,7 +1245,9 @@ static void _su_gltf_load_sync(su_gltf_t* gltf) {
 						skr_tex_flags_readable | skr_tex_flags_gen_mips,
 						su_sampler_linear_wrap,
 						(skr_vec3i_t){width, height, 1},
-						1, 0, pixels, &gltf->textures[tex_idx]
+						1, 0,
+						&(skr_tex_data_t){.data = pixels, .mip_count = 1, .layer_count = 1},
+						&gltf->textures[tex_idx]
 					);
 
 					char tex_name[64];

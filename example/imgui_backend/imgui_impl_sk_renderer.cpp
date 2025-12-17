@@ -78,8 +78,9 @@ extern "C" bool ImGui_ImplSkRenderer_Init() {
 		.sample_compare = skr_compare_never,
 	};
 
+	skr_tex_data_t font_data = {.data = pixels, .mip_count = 1, .layer_count = 1};
 	if (skr_tex_create(skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, font_sampler,
-					   (skr_vec3i_t){width, height, 1}, 1, 1, pixels, &bd->font_texture) != skr_err_success) {
+					   (skr_vec3i_t){width, height, 1}, 1, 1, &font_data, &bd->font_texture) != skr_err_success) {
 		skr_shader_destroy(&bd->shader);
 		skr_vert_type_destroy(&bd->vertex_type);
 		free(bd);

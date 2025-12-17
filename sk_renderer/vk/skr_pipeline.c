@@ -823,9 +823,9 @@ VkFramebuffer _skr_create_framebuffer(VkDevice device, VkRenderPass render_pass,
 		attachments[attachment_count++] = color->view;
 		width                           = color->size.x;
 		height                          = color->size.y;
-		// For array textures, size.z contains the layer count
+		// For array textures, layer_count holds the number of layers
 		if (color->flags & skr_tex_flags_array) {
-			layers = color->size.z;
+			layers = color->layer_count;
 		}
 	}
 
@@ -842,7 +842,7 @@ VkFramebuffer _skr_create_framebuffer(VkDevice device, VkRenderPass render_pass,
 		}
 		// Depth buffer should have same layer count as color
 		if (depth->flags & skr_tex_flags_array) {
-			layers = depth->size.z;
+			layers = depth->layer_count;
 		}
 	}
 

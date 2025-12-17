@@ -274,16 +274,12 @@ static void _upload_software_frame(video_t* v, AVFrame* frame) {
 	// Handle different pixel formats
 	if (frame->format == AV_PIX_FMT_NV12) {
 		// NV12: Y plane (full res) + interleaved UV plane (half res)
-		// Upload Y plane directly
-		skr_tex_set_data(&v->sw_tex_y, frame->data[0], frame->linesize[0]);
-
-		// Upload UV plane directly (already interleaved)
-		skr_tex_set_data(&v->sw_tex_uv, frame->data[1], frame->linesize[1]);
+		skr_tex_set_data(&v->sw_tex_y,  &(skr_tex_data_t){.data = frame->data[0], .mip_count = 1, .layer_count = 1, .row_pitch = frame->linesize[0]});
+		skr_tex_set_data(&v->sw_tex_uv, &(skr_tex_data_t){.data = frame->data[1], .mip_count = 1, .layer_count = 1, .row_pitch = frame->linesize[1]});
 
 	} else if (frame->format == AV_PIX_FMT_YUV420P) {
 		// Planar YUV420: Y + U + V separate planes
-		// Upload Y plane directly
-		skr_tex_set_data(&v->sw_tex_y, frame->data[0], frame->linesize[0]);
+		skr_tex_set_data(&v->sw_tex_y, &(skr_tex_data_t){.data = frame->data[0], .mip_count = 1, .layer_count = 1, .row_pitch = frame->linesize[0]});
 
 		// Interleave U and V into UV texture (RG8 format)
 		uint8_t* uv_buffer = malloc(uv_width * uv_height * 2);
@@ -302,7 +298,7 @@ static void _upload_software_frame(video_t* v, AVFrame* frame) {
 					dst[x * 2 + 1] = v_row[x];  // V -> G
 				}
 			}
-			skr_tex_set_data(&v->sw_tex_uv, uv_buffer, 0);
+			skr_tex_set_data(&v->sw_tex_uv, &(skr_tex_data_t){.data = uv_buffer, .mip_count = 1, .layer_count = 1});
 			free(uv_buffer);
 		}
 	} else {

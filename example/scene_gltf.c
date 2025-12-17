@@ -85,7 +85,9 @@ static void _load_skybox(scene_gltf_t* scene, const char* path) {
 		skr_tex_flags_readable,
 		su_sampler_linear_wrap,
 		(skr_vec3i_t){equirect_width, equirect_height, 1},
-		1, 0, equirect_data, &scene->equirect_texture
+		1, 0,
+		&(skr_tex_data_t){.data = equirect_data, .mip_count = 1, .layer_count = 1},
+		&scene->equirect_texture
 	);
 	skr_tex_set_name(&scene->equirect_texture, "equirect_source");
 	su_image_free(equirect_data);
