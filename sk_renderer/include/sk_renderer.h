@@ -509,6 +509,7 @@ SKR_API skr_err_          skr_tex_copy                     (const skr_tex_t*    
 SKR_API skr_err_          skr_tex_readback                 (const skr_tex_t*     tex, uint32_t mip_level, uint32_t array_layer, skr_tex_readback_t* out_readback);
 SKR_API void              skr_tex_readback_destroy         (      skr_tex_readback_t* ref_readback);
 SKR_API skr_vec3i_t       skr_tex_get_size                 (const skr_tex_t*     tex);
+SKR_API uint32_t          skr_tex_get_array_count          (const skr_tex_t*     tex);
 SKR_API skr_tex_fmt_      skr_tex_get_format               (const skr_tex_t*     tex);
 SKR_API skr_tex_flags_    skr_tex_get_flags                (const skr_tex_t*     tex);
 SKR_API int32_t           skr_tex_get_multisample          (const skr_tex_t*     tex);

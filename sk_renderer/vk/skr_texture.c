@@ -799,6 +799,10 @@ skr_vec3i_t skr_tex_get_size(const skr_tex_t* tex) {
 	return tex ? tex->size : (skr_vec3i_t){0, 0, 0};
 }
 
+uint32_t skr_tex_get_array_count(const skr_tex_t* tex) {
+	return tex ? tex->layer_count : 0;
+}
+
 skr_tex_fmt_ skr_tex_get_format(const skr_tex_t* tex) {
 	return tex ? tex->format : skr_tex_fmt_none;
 }
