@@ -500,7 +500,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	out_tex->sampler_settings = sampler;
 	out_tex->format           = format;
 
-	VkFormat vk_format = _skr_to_vk_tex_fmt(format);
+	VkFormat vk_format = skr_tex_fmt_to_native(format);
 	if (vk_format == VK_FORMAT_UNDEFINED) {
 		return skr_err_unsupported;
 	}
@@ -674,7 +674,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 			
 			for (int i = 0; i < 3; i++) {
 				if (fallbacks[i] == format) continue;
-				VkFormat fallback_fmt = _skr_to_vk_tex_fmt(fallbacks[i]);
+				VkFormat fallback_fmt = skr_tex_fmt_to_native(fallbacks[i]);
 				check = vkGetPhysicalDeviceImageFormatProperties(
 					_skr_vk.physical_device, fallback_fmt, image_type, VK_IMAGE_TILING_OPTIMAL, usage, 0, &format_props);
 				
@@ -879,7 +879,7 @@ void skr_tex_generate_mips(skr_tex_t* ref_tex, const skr_shader_t* opt_shader) {
 static void _skr_tex_generate_mips_blit(VkPhysicalDevice phys_device, skr_tex_t* ref_tex, int32_t mip_levels) {
 	// Check format support for blit operations
 	VkFormatProperties format_properties;
-	VkFormat           vk_format = _skr_to_vk_tex_fmt(ref_tex->format);
+	VkFormat           vk_format = skr_tex_fmt_to_native(ref_tex->format);
 	vkGetPhysicalDeviceFormatProperties(phys_device, vk_format, &format_properties);
 
 	if (!(format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) ||
@@ -983,7 +983,7 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 	}
 
 	// Register render pass format with pipeline system (cached for reuse)
-	VkFormat format = _skr_to_vk_tex_fmt(ref_tex->format);
+	VkFormat format = skr_tex_fmt_to_native(ref_tex->format);
 	skr_pipeline_renderpass_key_t rp_key = {
 		.color_format   = format,
 		.depth_format   = VK_FORMAT_UNDEFINED,
@@ -1308,7 +1308,7 @@ VkSampler _skr_sampler_create_vk(VkDevice device, skr_tex_sampler_t settings) {
 ///////////////////////////////////////////////////////////////////////////////
 
 bool skr_tex_fmt_is_supported(skr_tex_fmt_ format) {
-	VkFormat vk_format = _skr_to_vk_tex_fmt(format);
+	VkFormat vk_format = skr_tex_fmt_to_native(format);
 	if (vk_format == VK_FORMAT_UNDEFINED) {
 		return false;
 	}
@@ -1420,7 +1420,7 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 
 	*out_tex = (skr_tex_t){};
 
-	VkFormat vk_format = _skr_to_vk_tex_fmt(info.format);
+	VkFormat vk_format = skr_tex_fmt_to_native(info.format);
 	if (vk_format == VK_FORMAT_UNDEFINED) {
 		skr_log(skr_log_warning, "skr_tex_create_external: unsupported format");
 		return skr_err_unsupported;
@@ -1512,7 +1512,7 @@ skr_err_ skr_tex_update_external(skr_tex_t* ref_tex, skr_tex_external_update_t u
 	if (update.view != VK_NULL_HANDLE) {
 		ref_tex->view = update.view;
 	} else {
-		VkFormat vk_format = _skr_to_vk_tex_fmt(ref_tex->format);
+		VkFormat vk_format = skr_tex_fmt_to_native(ref_tex->format);
 
 		// Determine view type based on texture flags (match skr_tex_create_external behavior)
 		VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;

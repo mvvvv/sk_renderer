@@ -9,7 +9,7 @@
 // Texture format conversions
 ///////////////////////////////////////////////////////////////////////////////
 
-VkFormat _skr_to_vk_tex_fmt(skr_tex_fmt_ format) {
+uint32_t skr_tex_fmt_to_native(skr_tex_fmt_ format) {
 	switch (format) {
 		case skr_tex_fmt_rgba32_srgb:   return VK_FORMAT_R8G8B8A8_SRGB;
 		case skr_tex_fmt_rgba32_linear: return VK_FORMAT_R8G8B8A8_UNORM;
@@ -62,7 +62,7 @@ VkFormat _skr_to_vk_tex_fmt(skr_tex_fmt_ format) {
 	}
 }
 
-skr_tex_fmt_ _skr_from_vk_tex_fmt(VkFormat format) {
+skr_tex_fmt_ skr_tex_fmt_from_native(uint32_t format) {
 	switch (format) {
 		case VK_FORMAT_R8G8B8A8_SRGB:              return skr_tex_fmt_rgba32_srgb;
 		case VK_FORMAT_R8G8B8A8_UNORM:             return skr_tex_fmt_rgba32_linear;

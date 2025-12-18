@@ -9,8 +9,6 @@
 #include <volk.h>
 
 // Vulkan conversions
-VkFormat             _skr_to_vk_tex_fmt     (skr_tex_fmt_      format);
-skr_tex_fmt_         _skr_from_vk_tex_fmt   (VkFormat          format);
 VkFormat             _skr_to_vk_vert_fmt    (skr_vertex_fmt_   format, uint8_t count);
 VkCullModeFlags      _skr_to_vk_cull        (skr_cull_         cull);
 VkCompareOp          _skr_to_vk_compare     (skr_compare_      compare);
