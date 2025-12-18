@@ -435,7 +435,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		};
 		writes[write_ct++] = (VkWriteDescriptorSet){
 			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,
+			.dstBinding      = SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,
 			.descriptorCount = 1,
 			.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 			.pBufferInfo     = &buffer_infos[buffer_ct++],
@@ -443,7 +443,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	}
 
 	// Material texture and buffer binds
-	const int32_t ignore_slots[] = { SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL };
+	const int32_t ignore_slots[] = { SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot };
 	_skr_material_add_writes(material->binds, material->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
 		writes,       sizeof(writes      )/sizeof(writes      [0]),
 		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
@@ -641,7 +641,7 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 			};
 			writes[write_ct++] = (VkWriteDescriptorSet){
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,
+				.dstBinding      = SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,
 				.descriptorCount = 1,
 				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 				.pBufferInfo     = &buffer_infos[buffer_ct++],
@@ -656,7 +656,7 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 			};
 			writes[write_ct++] = (VkWriteDescriptorSet){
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_SYSTEM,
+				.dstBinding      = SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.system_slot,
 				.descriptorCount = 1,
 				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 				.pBufferInfo     = &buffer_infos[buffer_ct++],
@@ -672,7 +672,7 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 			};
 			writes[write_ct++] = (VkWriteDescriptorSet){
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstBinding      = SKR_BIND_SHIFT_TEXTURE + SKR_BIND_INSTANCE,
+				.dstBinding      = SKR_BIND_SHIFT_TEXTURE + _skr_vk.bind_settings.instance_slot,
 				.descriptorCount = 1,
 				.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				.pBufferInfo     = &buffer_infos[buffer_ct++],
@@ -680,9 +680,9 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		}
 
 		const int32_t ignore_slots[] = {
-			SKR_BIND_SHIFT_TEXTURE + SKR_BIND_INSTANCE,
-			SKR_BIND_SHIFT_BUFFER  + SKR_BIND_MATERIAL,
-			SKR_BIND_SHIFT_BUFFER  + SKR_BIND_SYSTEM };
+			SKR_BIND_SHIFT_TEXTURE + _skr_vk.bind_settings.instance_slot,
+			SKR_BIND_SHIFT_BUFFER  + _skr_vk.bind_settings.material_slot,
+			SKR_BIND_SHIFT_BUFFER  + _skr_vk.bind_settings.system_slot };
 		// Material texture and buffer binds
 		const skr_material_t* mat = item->material;
 		_skr_material_add_writes(mat->binds, mat->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
@@ -773,7 +773,7 @@ void skr_renderer_draw_mesh_immediate(skr_mesh_t* mesh, skr_material_t* material
 		};
 		writes[write_ct++] = (VkWriteDescriptorSet){
 			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,
+			.dstBinding      = SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,
 			.descriptorCount = 1,
 			.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 			.pBufferInfo     = &buffer_infos[buffer_ct++],
@@ -782,9 +782,9 @@ void skr_renderer_draw_mesh_immediate(skr_mesh_t* mesh, skr_material_t* material
 
 	// No system buffer or instance buffer for immediate draws
 	const int32_t ignore_slots[] = {
-		SKR_BIND_SHIFT_TEXTURE + SKR_BIND_INSTANCE,
-		SKR_BIND_SHIFT_BUFFER  + SKR_BIND_MATERIAL,
-		SKR_BIND_SHIFT_BUFFER  + SKR_BIND_SYSTEM };
+		SKR_BIND_SHIFT_TEXTURE + _skr_vk.bind_settings.instance_slot,
+		SKR_BIND_SHIFT_BUFFER  + _skr_vk.bind_settings.material_slot,
+		SKR_BIND_SHIFT_BUFFER  + _skr_vk.bind_settings.system_slot };
 
 	// Add material texture and buffer bindings
 	_skr_material_add_writes(material->binds, material->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),

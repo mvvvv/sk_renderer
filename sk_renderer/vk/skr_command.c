@@ -229,14 +229,14 @@ static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* ref_pool) {
 		}
 
 		char name[64];
-		snprintf(name,sizeof(name), "CommandBuffer_thr%d_%d", ref_pool->thread_idx, idx);
+		snprintf(name,sizeof(name), "CommandBuffer_thr%u_%u", ref_pool->thread_idx, idx);
 		_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)slot->cmd, name);
 
-		snprintf(name,sizeof(name), "Command_Fence_thr%d_%d", ref_pool->thread_idx, idx);
+		snprintf(name,sizeof(name), "Command_Fence_thr%u_%u", ref_pool->thread_idx, idx);
 		_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_FENCE, (uint64_t)slot->fence, name);
 
 		if (slot->descriptor_pool != VK_NULL_HANDLE) {
-			snprintf(name,sizeof(name), "DescriptorPool_thr%d_%d", ref_pool->thread_idx, idx);
+			snprintf(name,sizeof(name), "DescriptorPool_thr%u_%u", ref_pool->thread_idx, idx);
 			_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)slot->descriptor_pool, name);
 		}
 	} else {

@@ -113,6 +113,9 @@ typedef struct {
 	void*                  (*calloc_func) (size_t count, size_t size);
 	void*                  (*realloc_func)(void* ptr, size_t size);
 	void                   (*free_func)   (void* ptr);
+
+	// Bind slot configuration
+	skr_bind_settings_t      bind_settings;
 	bool                     in_frame;  // True when between frame_begin and frame_end
 	thrd_t                   main_thread_id;  // Thread that calls skr_init
 	uint32_t                 frame;

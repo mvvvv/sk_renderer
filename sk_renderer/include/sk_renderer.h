@@ -313,6 +313,18 @@ typedef struct skr_tex_sampler_t {
 	int32_t              anisotropy;
 } skr_tex_sampler_t;
 
+// Texture data descriptor for uploading texture data with multiple mips/layers.
+// Data layout is mip-major: all layers for mip0, then all layers for mip1, etc.
+// This matches KTX2 file layout.
+typedef struct skr_tex_data_t {
+	const void* data;        // Contiguous data pointer
+	uint32_t    mip_count;   // Exact number of mips present in data
+	uint32_t    layer_count; // Exact number of layers present in data (1 for 3D textures)
+	uint32_t    base_mip;    // Target mip level offset in texture
+	uint32_t    base_layer;  // Target layer offset in texture
+	int32_t     row_pitch;   // Source row pitch in bytes (0 = tightly packed, only valid when mip_count == 1)
+} skr_tex_data_t;
+
 typedef struct skr_blend_state_t {
 	skr_blend_factor_ src_color_factor;
 	skr_blend_factor_ dst_color_factor;
@@ -389,6 +401,15 @@ typedef struct skr_device_request_t {
 // Returns: Device requirements (physical device, extensions)
 typedef skr_device_request_t (*skr_device_init_callback_t)(void* vk_instance, void* user_data);
 
+// Bind slot configuration for shader/renderer coordination.
+// These values must match between skshaderc and sk_renderer.
+// Default values (if all zeros): material=0, system=1, instance=2
+typedef struct skr_bind_settings_t {
+	int32_t material_slot;   // Slot for material cbuffer (default: 0)
+	int32_t system_slot;     // Slot for system buffer (default: 1)
+	int32_t instance_slot;   // Slot for instance buffer (default: 2)
+} skr_bind_settings_t;
+
 typedef struct skr_settings_t {
 	const char*  app_name;
 	int32_t      app_version;
@@ -416,6 +437,9 @@ typedef struct skr_settings_t {
 	void*      (*calloc_func) (size_t count, size_t size);
 	void*      (*realloc_func)(void* ptr, size_t size);
 	void       (*free_func)   (void* ptr);
+
+	// Bind slot configuration (NULL = use defaults: material=0, system=1, instance=2)
+	const skr_bind_settings_t* bind_settings;
 } skr_settings_t;
 
 typedef struct skr_shader_t skr_shader_t;
@@ -487,7 +511,7 @@ SKR_API skr_err_          skr_mesh_set_data                (      skr_mesh_t* re
 SKR_API skr_err_          skr_mesh_set_vertex_buffer       (      skr_mesh_t* ref_mesh, uint32_t binding, const skr_buffer_t* buffer, uint32_t vert_count);
 SKR_API skr_buffer_t*     skr_mesh_get_vertex_buffer       (const skr_mesh_t*     mesh, uint32_t binding);
 
-SKR_API skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const void* opt_tex_data, skr_tex_t* out_tex);
+SKR_API skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const skr_tex_data_t* opt_data, skr_tex_t* out_tex);
 SKR_API skr_err_          skr_tex_create_copy              (const skr_tex_t*     src, skr_tex_fmt_ format, skr_tex_flags_ flags, int32_t multisample, skr_tex_t* out_tex);
 SKR_API skr_err_          skr_tex_create_external          (skr_tex_external_info_t info, skr_tex_t* out_tex);
 SKR_API skr_err_          skr_tex_update_external          (      skr_tex_t* ref_tex, skr_tex_external_update_t update);
@@ -497,15 +521,20 @@ SKR_API skr_err_          skr_tex_copy                     (const skr_tex_t*    
 SKR_API skr_err_          skr_tex_readback                 (const skr_tex_t*     tex, uint32_t mip_level, uint32_t array_layer, skr_tex_readback_t* out_readback);
 SKR_API void              skr_tex_readback_destroy         (      skr_tex_readback_t* ref_readback);
 SKR_API skr_vec3i_t       skr_tex_get_size                 (const skr_tex_t*     tex);
+SKR_API uint32_t          skr_tex_get_array_count          (const skr_tex_t*     tex);
 SKR_API skr_tex_fmt_      skr_tex_get_format               (const skr_tex_t*     tex);
 SKR_API skr_tex_flags_    skr_tex_get_flags                (const skr_tex_t*     tex);
 SKR_API int32_t           skr_tex_get_multisample          (const skr_tex_t*     tex);
 SKR_API void              skr_tex_set_sampler              (      skr_tex_t* ref_tex, skr_tex_sampler_t sampler);
 SKR_API skr_tex_sampler_t skr_tex_get_sampler              (const skr_tex_t*     tex);
-SKR_API skr_err_          skr_tex_set_data                 (      skr_tex_t* ref_tex, const void* data, int32_t row_pitch); // row_pitch=0 means tightly packed
+SKR_API skr_err_          skr_tex_set_data                 (      skr_tex_t* ref_tex, const skr_tex_data_t* data);
 SKR_API void              skr_tex_generate_mips            (      skr_tex_t* ref_tex, const skr_shader_t* opt_compute_shader);
 SKR_API void              skr_tex_set_name                 (      skr_tex_t* ref_tex, const char* name);
 SKR_API bool              skr_tex_fmt_is_supported         (skr_tex_fmt_ format);
+SKR_API void              skr_tex_fmt_block_info           (skr_tex_fmt_ format, uint32_t* opt_out_block_width, uint32_t* opt_out_block_height, uint32_t* opt_out_bytes_per_block);
+SKR_API uint32_t          skr_tex_calc_mip_count           (skr_vec3i_t size);
+SKR_API skr_vec3i_t       skr_tex_calc_mip_dimensions      (skr_vec3i_t base_size, uint32_t mip_level);
+SKR_API uint64_t          skr_tex_calc_mip_size            (skr_tex_fmt_ format, skr_vec3i_t base_size, uint32_t mip_level);
 
 SKR_API skr_err_          skr_surface_create               (void* vk_surface_khr, skr_surface_t* out_surface);
 SKR_API void              skr_surface_destroy              (      skr_surface_t* ref_surface);

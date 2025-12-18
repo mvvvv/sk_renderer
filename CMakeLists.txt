@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 project(sk_renderer VERSION 0.1.0)
 
+# Add custom cmake modules (includes headers-only FindVulkan for cross-compilation)
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 # Build options
 option(SKR_BUILD_SKSHADERC "Build skshaderc shader compiler" ON)
 option(SKR_BUILD_EXAMPLES "Build sk_renderer example application" ON)
@@ -50,13 +53,12 @@ endif()
 message(STATUS "Fetching Vulkan-Headers...")
 FetchContent_Declare(
 	vulkan_headers
-	GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
-	GIT_TAG        v1.3.270
-	GIT_SHALLOW    TRUE
-	GIT_PROGRESS   TRUE
+	URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.336.zip
 )
 FetchContent_MakeAvailable(vulkan_headers)
-set(VULKAN_HEADERS_INSTALL_DIR "${vulkan_headers_SOURCE_DIR}" CACHE PATH "Vulkan headers location" FORCE)
+# Set paths for volk and our custom FindVulkan.cmake
+set(VULKAN_HEADERS_INSTALL_DIR "${vulkan_headers_SOURCE_DIR}" CACHE PATH "Vulkan headers for volk" FORCE)
+set(Vulkan_INCLUDE_DIR "${vulkan_headers_SOURCE_DIR}/include" CACHE PATH "Vulkan headers for FindVulkan" FORCE)
 
 message(STATUS "Fetching volk...")
 FetchContent_Declare( volk

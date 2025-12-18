@@ -238,7 +238,8 @@ void app_xr_init(void) {
 		skr_tex_flags_readable,
 		(skr_tex_sampler_t){ .sample = skr_tex_sample_linear, .address = skr_tex_address_wrap },
 		(skr_vec3i_t){ 1, 1, 1 },
-		1, 1, &white_pixel,
+		1, 1,
+		&(skr_tex_data_t){.data = &white_pixel, .mip_count = 1, .layer_count = 1},
 		&s_white_tex
 	);
 	skr_tex_set_name(&s_white_tex, "White");

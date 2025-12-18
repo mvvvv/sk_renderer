@@ -145,55 +145,6 @@ uint32_t _skr_tex_fmt_to_size(skr_tex_fmt_ format) {
 	}
 }
 
-void _skr_tex_fmt_block_info(skr_tex_fmt_ format, uint32_t* out_block_width, uint32_t* out_block_height, uint32_t* out_bytes_per_block) {
-	switch (format) {
-		// BC formats (4x4 blocks)
-		case skr_tex_fmt_bc1_rgb:
-		case skr_tex_fmt_bc1_rgb_srgb:
-		case skr_tex_fmt_bc4_r:
-			*out_block_width = 4; *out_block_height = 4; *out_bytes_per_block = 8; return;
-		case skr_tex_fmt_bc3_rgba:
-		case skr_tex_fmt_bc3_rgba_srgb:
-		case skr_tex_fmt_bc5_rg:
-		case skr_tex_fmt_bc7_rgba:
-		case skr_tex_fmt_bc7_rgba_srgb:
-			*out_block_width = 4; *out_block_height = 4; *out_bytes_per_block = 16; return;
-
-		// ETC formats (4x4 blocks)
-		case skr_tex_fmt_etc1_rgb:
-			*out_block_width = 4; *out_block_height = 4; *out_bytes_per_block = 8; return;
-		case skr_tex_fmt_etc2_rgba:
-		case skr_tex_fmt_etc2_rgba_srgb:
-			*out_block_width = 4; *out_block_height = 4; *out_bytes_per_block = 16; return;
-		case skr_tex_fmt_etc2_r11:
-			*out_block_width = 4; *out_block_height = 4; *out_bytes_per_block = 8; return;
-		case skr_tex_fmt_etc2_rg11:
-			*out_block_width = 4; *out_block_height = 4; *out_bytes_per_block = 16; return;
-
-		// PVRTC formats (variable block sizes, but typically 4x4 for 4bpp)
-		case skr_tex_fmt_pvrtc1_rgb:
-		case skr_tex_fmt_pvrtc1_rgb_srgb:
-			*out_block_width = 8; *out_block_height = 4; *out_bytes_per_block = 8; return; // 2bpp
-		case skr_tex_fmt_pvrtc1_rgba:
-		case skr_tex_fmt_pvrtc1_rgba_srgb:
-		case skr_tex_fmt_pvrtc2_rgba:
-		case skr_tex_fmt_pvrtc2_rgba_srgb:
-			*out_block_width = 4; *out_block_height = 4; *out_bytes_per_block = 8; return; // 4bpp
-
-		// ASTC 4x4 (16 bytes per block)
-		case skr_tex_fmt_astc4x4_rgba:
-		case skr_tex_fmt_astc4x4_rgba_srgb:
-			*out_block_width = 4; *out_block_height = 4; *out_bytes_per_block = 16; return;
-
-		// Uncompressed formats (1x1 "blocks")
-		default:
-			*out_block_width     = 1;
-			*out_block_height    = 1;
-			*out_bytes_per_block = _skr_tex_fmt_to_size(format);
-			return;
-	}
-}
-
 uint32_t _skr_vert_fmt_to_size(skr_vertex_fmt_ format) {
 	switch (format) {
 		case skr_vertex_fmt_f64:              return 8;

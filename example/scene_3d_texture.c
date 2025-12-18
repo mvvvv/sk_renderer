@@ -122,7 +122,8 @@ static scene_t* _scene_3d_texture_create(void) {
 		(skr_vec3i_t){tex_size, tex_size, tex_size},
 		1,
 		1,
-		texture_data, &scene->texture_3d );
+		&(skr_tex_data_t){.data = texture_data, .mip_count = 1, .layer_count = 1},
+		&scene->texture_3d );
 	free(texture_data);
 	skr_tex_set_name    (&scene->texture_3d, "3d_spheres");
 	skr_material_set_tex(&scene->material,   "tex", &scene->texture_3d);

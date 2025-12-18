@@ -118,6 +118,17 @@ bool skr_init(skr_settings_t settings) {
 	_skr_vk.realloc_func = settings.realloc_func ? settings.realloc_func : realloc;
 	_skr_vk.free_func    = settings.free_func    ? settings.free_func    : free;
 
+	// Set up bind slot configuration (use defaults if not provided)
+	if (settings.bind_settings) {
+		_skr_vk.bind_settings = *settings.bind_settings;
+	} else {
+		_skr_vk.bind_settings = (skr_bind_settings_t){
+			.material_slot = 0,
+			.system_slot   = 1,
+			.instance_slot = 2,
+		};
+	}
+
 	// Initialize volk
 	VkResult vr = volkInitialize();
 	SKR_VK_CHECK_RET(vr, volkInitialize, false);
@@ -682,11 +693,11 @@ bool skr_init(skr_settings_t settings) {
 		.address = skr_tex_address_clamp
 	};
 	uint32_t color = 0xFFFFFFFF;
-	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color, &_skr_vk.default_tex_white);
+	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &(skr_tex_data_t){.data = &color, .mip_count = 1, .layer_count = 1}, &_skr_vk.default_tex_white);
 	color = 0xFF808080;
-	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color, &_skr_vk.default_tex_gray);
+	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &(skr_tex_data_t){.data = &color, .mip_count = 1, .layer_count = 1}, &_skr_vk.default_tex_gray);
 	color = 0xFF000000;
-	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &color, &_skr_vk.default_tex_black);
+	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &(skr_tex_data_t){.data = &color, .mip_count = 1, .layer_count = 1}, &_skr_vk.default_tex_black);
 
 	_skr_vk.initialized = true;
 	return true;

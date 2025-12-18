@@ -81,7 +81,9 @@ static scene_t* _scene_cubemap_create(void) {
 		skr_tex_flags_readable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
 		su_sampler_linear_clamp,
 		(skr_vec3i_t){cube_size, cube_size, 6},  // 6 faces
-		1, 0, cubemap_data, &scene->cubemap_texture );
+		1, 0,
+		&(skr_tex_data_t){.data = cubemap_data, .mip_count = 1, .layer_count = 6},
+		&scene->cubemap_texture );
 	skr_tex_set_name(&scene->cubemap_texture, "color_cubemap");
 	free(cubemap_data);
 
