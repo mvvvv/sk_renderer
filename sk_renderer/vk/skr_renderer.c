@@ -452,7 +452,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		&write_ct, &buffer_ct, &image_ct);
 
 	// Transition any source textures in material to shader-read layout
-	const sksc_shader_meta_t* meta = material->info.shader->meta;
+	const sksc_shader_meta_t* meta = material->key.shader->meta;
 	for (uint32_t i=0; i<meta->resource_count; i++) {
 		skr_material_bind_t* res = &material->binds[meta->buffer_count + i];
 		if (res->texture)

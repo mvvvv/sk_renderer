@@ -31,7 +31,7 @@ void                  _skr_pipeline_init                 (void);
 void                  _skr_pipeline_shutdown             (void);
 
 // Register/unregister dimensions - returns index for fast lookup
-int32_t               _skr_pipeline_register_material    (const skr_material_info_t*           info);
+int32_t               _skr_pipeline_register_material    (const _skr_pipeline_material_key_t*  key);
 int32_t               _skr_pipeline_register_renderpass  (const skr_pipeline_renderpass_key_t* key);
 int32_t               _skr_pipeline_register_vertformat  (const skr_vert_type_t                vert_type);
 void                  _skr_pipeline_unregister_material  (int32_t material_idx  );

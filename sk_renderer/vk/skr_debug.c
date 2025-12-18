@@ -54,40 +54,40 @@ void _skr_append_vertex_format(char* ref_str, size_t str_size, const skr_vert_co
 	ref_str[pos] = '\0';
 }
 
-void _skr_append_material_config(char* ref_str, size_t str_size, const skr_material_info_t* mat_info) {
-	if (!ref_str || !mat_info) return;
+void _skr_append_material_config(char* ref_str, size_t str_size, const _skr_pipeline_material_key_t* mat_key) {
+	if (!ref_str || !mat_key) return;
 
 	// Cull mode
 	const char* cull_str =
-		mat_info->cull == skr_cull_back  ? "b" :
-		mat_info->cull == skr_cull_front ? "f" :
-		mat_info->cull == skr_cull_none  ? "n" : "?";
+		mat_key->cull == skr_cull_back  ? "b" :
+		mat_key->cull == skr_cull_front ? "f" :
+		mat_key->cull == skr_cull_none  ? "n" : "?";
 
 	// Depth test
 	const char* depth_str =
-		mat_info->depth_test == skr_compare_none         ? "!" :
-		mat_info->depth_test == skr_compare_less         ? "<" :
-		mat_info->depth_test == skr_compare_less_or_eq   ? "<=" :
-		mat_info->depth_test == skr_compare_greater      ? ">" :
-		mat_info->depth_test == skr_compare_greater_or_eq? ">=" :
-		mat_info->depth_test == skr_compare_equal        ? "=" :
-		mat_info->depth_test == skr_compare_always       ? "==" : "?";
+		mat_key->depth_test == skr_compare_none         ? "!" :
+		mat_key->depth_test == skr_compare_less         ? "<" :
+		mat_key->depth_test == skr_compare_less_or_eq   ? "<=" :
+		mat_key->depth_test == skr_compare_greater      ? ">" :
+		mat_key->depth_test == skr_compare_greater_or_eq? ">=" :
+		mat_key->depth_test == skr_compare_equal        ? "=" :
+		mat_key->depth_test == skr_compare_always       ? "==" : "?";
 
 	// Blend mode - check if blending is enabled
-	bool blend_enabled = (mat_info->blend_state.src_color_factor != skr_blend_one ||
-	                      mat_info->blend_state.dst_color_factor != skr_blend_zero);
+	bool blend_enabled = (mat_key->blend_state.src_color_factor != skr_blend_one ||
+	                      mat_key->blend_state.dst_color_factor != skr_blend_zero);
 	const char* blend_str = blend_enabled ? "b" : "o";
-	if (mat_info->alpha_to_coverage) blend_str = "a2c";
+	if (mat_key->alpha_to_coverage) blend_str = "a2c";
 
 	// Write mask (compact: just show what's written)
 	char write_str[16];
 	int write_pos = 0;
-	if (mat_info->write_mask & skr_write_r)       write_str[write_pos++] = 'r';
-	if (mat_info->write_mask & skr_write_g)       write_str[write_pos++] = 'g';
-	if (mat_info->write_mask & skr_write_b)       write_str[write_pos++] = 'b';
-	if (mat_info->write_mask & skr_write_a)       write_str[write_pos++] = 'a';
-	if (mat_info->write_mask & skr_write_depth)   write_str[write_pos++] = 'd';
-	if (mat_info->write_mask & skr_write_stencil) write_str[write_pos++] = 's';
+	if (mat_key->write_mask & skr_write_r)       write_str[write_pos++] = 'r';
+	if (mat_key->write_mask & skr_write_g)       write_str[write_pos++] = 'g';
+	if (mat_key->write_mask & skr_write_b)       write_str[write_pos++] = 'b';
+	if (mat_key->write_mask & skr_write_a)       write_str[write_pos++] = 'a';
+	if (mat_key->write_mask & skr_write_depth)   write_str[write_pos++] = 'd';
+	if (mat_key->write_mask & skr_write_stencil) write_str[write_pos++] = 's';
 	write_str[write_pos] = '\0';
 
 	size_t pos = strlen(ref_str);

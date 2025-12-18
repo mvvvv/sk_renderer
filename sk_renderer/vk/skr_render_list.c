@@ -131,8 +131,8 @@ static int _skr_render_item_compare(const void* a, const void* b) {
 	const skr_render_item_t* item_b = (const skr_render_item_t*)b;
 
 	// Sort by queue offset first (allows explicit draw order control)
-	int32_t queue_a = item_a->material->info.queue_offset;
-	int32_t queue_b = item_b->material->info.queue_offset;
+	int32_t queue_a = item_a->material->queue_offset;
+	int32_t queue_b = item_b->material->queue_offset;
 	if (queue_a < queue_b) return -1;
 	if (queue_a > queue_b) return  1;
 
