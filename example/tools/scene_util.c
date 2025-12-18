@@ -327,10 +327,10 @@ skr_mesh_t su_mesh_create_quad(float width, float height, skr_vec3_t normal, boo
 
 skr_mesh_t su_mesh_create_fullscreen_quad(void) {
 	su_vertex_t quad_vertices[] = {
-		{ .position = {-1.0f, -1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
-		{ .position = { 1.0f, -1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
-		{ .position = { 1.0f,  1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
-		{ .position = {-1.0f,  1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-1.0f,  1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 1.0f,  1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
+		{ .position = { 1.0f, -1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
+		{ .position = {-1.0f, -1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
 	};
 	uint16_t quad_indices[] = { 0, 1, 2,  2, 3, 0 };
 	skr_mesh_t mesh;

@@ -538,24 +538,24 @@ static inline float4x4 float4x4_lookat(float3 eye, float3 target, float3 up) {
 }
 
 static inline float4x4 float4x4_perspective(float fov_y, float aspect, float near_plane, float far_plane) {
-	// Right-handed, zero-to-one depth, with Vulkan Y-flip built in
+	// Right-handed, zero-to-one depth
 	float tan_half_fov = tanf(fov_y * 0.5f);
 
 	// Row-major projection matrix
 	return (float4x4){{
 		1.0f / (aspect * tan_half_fov), 0.0f, 0.0f, 0.0f,
-		0.0f, -1.0f / tan_half_fov, 0.0f, 0.0f,  // Negative Y for Vulkan flip
+		0.0f, 1.0f / tan_half_fov, 0.0f, 0.0f,
 		0.0f, 0.0f, far_plane / (near_plane - far_plane), -(far_plane * near_plane) / (far_plane - near_plane),
 		0.0f, 0.0f, -1.0f, 0.0f
 	}};
 }
 
 static inline float4x4 float4x4_orthographic(float left, float right, float bottom, float top, float near_plane, float far_plane) {
-	// Right-handed, zero-to-one depth, with Vulkan Y-flip built in
+	// Right-handed, zero-to-one depth
 	// Row-major orthographic matrix
 	return (float4x4){{
 		2.0f / (right - left), 0.0f, 0.0f, -(right + left) / (right - left),
-		0.0f, -2.0f / (top - bottom), 0.0f, (top + bottom) / (top - bottom),  // Negative Y for Vulkan flip
+		0.0f, 2.0f / (top - bottom), 0.0f, -(top + bottom) / (top - bottom),
 		0.0f, 0.0f, -1.0f / (far_plane - near_plane), -near_plane / (far_plane - near_plane),
 		0.0f, 0.0f, 0.0f, 1.0f
 	}};
@@ -1629,7 +1629,7 @@ static inline float4x4 float4x4_perspective(float fov_y, float aspect, float nea
 
 	float4x4 result;
 	result.rows[0] = _mm_set_ps(0.0f, 0.0f, 0.0f, 1.0f / (aspect * tan_half_fov));
-	result.rows[1] = _mm_set_ps(0.0f, 0.0f, -1.0f / tan_half_fov, 0.0f);
+	result.rows[1] = _mm_set_ps(0.0f, 0.0f, 1.0f / tan_half_fov, 0.0f);
 	result.rows[2] = _mm_set_ps(-(far_plane * near_plane) / (far_plane - near_plane),
 	                            far_plane / (near_plane - far_plane), 0.0f, 0.0f);
 	result.rows[3] = _mm_set_ps(0.0f, -1.0f, 0.0f, 0.0f);
@@ -1639,7 +1639,7 @@ static inline float4x4 float4x4_perspective(float fov_y, float aspect, float nea
 static inline float4x4 float4x4_orthographic(float left, float right, float bottom, float top, float near_plane, float far_plane) {
 	float4x4 result;
 	result.rows[0] = _mm_set_ps(-(right + left) / (right - left), 0.0f, 0.0f, 2.0f / (right - left));
-	result.rows[1] = _mm_set_ps((top + bottom) / (top - bottom), 0.0f, -2.0f / (top - bottom), 0.0f);
+	result.rows[1] = _mm_set_ps(-(top + bottom) / (top - bottom), 0.0f, 2.0f / (top - bottom), 0.0f);
 	result.rows[2] = _mm_set_ps(-near_plane / (far_plane - near_plane),
 	                            -1.0f / (far_plane - near_plane), 0.0f, 0.0f);
 	result.rows[3] = _mm_set_ps(1.0f, 0.0f, 0.0f, 0.0f);
@@ -2492,7 +2492,7 @@ static inline float4x4 float4x4_perspective(float fov_y, float aspect, float nea
 
 	float4x4 result;
 	result.rows[0] = (float32x4_t){1.0f / (aspect * tan_half_fov), 0.0f, 0.0f, 0.0f};
-	result.rows[1] = (float32x4_t){0.0f, -1.0f / tan_half_fov, 0.0f, 0.0f};
+	result.rows[1] = (float32x4_t){0.0f, 1.0f / tan_half_fov, 0.0f, 0.0f};
 	result.rows[2] = (float32x4_t){0.0f, 0.0f, far_plane / (near_plane - far_plane), -(far_plane * near_plane) / (far_plane - near_plane)};
 	result.rows[3] = (float32x4_t){0.0f, 0.0f, -1.0f, 0.0f};
 	return result;
@@ -2501,7 +2501,7 @@ static inline float4x4 float4x4_perspective(float fov_y, float aspect, float nea
 static inline float4x4 float4x4_orthographic(float left, float right, float bottom, float top, float near_plane, float far_plane) {
 	float4x4 result;
 	result.rows[0] = (float32x4_t){2.0f / (right - left), 0.0f, 0.0f, -(right + left) / (right - left)};
-	result.rows[1] = (float32x4_t){0.0f, -2.0f / (top - bottom), 0.0f, (top + bottom) / (top - bottom)};
+	result.rows[1] = (float32x4_t){0.0f, 2.0f / (top - bottom), 0.0f, -(top + bottom) / (top - bottom)};
 	result.rows[2] = (float32x4_t){0.0f, 0.0f, -1.0f / (far_plane - near_plane), -near_plane / (far_plane - near_plane)};
 	result.rows[3] = (float32x4_t){0.0f, 0.0f, 0.0f, 1.0f};
 	return result;

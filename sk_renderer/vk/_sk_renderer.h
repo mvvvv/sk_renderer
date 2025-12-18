@@ -37,10 +37,7 @@ typedef struct {
 #define skr_MAX_COMMAND_RING    8   // Number of command buffers per thread
 #define skr_MAX_THREAD_POOLS    16  // Maximum concurrent threads
 
-#define SKR_BIND_MATERIAL 0
-#define SKR_BIND_SYSTEM 1
-#define SKR_BIND_INSTANCE 2
-
+// Bind shifts (hardcoded to match skshaderc)
 #define SKR_BIND_SHIFT_BUFFER  0
 #define SKR_BIND_SHIFT_TEXTURE 100
 #define SKR_BIND_SHIFT_UAV     200

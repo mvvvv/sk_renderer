@@ -358,11 +358,12 @@ void skr_renderer_set_global_texture(int32_t bind, const skr_tex_t* tex) {
 
 void skr_renderer_set_viewport(skr_rect_t viewport) {
 	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
+	// Negative height flips Y to match DirectX/OpenGL conventions (VK_KHR_maintenance1, core in 1.1)
 	vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
 		.x        = viewport.x,
-		.y        = viewport.y,
+		.y        = viewport.y + viewport.h,
 		.width    = viewport.w,
-		.height   = viewport.h,
+		.height   = -viewport.h,
 		.minDepth = 0.0f,
 		.maxDepth = 1.0f,
 	});

@@ -64,8 +64,8 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	// Transform to shadow map UV coordinates
 	output.shadow_uv = float3(shadow_pos.xy, shadow_pos.z / shadow_pos.w);
 
-	// Convert to [0,1] range and flip Y (Vulkan uses top-left origin for textures)
-	output.shadow_uv.xy = output.shadow_uv.xy * 0.5 + 0.5;
+	// Convert clip space [-1,1] to texture UV [0,1], flip Y for negative viewport
+	output.shadow_uv.xy = output.shadow_uv.xy * float2(0.5, -0.5) + 0.5;
 
 	output.uv = input.uv;
 
