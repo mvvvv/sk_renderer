@@ -1190,7 +1190,7 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 			};
 			writes[write_ct++] = (VkWriteDescriptorSet){
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstBinding      = SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,
+				.dstBinding      = SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,
 				.descriptorCount = 1,
 				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 				.pBufferInfo     = &buffer_infos[buffer_ct++],
@@ -1213,8 +1213,8 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 
 		// Add any other material bindings (textures/buffers, including globals)
 		const int32_t ignore_slots[] = {
-			SKR_BIND_SHIFT_BUFFER + SKR_BIND_MATERIAL,  // Already handled above
-			bind_source.slot                             // Source texture (per-mip, handled above)
+			SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,  // Already handled above
+			bind_source.slot                                               // Source texture (per-mip, handled above)
 		};
 		_skr_material_add_writes(
 			material.binds, material.bind_count,

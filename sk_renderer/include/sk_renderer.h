@@ -401,6 +401,15 @@ typedef struct skr_device_request_t {
 // Returns: Device requirements (physical device, extensions)
 typedef skr_device_request_t (*skr_device_init_callback_t)(void* vk_instance, void* user_data);
 
+// Bind slot configuration for shader/renderer coordination.
+// These values must match between skshaderc and sk_renderer.
+// Default values (if all zeros): material=0, system=1, instance=2
+typedef struct skr_bind_settings_t {
+	int32_t material_slot;   // Slot for material cbuffer (default: 0)
+	int32_t system_slot;     // Slot for system buffer (default: 1)
+	int32_t instance_slot;   // Slot for instance buffer (default: 2)
+} skr_bind_settings_t;
+
 typedef struct skr_settings_t {
 	const char*  app_name;
 	int32_t      app_version;
@@ -428,6 +437,9 @@ typedef struct skr_settings_t {
 	void*      (*calloc_func) (size_t count, size_t size);
 	void*      (*realloc_func)(void* ptr, size_t size);
 	void       (*free_func)   (void* ptr);
+
+	// Bind slot configuration (NULL = use defaults: material=0, system=1, instance=2)
+	const skr_bind_settings_t* bind_settings;
 } skr_settings_t;
 
 typedef struct skr_shader_t skr_shader_t;

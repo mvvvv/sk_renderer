@@ -118,6 +118,17 @@ bool skr_init(skr_settings_t settings) {
 	_skr_vk.realloc_func = settings.realloc_func ? settings.realloc_func : realloc;
 	_skr_vk.free_func    = settings.free_func    ? settings.free_func    : free;
 
+	// Set up bind slot configuration (use defaults if not provided)
+	if (settings.bind_settings) {
+		_skr_vk.bind_settings = *settings.bind_settings;
+	} else {
+		_skr_vk.bind_settings = (skr_bind_settings_t){
+			.material_slot = 0,
+			.system_slot   = 1,
+			.instance_slot = 2,
+		};
+	}
+
 	// Initialize volk
 	VkResult vr = volkInitialize();
 	SKR_VK_CHECK_RET(vr, volkInitialize, false);
