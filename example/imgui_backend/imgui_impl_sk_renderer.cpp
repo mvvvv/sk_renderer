@@ -181,12 +181,12 @@ static void ImGui_ImplSkRenderer_SetupProjection(ImGui_ImplSkRenderer_Data* bd, 
 	float T = draw_data->DisplayPos.y;
 	float B = draw_data->DisplayPos.y + draw_data->DisplaySize.y;
 
-	// Orthographic projection,
+	// Orthographic projection with Y flipped to match negative viewport height
 	float projection[4][4] = {
 		{ 2.0f/(R-L),    0.0f,          0.0f, 0.0f },
-		{ 0.0f,          2.0f/(B-T),    0.0f, 0.0f },
+		{ 0.0f,          2.0f/(T-B),    0.0f, 0.0f },
 		{ 0.0f,          0.0f,         -1.0f, 0.0f },
-		{ (R+L)/(L-R),   (T+B)/(T-B),   0.0f, 1.0f },
+		{ (R+L)/(L-R),   (T+B)/(B-T),   0.0f, 1.0f },
 	};
 
 	// Bind projection matrix to material (inline constant buffer data)

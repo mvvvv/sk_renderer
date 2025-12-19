@@ -158,7 +158,7 @@ format_found:
 		// Basic properties
 		ref_surface->images[i].image             = vk_images[i];
 		ref_surface->images[i].size              = (skr_vec3i_t){extent.width, extent.height, 1};
-		ref_surface->images[i].format            = _skr_from_vk_tex_fmt(surface_format.format);
+		ref_surface->images[i].format            = skr_tex_fmt_from_native(surface_format.format);
 		ref_surface->images[i].samples           = VK_SAMPLE_COUNT_1_BIT;
 		ref_surface->images[i].mip_levels        = 1;
 		ref_surface->images[i].layer_count       = 1;

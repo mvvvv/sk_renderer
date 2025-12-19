@@ -69,9 +69,14 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 	for (uint32_t i = 0; i < meta->buffer_count;   i++) out_material->binds[i                   ].bind = meta->buffers  [i].bind;
 	for (uint32_t i = 0; i < meta->resource_count; i++) out_material->binds[i+meta->buffer_count].bind = meta->resources[i].bind;
 
-	// Check if we have a SystemBuffer
-	skr_bind_t system_bind = sksc_shader_meta_get_bind(meta, "SystemBuffer");
-	out_material->has_system_buffer = system_bind.slot == _skr_vk.bind_settings.system_slot && system_bind.stage_bits != 0;
+	// Check if we have a buffer bound to the system buffer slot
+	out_material->has_system_buffer = false;
+	for (uint32_t i = 0; i < meta->buffer_count; i++) {
+		if (meta->buffers[i].bind.slot == SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.system_slot && meta->buffers[i].bind.stage_bits != 0) {
+			out_material->has_system_buffer = true;
+			break;
+		}
+	}
 
 	// Register material with pipeline system
 	out_material->pipeline_material_idx = _skr_pipeline_register_material(&out_material->info);

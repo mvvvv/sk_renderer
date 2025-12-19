@@ -202,9 +202,9 @@ void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_
 
 	// Register render pass format with pipeline system
 	skr_pipeline_renderpass_key_t rp_key = {
-		.color_format    = color                                           ? _skr_to_vk_tex_fmt(color->format)         : VK_FORMAT_UNDEFINED,
-		.depth_format    = depth                                           ? _skr_to_vk_tex_fmt(depth->format)         : VK_FORMAT_UNDEFINED,
-		.resolve_format  = (opt_resolve && color && color->samples > VK_SAMPLE_COUNT_1_BIT) ? _skr_to_vk_tex_fmt(opt_resolve->format) : VK_FORMAT_UNDEFINED,
+		.color_format    = color                                           ? skr_tex_fmt_to_native(color->format)         : VK_FORMAT_UNDEFINED,
+		.depth_format    = depth                                           ? skr_tex_fmt_to_native(depth->format)         : VK_FORMAT_UNDEFINED,
+		.resolve_format  = (opt_resolve && color && color->samples > VK_SAMPLE_COUNT_1_BIT) ? skr_tex_fmt_to_native(opt_resolve->format) : VK_FORMAT_UNDEFINED,
 		.samples         = color ? color->samples : (depth ? depth->samples : VK_SAMPLE_COUNT_1_BIT),
 		.depth_store_op  = (depth && (depth->flags & skr_tex_flags_readable)) ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE,
 		.color_load_op   = VK_ATTACHMENT_LOAD_OP_CLEAR,  // Always clear for main render pass
@@ -358,11 +358,12 @@ void skr_renderer_set_global_texture(int32_t bind, const skr_tex_t* tex) {
 
 void skr_renderer_set_viewport(skr_rect_t viewport) {
 	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
+	// Negative height flips Y to match DirectX/OpenGL conventions (VK_KHR_maintenance1, core in 1.1)
 	vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
 		.x        = viewport.x,
-		.y        = viewport.y,
+		.y        = viewport.y + viewport.h,
 		.width    = viewport.w,
-		.height   = viewport.h,
+		.height   = -viewport.h,
 		.minDepth = 0.0f,
 		.maxDepth = 1.0f,
 	});
@@ -399,7 +400,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	// Register render pass format with pipeline system
 	// Use DONT_CARE for full blit (discard previous contents), LOAD for partial (preserve)
 	skr_pipeline_renderpass_key_t rp_key = {
-		.color_format   = _skr_to_vk_tex_fmt(to->format),
+		.color_format   = skr_tex_fmt_to_native(to->format),
 		.depth_format   = VK_FORMAT_UNDEFINED,
 		.resolve_format = VK_FORMAT_UNDEFINED,
 		.samples        = to->samples,
@@ -474,7 +475,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 			.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 			.image      = to->image,
 			.viewType   = is_cubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D_ARRAY,
-			.format     = _skr_to_vk_tex_fmt(to->format),
+			.format     = skr_tex_fmt_to_native(to->format),
 			.subresourceRange = {
 				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
 				.baseMipLevel   = 0,
