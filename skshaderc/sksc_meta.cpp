@@ -458,10 +458,10 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 	// Look for storage buffers (RWStructuredBuffers and StructuredBuffers)
 	for (uint32_t i = 0; i < binding_count; i++) {
 		SpvReflectDescriptorBinding* binding = bindings[i];
-		
+
 		if (binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
 			const char* name = binding->name ? binding->name : "";
-			
+
 			int64_t id = resource_list.index_where([](const sksc_shader_resource_t &tex, void *data) {
 				return strcmp(tex.name, (char*)data) == 0;
 			}, (void*)name);
@@ -472,6 +472,35 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 			tex->bind.slot          = binding->binding;
 			tex->bind.stage_bits   |= spirv_stage->stage;
 			tex->bind.register_type = binding->resource_type == SPV_REFLECT_RESOURCE_FLAG_SRV ? skr_register_read_buffer : skr_register_readwrite;
+
+			// For StructuredBuffer<T>, DXC wraps the runtime array in a block with
+			// a single member named @data. The member's array.stride gives us the
+			// properly aligned element size (accounts for HLSL struct padding).
+			uint32_t element_size = 0;
+			if (binding->block.member_count > 0 && binding->block.members != nullptr) {
+				SpvReflectBlockVariable* member = &binding->block.members[0];
+
+				// Prefer type_description's array stride (includes HLSL struct alignment padding)
+				if      (member->type_description && member->type_description->traits.array.stride > 0) { element_size = member->type_description->traits.array.stride; }
+				else if (member->array.stride > 0) { element_size = member->array.stride; } // Fall back to member's array stride
+				else if (member->padded_size  > 0) { element_size = member->padded_size;  } // Fall back to padded_size
+				else                               { element_size = member->size;         } // Fall back to size
+				
+
+				// For primitive types (float4, int, etc.), size may be 0.
+				// Calculate from type traits: width * component_count / 8
+				if (element_size == 0 && member->type_description) {
+					SpvReflectTypeDescription* td = member->type_description;
+					uint32_t width      = td->traits.numeric.scalar.width;
+					uint32_t components = td->traits.numeric.vector.component_count;
+					if (components == 0) components = 1;
+					if (width > 0) {
+						element_size = (width * components) / 8;
+					}
+				}
+			}
+			tex->element_size = element_size;
+
 			strncpy(tex->name, name, sizeof(tex->name));
 		}
 	}

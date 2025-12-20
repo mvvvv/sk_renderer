@@ -166,8 +166,9 @@ VkDescriptorSetLayout _skr_shader_make_layout               (VkDevice device, bo
 // Format helpers
 bool                  _skr_format_has_stencil               (VkFormat format);
 
-// Material descriptor caching
-void                  _skr_material_add_writes              (const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);
+// Material descriptor caching. Returns -1 on success, or the failing bind index if a resource is missing.
+int32_t               _skr_material_add_writes              (const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);
+const char*           _skr_material_bind_name               (const sksc_shader_meta_t* meta, int32_t bind_idx);
 
 // Render list sorting
 void                  _skr_render_list_sort                 (skr_render_list_t* ref_list);
@@ -175,7 +176,7 @@ void                  _skr_render_list_sort                 (skr_render_list_t* 
 // Debug
 void                  _skr_set_debug_name                   (VkDevice device, VkObjectType type, uint64_t handle, const char* name);
 void                  _skr_append_vertex_format             (char* ref_str, size_t str_size, const skr_vert_component_t* components, uint32_t component_count);
-void                  _skr_append_material_config           (char* ref_str, size_t str_size, const skr_material_info_t* mat_info);
+void                  _skr_append_material_config           (char* ref_str, size_t str_size, const _skr_pipeline_material_key_t* mat_key);
 void                  _skr_append_renderpass_config         (char* ref_str, size_t str_size, const skr_pipeline_renderpass_key_t* rp_key);
 void                  _skr_log_descriptor_writes            (const VkWriteDescriptorSet* writes, const VkDescriptorBufferInfo* buffer_infos, const VkDescriptorImageInfo* image_infos, uint32_t write_ct, uint32_t buffer_ct, uint32_t image_ct);
 

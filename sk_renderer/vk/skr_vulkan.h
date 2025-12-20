@@ -133,9 +133,23 @@ typedef struct  {
 	skr_bind_t bind;
 } skr_material_bind_t;
 
+// Internal key struct for pipeline-affecting material parameters only.
+// Excludes queue_offset which affects render list sorting but not pipeline state.
+typedef struct {
+	const skr_shader_t*  shader;
+	skr_cull_            cull;
+	skr_write_           write_mask;
+	skr_compare_         depth_test;
+	skr_blend_state_t    blend_state;
+	bool                 alpha_to_coverage;
+	skr_stencil_state_t  stencil_front;
+	skr_stencil_state_t  stencil_back;
+} _skr_pipeline_material_key_t;
+
 typedef struct skr_material_t {
-	int32_t                pipeline_material_idx; // Index into pipeline cache
-	skr_material_info_t    info;                  // Material state (used as pipeline key)
+	int32_t                      pipeline_material_idx; // Index into pipeline cache
+	_skr_pipeline_material_key_t key;                   // Pipeline-affecting state
+	int32_t                      queue_offset;          // Render queue offset (not pipeline-affecting)
 
 	skr_material_bind_t*   binds;
 	uint32_t               bind_count;
@@ -144,6 +158,7 @@ typedef struct skr_material_t {
 	uint32_t               param_buffer_size;     // Size of parameter buffer in bytes
 
 	bool                   has_system_buffer;
+	uint32_t               instance_buffer_stride; // Element size of instance buffer (0 = no instance buffer)
 } skr_material_t;
 
 typedef struct skr_compute_t {
@@ -164,6 +179,7 @@ typedef struct skr_compute_t {
 typedef struct skr_render_item_t {
 	skr_mesh_t*     mesh;
 	skr_material_t* material;
+	uint64_t        sort_key;             // Pre-computed sort key for fast sorting
 	uint32_t        instance_offset;      // Offset into instance_data (bytes)
 	uint32_t        instance_data_size;   // Size per instance (bytes)
 	uint32_t        instance_count;       // Number of instances

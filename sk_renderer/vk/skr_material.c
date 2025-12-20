@@ -27,20 +27,25 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 		return skr_err_invalid_parameter;
 	}
 
-	// Store material info
-	out_material->info = info;
+	// Store pipeline-affecting state in key, queue_offset separately
+	out_material->key = (_skr_pipeline_material_key_t){
+		.shader            = info.shader,
+		.cull              = info.cull,
+		.write_mask        = info.write_mask ? info.write_mask : skr_write_default,
+		.depth_test        = info.depth_test,
+		.blend_state       = info.blend_state,
+		.alpha_to_coverage = info.alpha_to_coverage,
+		.stencil_front     = info.stencil_front,
+		.stencil_back      = info.stencil_back,
+	};
+	out_material->queue_offset = info.queue_offset;
 
-	// Default write_mask to skr_write_default if not specified
-	if (out_material->info.write_mask == 0) {
-		out_material->info.write_mask = skr_write_default;
-	}
-
-	if (out_material->info.shader->meta) {
-		sksc_shader_meta_reference(out_material->info.shader->meta);
+	if (out_material->key.shader->meta) {
+		sksc_shader_meta_reference(out_material->key.shader->meta);
 	}
 
 	// Allocate material parameter buffer if shader has $Global buffer
-	const sksc_shader_meta_t* meta = out_material->info.shader->meta;
+	const sksc_shader_meta_t* meta = out_material->key.shader->meta;
 	if (meta && meta->global_buffer_id >= 0) {
 		sksc_shader_buffer_t* global_buffer = &meta->buffers[meta->global_buffer_id];
 		out_material->param_buffer_size = global_buffer->size;
@@ -48,8 +53,8 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 
 		if (!out_material->param_buffer) {
 			skr_log(skr_log_critical, "Failed to allocate material parameter buffer");
-			if (out_material->info.shader->meta) {
-				sksc_shader_meta_release(out_material->info.shader->meta);
+			if (out_material->key.shader->meta) {
+				sksc_shader_meta_release(out_material->key.shader->meta);
 			}
 			*out_material = (skr_material_t){};
 			return skr_err_out_of_memory;
@@ -78,15 +83,24 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 		}
 	}
 
+	// Check if we have a StructuredBuffer bound to the instance buffer slot
+	out_material->instance_buffer_stride = 0;
+	for (uint32_t i = 0; i < meta->resource_count; i++) {
+		if (meta->resources[i].bind.slot == SKR_BIND_SHIFT_TEXTURE + _skr_vk.bind_settings.instance_slot && meta->resources[i].bind.stage_bits != 0) {
+			out_material->instance_buffer_stride = meta->resources[i].element_size;
+			break;
+		}
+	}
+
 	// Register material with pipeline system
-	out_material->pipeline_material_idx = _skr_pipeline_register_material(&out_material->info);
+	out_material->pipeline_material_idx = _skr_pipeline_register_material(&out_material->key);
 
 	if (out_material->pipeline_material_idx < 0) {
 		skr_log(skr_log_critical, "Failed to register material with pipeline system");
 		_skr_free(out_material->binds);
 		_skr_free(out_material->param_buffer);
-		if (out_material->info.shader->meta) {
-			sksc_shader_meta_release(out_material->info.shader->meta);
+		if (out_material->key.shader->meta) {
+			sksc_shader_meta_release(out_material->key.shader->meta);
 		}
 		*out_material = (skr_material_t){};
 		return skr_err_device_error;
@@ -120,8 +134,8 @@ void skr_material_destroy(skr_material_t* ref_material) {
 	_skr_free(ref_material->param_buffer);
 	_skr_free(ref_material->binds);
 
-	if (ref_material->info.shader && ref_material->info.shader->meta) {
-		sksc_shader_meta_release(ref_material->info.shader->meta);
+	if (ref_material->key.shader && ref_material->key.shader->meta) {
+		sksc_shader_meta_release(ref_material->key.shader->meta);
 	}
 
 	*ref_material = (skr_material_t){};
@@ -129,7 +143,7 @@ void skr_material_destroy(skr_material_t* ref_material) {
 }
 
 void skr_material_set_tex(skr_material_t* ref_material, const char* name, skr_tex_t* texture) {
-	const sksc_shader_meta_t *meta = ref_material->info.shader->meta;
+	const sksc_shader_meta_t *meta = ref_material->key.shader->meta;
 
 	int32_t  idx  = -1;
 	uint64_t hash = skr_hash(name);
@@ -149,7 +163,7 @@ void skr_material_set_tex(skr_material_t* ref_material, const char* name, skr_te
 }
 
 void skr_material_set_buffer(skr_material_t* ref_material, const char* name, skr_buffer_t* buffer) {
-	const sksc_shader_meta_t *meta = ref_material->info.shader->meta;
+	const sksc_shader_meta_t *meta = ref_material->key.shader->meta;
 
 	int32_t  idx  = -1;
 	uint64_t hash = skr_hash(name);
@@ -206,15 +220,15 @@ static uint32_t _skr_shader_var_size(sksc_shader_var_ type) {
 }
 
 void skr_material_set_param(skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, const void* data) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
+	if (!material || !material->key.shader || !material->key.shader->meta || !material->param_buffer) return;
 
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
+	int32_t var_index = sksc_shader_meta_get_var_index(material->key.shader->meta, name);
 	if (var_index < 0) {
 		skr_log(skr_log_warning, "Material parameter '%s' not found", name);
 		return;
 	}
 
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
+	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->key.shader->meta, var_index);
 	if (!var) return;
 
 	// When type is uint8, treat count as raw byte count and skip type check
@@ -238,15 +252,15 @@ void skr_material_set_param(skr_material_t* material, const char* name, sksc_sha
 }
 
 void skr_material_get_param(const skr_material_t* material, const char* name, sksc_shader_var_ type, uint32_t count, void* out_data) {
-	if (!material || !material->info.shader || !material->info.shader->meta || !material->param_buffer) return;
+	if (!material || !material->key.shader || !material->key.shader->meta || !material->param_buffer) return;
 
-	int32_t var_index = sksc_shader_meta_get_var_index(material->info.shader->meta, name);
+	int32_t var_index = sksc_shader_meta_get_var_index(material->key.shader->meta, name);
 	if (var_index < 0) {
 		skr_log(skr_log_warning, "Material parameter '%s' not found", name);
 		return;
 	}
 
-	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->info.shader->meta, var_index);
+	const sksc_shader_var_t* var = sksc_shader_meta_get_var_info(material->key.shader->meta, var_index);
 	if (!var) return;
 
 	// When type is uint8, treat count as raw byte count and skip type check
@@ -269,7 +283,19 @@ void skr_material_get_param(const skr_material_t* material, const char* name, sk
 	memcpy(out_data, (uint8_t*)material->param_buffer + var->offset, copy_size);
 }
 
-void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct) {
+const char* _skr_material_bind_name(const sksc_shader_meta_t* meta, int32_t bind_idx) {
+	if (!meta || bind_idx < 0) return "unknown";
+	if ((uint32_t)bind_idx < meta->buffer_count) {
+		return meta->buffers[bind_idx].name;
+	}
+	uint32_t res_idx = (uint32_t)bind_idx - meta->buffer_count;
+	if (res_idx < meta->resource_count) {
+		return meta->resources[res_idx].name;
+	}
+	return "unknown";
+}
+
+int32_t _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct) {
  	for (uint32_t i = 0; i < bind_ct; i++) {
 		int32_t       slot          = binds[i].bind.slot;
 		skr_register_ register_type = binds[i].bind.register_type;
@@ -282,14 +308,14 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 			}
 		}
 		if (skip) continue;
-		
+
 		switch(register_type) {
 		case skr_register_constant: { // cbuffer, (b in HLSL)
 			if (*ref_write_ct >= write_max || *ref_buffer_ct >= buffer_max) continue;
 
 			skr_buffer_t* buffer = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_BUFFER];
 			if (!buffer)  buffer = binds[i].buffer;
-			assert(buffer);
+			if (!buffer) return (int32_t)i;
 
 			ref_buffer_infos[*ref_buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = buffer->buffer,
@@ -310,7 +336,7 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 
 			skr_buffer_t* buffer = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_TEXTURE];
 			if (!buffer)  buffer = binds[i].buffer;
-			assert(buffer);
+			if (!buffer) return (int32_t)i;
 
 			ref_buffer_infos[*ref_buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = buffer->buffer,
@@ -331,7 +357,7 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 
 			skr_tex_t* tex = _skr_vk.global_textures[slot-SKR_BIND_SHIFT_TEXTURE];
 			if (!tex)  tex = binds[i].texture;
-			assert(tex);
+			if (!tex) return (int32_t)i;
 
 			ref_image_infos[*ref_image_ct] = (VkDescriptorImageInfo){
 				.sampler     = tex->sampler,
@@ -355,7 +381,7 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 
 			skr_buffer_t* buffer = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_UAV];
 			if (!buffer)  buffer = binds[i].buffer;
-			assert(buffer);
+			if (!buffer) return (int32_t)i;
 
 			ref_buffer_infos[*ref_buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = buffer->buffer,
@@ -376,7 +402,7 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 
 			skr_tex_t* tex = _skr_vk.global_textures[slot-SKR_BIND_SHIFT_UAV];
 			if (!tex)  tex = binds[i].texture;
-			assert(tex);
+			if (!tex) return (int32_t)i;
 
 			ref_image_infos[*ref_image_ct] = (VkDescriptorImageInfo){
 				.sampler     = tex->sampler,
@@ -392,7 +418,8 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 			};
 			(*ref_write_ct)++;
 			(*ref_image_ct)++;
-		} break; 
+		} break;
 		default: break;}
 	}
+	return -1;
 }

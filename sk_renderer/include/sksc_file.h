@@ -146,6 +146,7 @@ typedef struct {
 	char       value[64];
 	char       tags [64];
 	skr_bind_t bind;
+	uint32_t   element_size; // For StructuredBuffer<T>, the size of T in bytes
 } sksc_shader_resource_t;
 
 typedef struct {

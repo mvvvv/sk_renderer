@@ -360,11 +360,16 @@ void skr_compute_execute(skr_compute_t* ref_compute, uint32_t x, uint32_t y, uin
 	uint32_t write_ct  = 0;
 	uint32_t buffer_ct = 0;
 	uint32_t image_ct  = 0;
-	_skr_material_add_writes(ref_compute->binds, ref_compute->bind_count, NULL, 0,
+	int32_t fail_idx = _skr_material_add_writes(ref_compute->binds, ref_compute->bind_count, NULL, 0,
 		writes,       sizeof(writes      )/sizeof(writes      [0]),
 		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 		&write_ct, &buffer_ct, &image_ct);
+	if (fail_idx >= 0) {
+		skr_log(skr_log_critical, "Compute dispatch missing binding '%s' in shader '%s'", _skr_material_bind_name(meta, fail_idx), meta->name);
+		_skr_cmd_release(cmd);
+		return;
+	}
 
 	//_skr_log_descriptor_writes(writes, buffer_infos, image_infos, write_ct, buffer_ct, image_ct);
 
@@ -416,11 +421,16 @@ void skr_compute_execute_indirect(skr_compute_t* ref_compute, skr_buffer_t* indi
 	uint32_t write_ct = 0;
 	uint32_t buffer_ct = 0;
 	uint32_t image_ct = 0;
-	_skr_material_add_writes(ref_compute->binds, ref_compute->bind_count, NULL, 0,
+	int32_t fail_idx = _skr_material_add_writes(ref_compute->binds, ref_compute->bind_count, NULL, 0,
 		writes,       sizeof(writes      )/sizeof(writes      [0]),
 		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 		&write_ct, &buffer_ct, &image_ct);
+	if (fail_idx >= 0) {
+		skr_log(skr_log_critical, "Compute indirect dispatch missing binding '%s' in shader '%s'", _skr_material_bind_name(meta, fail_idx), meta->name);
+		_skr_cmd_release(cmd);
+		return;
+	}
 
 	_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_COMPUTE,
 	                      ref_compute->layout, ref_compute->descriptor_layout, writes, write_ct);

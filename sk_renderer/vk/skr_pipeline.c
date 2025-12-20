@@ -17,21 +17,21 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 typedef struct {
-	skr_material_info_t              info;
+	_skr_pipeline_material_key_t     key;
 	VkPipelineLayout                 layout;
 	VkDescriptorSetLayout            descriptor_layout;
-	bool                             active;
+	int32_t                          ref_count;
 } _skr_pipeline_material_slot_t;
 
 typedef struct {
 	skr_pipeline_renderpass_key_t    key;
 	VkRenderPass                     render_pass;
-	bool                             active;
+	int32_t                          ref_count;
 } _skr_pipeline_renderpass_slot_t;
 
 typedef struct {
 	skr_vert_type_t                  vert_type;
-	bool                             active;
+	int32_t                          ref_count;
 } _skr_pipeline_vertformat_slot_t;
 
 typedef struct {
@@ -125,7 +125,7 @@ void _skr_pipeline_shutdown(void) {
 	// Destroy material resources
 	if (_skr_pipeline_cache.materials) {
 		for (int32_t m = 0; m < _skr_pipeline_cache.material_capacity; m++) {
-			if (_skr_pipeline_cache.materials[m].active) {
+			if (_skr_pipeline_cache.materials[m].ref_count > 0) {
 				if (_skr_pipeline_cache.materials[m].layout != VK_NULL_HANDLE) {
 					vkDestroyPipelineLayout(_skr_vk.device, _skr_pipeline_cache.materials[m].layout, NULL);
 				}
@@ -140,7 +140,7 @@ void _skr_pipeline_shutdown(void) {
 	// Destroy render passes
 	if (_skr_pipeline_cache.renderpasses) {
 		for (int32_t r = 0; r < _skr_pipeline_cache.renderpass_capacity; r++) {
-			if (_skr_pipeline_cache.renderpasses[r].active &&
+			if (_skr_pipeline_cache.renderpasses[r].ref_count > 0 &&
 			    _skr_pipeline_cache.renderpasses[r].render_pass != VK_NULL_HANDLE) {
 				vkDestroyRenderPass(_skr_vk.device, _skr_pipeline_cache.renderpasses[r].render_pass, NULL);
 			}
@@ -180,13 +180,14 @@ static void _skr_pipeline_grow_materials(_skr_pipeline_cache_t* ref_cache, int32
 	ref_cache->material_capacity = new_capacity;
 }
 
-int32_t _skr_pipeline_register_material(const skr_material_info_t* info) {
+int32_t _skr_pipeline_register_material(const _skr_pipeline_material_key_t* key) {
 	// Find existing or free slot
 	int32_t free_slot = -1;
 	for (int32_t i = 0; i < _skr_pipeline_cache.material_capacity; i++) {
-		if (_skr_pipeline_cache.materials[i].active) {
+		if (_skr_pipeline_cache.materials[i].ref_count > 0) {
 			// Check if this material already exists
-			if (memcmp(&_skr_pipeline_cache.materials[i].info, info, sizeof(skr_material_info_t)) == 0) {
+			if (memcmp(&_skr_pipeline_cache.materials[i].key, key, sizeof(_skr_pipeline_material_key_t)) == 0) {
+				_skr_pipeline_cache.materials[i].ref_count++;
 				return i;
 			}
 		} else if (free_slot == -1) {
@@ -202,10 +203,10 @@ int32_t _skr_pipeline_register_material(const skr_material_info_t* info) {
 	}
 
 	// Register new material
-	_skr_pipeline_cache.materials[free_slot].info              = *info;
-	_skr_pipeline_cache.materials[free_slot].descriptor_layout = _skr_shader_make_layout    (_skr_vk.device, _skr_vk.has_push_descriptors, info->shader->meta, skr_stage_vertex | skr_stage_pixel | skr_stage_compute);
+	_skr_pipeline_cache.materials[free_slot].key               = *key;
+	_skr_pipeline_cache.materials[free_slot].descriptor_layout = _skr_shader_make_layout    (_skr_vk.device, _skr_vk.has_push_descriptors, key->shader->meta, skr_stage_vertex | skr_stage_pixel | skr_stage_compute);
 	_skr_pipeline_cache.materials[free_slot].layout            = _skr_pipeline_create_layout(_skr_pipeline_cache.materials[free_slot].descriptor_layout);
-	_skr_pipeline_cache.materials[free_slot].active            = true;
+	_skr_pipeline_cache.materials[free_slot].ref_count         = 1;
 
 	if (free_slot >= _skr_pipeline_cache.material_count) {
 		_skr_pipeline_cache.material_count = free_slot + 1;
@@ -213,14 +214,14 @@ int32_t _skr_pipeline_register_material(const skr_material_info_t* info) {
 
 	// Generate and set debug name for pipeline layout
 	char name[256];
-	const char* shader_name = (info->shader->meta && info->shader->meta->name[0]) ? info->shader->meta->name : "unknown";
+	const char* shader_name = (key->shader->meta && key->shader->meta->name[0]) ? key->shader->meta->name : "unknown";
 	snprintf(name, sizeof(name), "layout_%s_", shader_name);
-	_skr_append_material_config(name, sizeof(name), info);
+	_skr_append_material_config(name, sizeof(name), key);
 	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)_skr_pipeline_cache.materials[free_slot].layout, name);
 
 	// Generate debug name based on shader
-	snprintf(name, sizeof(name), "layoutdesc_%s_", info->shader->meta->name[0] ? info->shader->meta->name : "unknown");
-	_skr_append_material_config(name, sizeof(name), info);
+	snprintf(name, sizeof(name), "layoutdesc_%s_", key->shader->meta->name[0] ? key->shader->meta->name : "unknown");
+	_skr_append_material_config(name, sizeof(name), key);
 	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, (uint64_t)_skr_pipeline_cache.materials[free_slot].descriptor_layout, name);
 
 	return free_slot;
@@ -254,9 +255,10 @@ int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* k
 	// Find existing or free slot
 	int32_t free_slot = -1;
 	for (int32_t i = 0; i < _skr_pipeline_cache.renderpass_capacity; i++) {
-		if (_skr_pipeline_cache.renderpasses[i].active) {
+		if (_skr_pipeline_cache.renderpasses[i].ref_count > 0) {
 			// Check if this render pass already exists
 			if (memcmp(&_skr_pipeline_cache.renderpasses[i].key, key, sizeof(skr_pipeline_renderpass_key_t)) == 0) {
+				_skr_pipeline_cache.renderpasses[i].ref_count++;
 				return i;
 			}
 		} else if (free_slot == -1) {
@@ -274,7 +276,7 @@ int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* k
 	// Register new render pass - create and own it
 	_skr_pipeline_cache.renderpasses[free_slot].key         = *key;
 	_skr_pipeline_cache.renderpasses[free_slot].render_pass = _skr_pipeline_create_renderpass(key);
-	_skr_pipeline_cache.renderpasses[free_slot].active      = true;
+	_skr_pipeline_cache.renderpasses[free_slot].ref_count   = 1;
 
 	if (free_slot >= _skr_pipeline_cache.renderpass_count) {
 		_skr_pipeline_cache.renderpass_count = free_slot + 1;
@@ -285,7 +287,10 @@ int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* k
 
 void _skr_pipeline_unregister_material(int32_t material_idx) {
 	if (material_idx < 0 || material_idx >= _skr_pipeline_cache.material_capacity) return;
-	if (!_skr_pipeline_cache.materials[material_idx].active) return;
+	if (_skr_pipeline_cache.materials[material_idx].ref_count <= 0) return;
+
+	_skr_pipeline_cache.materials[material_idx].ref_count--;
+	if (_skr_pipeline_cache.materials[material_idx].ref_count > 0) return;
 
 	// Destroy all pipelines using this material
 	for (int32_t r = 0; r < _skr_pipeline_cache.renderpass_capacity; r++) {
@@ -299,13 +304,14 @@ void _skr_pipeline_unregister_material(int32_t material_idx) {
 	// Destroy material resources
 	_skr_cmd_destroy_pipeline_layout      (NULL, _skr_pipeline_cache.materials[material_idx].layout);
 	_skr_cmd_destroy_descriptor_set_layout(NULL, _skr_pipeline_cache.materials[material_idx].descriptor_layout);
-
-	_skr_pipeline_cache.materials[material_idx].active = false;
 }
 
 void _skr_pipeline_unregister_renderpass(int32_t renderpass_idx) {
 	if (renderpass_idx < 0 || renderpass_idx >= _skr_pipeline_cache.renderpass_capacity) return;
-	if (!_skr_pipeline_cache.renderpasses[renderpass_idx].active) return;
+	if (_skr_pipeline_cache.renderpasses[renderpass_idx].ref_count <= 0) return;
+
+	_skr_pipeline_cache.renderpasses[renderpass_idx].ref_count--;
+	if (_skr_pipeline_cache.renderpasses[renderpass_idx].ref_count > 0) return;
 
 	// Destroy all pipelines using this render pass
 	for (int32_t m = 0; m < _skr_pipeline_cache.material_capacity; m++) {
@@ -316,8 +322,6 @@ void _skr_pipeline_unregister_renderpass(int32_t renderpass_idx) {
 		}
 	}
 	_skr_cmd_destroy_render_pass(NULL, _skr_pipeline_cache.renderpasses[renderpass_idx].render_pass);
-
-	_skr_pipeline_cache.renderpasses[renderpass_idx].active = false;
 }
 
 static void _skr_pipeline_grow_vertformats(_skr_pipeline_cache_t* ref_cache, int32_t min_capacity) {
@@ -363,9 +367,10 @@ int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
 	// Find existing or free slot
 	int32_t free_slot = -1;
 	for (int32_t i = 0; i < _skr_pipeline_cache.vertformat_capacity; i++) {
-		if (_skr_pipeline_cache.vertformats[i].active) {
+		if (_skr_pipeline_cache.vertformats[i].ref_count > 0) {
 			// Check if this vertex format already exists (deep comparison)
 			if (_skr_vert_type_equals(&_skr_pipeline_cache.vertformats[i].vert_type, &vert_type)) {
+				_skr_pipeline_cache.vertformats[i].ref_count++;
 				return i;
 			}
 		} else if (free_slot == -1) {
@@ -381,8 +386,8 @@ int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
 	}
 
 	// Register new vertex format (just store copy)
-	_skr_pipeline_cache.vertformats[free_slot].vert_type = vert_type;
-	_skr_pipeline_cache.vertformats[free_slot].active    = true;
+	_skr_pipeline_cache.vertformats[free_slot].vert_type  = vert_type;
+	_skr_pipeline_cache.vertformats[free_slot].ref_count  = 1;
 
 	if (free_slot >= _skr_pipeline_cache.vertformat_count) {
 		_skr_pipeline_cache.vertformat_count = free_slot + 1;
@@ -393,7 +398,10 @@ int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
 
 void _skr_pipeline_unregister_vertformat(int32_t vertformat_idx) {
 	if (vertformat_idx < 0 || vertformat_idx >= _skr_pipeline_cache.vertformat_capacity) return;
-	if (!_skr_pipeline_cache.vertformats[vertformat_idx].active) return;
+	if (_skr_pipeline_cache.vertformats[vertformat_idx].ref_count <= 0) return;
+
+	_skr_pipeline_cache.vertformats[vertformat_idx].ref_count--;
+	if (_skr_pipeline_cache.vertformats[vertformat_idx].ref_count > 0) return;
 
 	// Destroy all pipelines using this vertex format
 	for (int32_t m = 0; m < _skr_pipeline_cache.material_capacity; m++) {
@@ -403,17 +411,15 @@ void _skr_pipeline_unregister_vertformat(int32_t vertformat_idx) {
 			_skr_pipeline_cache.pipelines[idx] = VK_NULL_HANDLE;
 		}
 	}
-
-	_skr_pipeline_cache.vertformats[vertformat_idx].active = false;
 }
 
 VkPipeline _skr_pipeline_get(int32_t material_idx, int32_t renderpass_idx, int32_t vertformat_idx) {
 	if (material_idx   < 0 || material_idx   >= _skr_pipeline_cache.material_capacity)   return VK_NULL_HANDLE;
 	if (renderpass_idx < 0 || renderpass_idx >= _skr_pipeline_cache.renderpass_capacity) return VK_NULL_HANDLE;
 	if (vertformat_idx < 0 || vertformat_idx >= _skr_pipeline_cache.vertformat_capacity) return VK_NULL_HANDLE;
-	if (!_skr_pipeline_cache.materials   [material_idx  ].active)                        return VK_NULL_HANDLE;
-	if (!_skr_pipeline_cache.renderpasses[renderpass_idx].active)                        return VK_NULL_HANDLE;
-	if (!_skr_pipeline_cache.vertformats [vertformat_idx].active)                        return VK_NULL_HANDLE;
+	if (_skr_pipeline_cache.materials   [material_idx  ].ref_count <= 0)                 return VK_NULL_HANDLE;
+	if (_skr_pipeline_cache.renderpasses[renderpass_idx].ref_count <= 0)                 return VK_NULL_HANDLE;
+	if (_skr_pipeline_cache.vertformats [vertformat_idx].ref_count <= 0)                 return VK_NULL_HANDLE;
 
 	// Check if pipeline already exists
 	int32_t idx = _skr_pipeline_index_3d(material_idx, renderpass_idx, vertformat_idx, _skr_pipeline_cache.renderpass_capacity, _skr_pipeline_cache.vertformat_capacity);
@@ -430,21 +436,21 @@ VkPipeline _skr_pipeline_get(int32_t material_idx, int32_t renderpass_idx, int32
 
 VkPipelineLayout _skr_pipeline_get_layout(int32_t material_idx) {
 	if (material_idx < 0 || material_idx >= _skr_pipeline_cache.material_capacity) return VK_NULL_HANDLE;
-	if (!_skr_pipeline_cache.materials[material_idx].active)                       return VK_NULL_HANDLE;
+	if (_skr_pipeline_cache.materials[material_idx].ref_count <= 0)                return VK_NULL_HANDLE;
 
 	return _skr_pipeline_cache.materials[material_idx].layout;
 }
 
 VkDescriptorSetLayout _skr_pipeline_get_descriptor_layout(int32_t material_idx) {
 	if (material_idx < 0 || material_idx >= _skr_pipeline_cache.material_capacity) return VK_NULL_HANDLE;
-	if (!_skr_pipeline_cache.materials[material_idx].active)                       return VK_NULL_HANDLE;
+	if (_skr_pipeline_cache.materials[material_idx].ref_count <= 0)                return VK_NULL_HANDLE;
 
 	return _skr_pipeline_cache.materials[material_idx].descriptor_layout;
 }
 
 VkRenderPass _skr_pipeline_get_renderpass(int32_t renderpass_idx) {
 	if (renderpass_idx < 0 || renderpass_idx >= _skr_pipeline_cache.renderpass_capacity) return VK_NULL_HANDLE;
-	if (!_skr_pipeline_cache.renderpasses[renderpass_idx].active)                        return VK_NULL_HANDLE;
+	if (_skr_pipeline_cache.renderpasses[renderpass_idx].ref_count <= 0)                 return VK_NULL_HANDLE;
 
 	return _skr_pipeline_cache.renderpasses[renderpass_idx].render_pass;
 }
@@ -607,7 +613,7 @@ static VkPipelineLayout _skr_pipeline_create_layout(VkDescriptorSetLayout descri
 }
 
 static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_idx, int32_t vertformat_idx) {
-	const skr_material_info_t*           mat_info  = &_skr_pipeline_cache.materials   [material_idx  ].info;
+	const _skr_pipeline_material_key_t*  mat_key   = &_skr_pipeline_cache.materials   [material_idx  ].key;
 	const skr_pipeline_renderpass_key_t* rp_key    = &_skr_pipeline_cache.renderpasses[renderpass_idx].key;
 	const skr_vert_type_t*               vert_type = &_skr_pipeline_cache.vertformats [vertformat_idx].vert_type;
 	const VkPipelineLayout               layout    =  _skr_pipeline_cache.materials   [material_idx  ].layout;
@@ -617,21 +623,21 @@ static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_
 	VkPipelineShaderStageCreateInfo shader_stages[2];
 	uint32_t stage_count = 0;
 
-	if (mat_info->shader->vertex_stage.shader != VK_NULL_HANDLE) {
+	if (mat_key->shader->vertex_stage.shader != VK_NULL_HANDLE) {
 		shader_stages[stage_count++] = (VkPipelineShaderStageCreateInfo){
 			.sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 			.stage               = VK_SHADER_STAGE_VERTEX_BIT,
-			.module              = mat_info->shader->vertex_stage.shader,
+			.module              = mat_key->shader->vertex_stage.shader,
 			.pName               = "vs",
 			.pSpecializationInfo = NULL,
 		};
 	}
 
-	if (mat_info->shader->pixel_stage.shader != VK_NULL_HANDLE) {
+	if (mat_key->shader->pixel_stage.shader != VK_NULL_HANDLE) {
 		shader_stages[stage_count++] = (VkPipelineShaderStageCreateInfo){
 			.sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 			.stage               = VK_SHADER_STAGE_FRAGMENT_BIT,
-			.module              = mat_info->shader->pixel_stage.shader,
+			.module              = mat_key->shader->pixel_stage.shader,
 			.pName               = "ps",
 			.pSpecializationInfo = NULL,
 		};
@@ -666,7 +672,7 @@ static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_
 		.depthClampEnable        = VK_FALSE,
 		.rasterizerDiscardEnable = VK_FALSE,
 		.polygonMode             = VK_POLYGON_MODE_FILL,
-		.cullMode                = _skr_to_vk_cull(mat_info->cull),
+		.cullMode                = _skr_to_vk_cull(mat_key->cull),
 		.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE,
 		.depthBiasEnable         = VK_FALSE,
 		.lineWidth               = 1.0f,
@@ -677,39 +683,39 @@ static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_
 		.sType                 = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 		.rasterizationSamples  = rp_key->samples,
 		.sampleShadingEnable   = VK_FALSE,
-		.alphaToCoverageEnable = mat_info->alpha_to_coverage ? VK_TRUE : VK_FALSE,
+		.alphaToCoverageEnable = mat_key->alpha_to_coverage ? VK_TRUE : VK_FALSE,
 	};
 
 	// Depth/stencil
-	bool stencil_enabled = (mat_info->write_mask & skr_write_stencil) ||
-	                       mat_info->stencil_front.compare != skr_compare_none ||
-	                       mat_info->stencil_back.compare != skr_compare_none;
+	bool stencil_enabled = (mat_key->write_mask & skr_write_stencil) ||
+	                       mat_key->stencil_front.compare != skr_compare_none ||
+	                       mat_key->stencil_back.compare != skr_compare_none;
 
 	VkStencilOpState front_stencil = {
-		.failOp      = _skr_to_vk_stencil_op(mat_info->stencil_front.fail_op),
-		.passOp      = _skr_to_vk_stencil_op(mat_info->stencil_front.pass_op),
-		.depthFailOp = _skr_to_vk_stencil_op(mat_info->stencil_front.depth_fail_op),
-		.compareOp   = _skr_to_vk_compare(mat_info->stencil_front.compare),
-		.compareMask = mat_info->stencil_front.compare_mask,
-		.writeMask   = mat_info->stencil_front.write_mask,
-		.reference   = mat_info->stencil_front.reference,
+		.failOp      = _skr_to_vk_stencil_op(mat_key->stencil_front.fail_op),
+		.passOp      = _skr_to_vk_stencil_op(mat_key->stencil_front.pass_op),
+		.depthFailOp = _skr_to_vk_stencil_op(mat_key->stencil_front.depth_fail_op),
+		.compareOp   = _skr_to_vk_compare(mat_key->stencil_front.compare),
+		.compareMask = mat_key->stencil_front.compare_mask,
+		.writeMask   = mat_key->stencil_front.write_mask,
+		.reference   = mat_key->stencil_front.reference,
 	};
 
 	VkStencilOpState back_stencil = {
-		.failOp      = _skr_to_vk_stencil_op(mat_info->stencil_back.fail_op),
-		.passOp      = _skr_to_vk_stencil_op(mat_info->stencil_back.pass_op),
-		.depthFailOp = _skr_to_vk_stencil_op(mat_info->stencil_back.depth_fail_op),
-		.compareOp   = _skr_to_vk_compare(mat_info->stencil_back.compare),
-		.compareMask = mat_info->stencil_back.compare_mask,
-		.writeMask   = mat_info->stencil_back.write_mask,
-		.reference   = mat_info->stencil_back.reference,
+		.failOp      = _skr_to_vk_stencil_op(mat_key->stencil_back.fail_op),
+		.passOp      = _skr_to_vk_stencil_op(mat_key->stencil_back.pass_op),
+		.depthFailOp = _skr_to_vk_stencil_op(mat_key->stencil_back.depth_fail_op),
+		.compareOp   = _skr_to_vk_compare(mat_key->stencil_back.compare),
+		.compareMask = mat_key->stencil_back.compare_mask,
+		.writeMask   = mat_key->stencil_back.write_mask,
+		.reference   = mat_key->stencil_back.reference,
 	};
 
 	VkPipelineDepthStencilStateCreateInfo depth_stencil = {
 		.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-		.depthTestEnable       = mat_info->depth_test != skr_compare_none ? VK_TRUE : VK_FALSE,
-		.depthWriteEnable      = (mat_info->write_mask & skr_write_depth) ? VK_TRUE : VK_FALSE,
-		.depthCompareOp        = _skr_to_vk_compare(mat_info->depth_test),
+		.depthTestEnable       = mat_key->depth_test != skr_compare_none ? VK_TRUE : VK_FALSE,
+		.depthWriteEnable      = (mat_key->write_mask & skr_write_depth) ? VK_TRUE : VK_FALSE,
+		.depthCompareOp        = _skr_to_vk_compare(mat_key->depth_test),
 		.depthBoundsTestEnable = VK_FALSE,
 		.stencilTestEnable     = stencil_enabled ? VK_TRUE : VK_FALSE,
 		.front                 = front_stencil,
@@ -718,30 +724,30 @@ static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_
 
 	// Color blending - check if blend is enabled by seeing if any factors are non-zero
 	// Zero-initialized blend state means "no blending" - pass source through unchanged
-	bool blend_enabled = (mat_info->blend_state.src_color_factor != skr_blend_zero ||
-	                      mat_info->blend_state.dst_color_factor != skr_blend_zero ||
-	                      mat_info->blend_state.src_alpha_factor != skr_blend_zero ||
-	                      mat_info->blend_state.dst_alpha_factor != skr_blend_zero);
+	bool blend_enabled = (mat_key->blend_state.src_color_factor != skr_blend_zero ||
+	                      mat_key->blend_state.dst_color_factor != skr_blend_zero ||
+	                      mat_key->blend_state.src_alpha_factor != skr_blend_zero ||
+	                      mat_key->blend_state.dst_alpha_factor != skr_blend_zero);
 
 	// When blend is disabled, always use ONE for src and ZERO for dst (pass through source)
-	VkBlendFactor src_color = blend_enabled ? _skr_to_vk_blend_factor(mat_info->blend_state.src_color_factor) : VK_BLEND_FACTOR_ONE;
-	VkBlendFactor dst_color = blend_enabled ? _skr_to_vk_blend_factor(mat_info->blend_state.dst_color_factor) : VK_BLEND_FACTOR_ZERO;
-	VkBlendFactor src_alpha = blend_enabled ? _skr_to_vk_blend_factor(mat_info->blend_state.src_alpha_factor) : VK_BLEND_FACTOR_ONE;
-	VkBlendFactor dst_alpha = blend_enabled ? _skr_to_vk_blend_factor(mat_info->blend_state.dst_alpha_factor) : VK_BLEND_FACTOR_ZERO;
+	VkBlendFactor src_color = blend_enabled ? _skr_to_vk_blend_factor(mat_key->blend_state.src_color_factor) : VK_BLEND_FACTOR_ONE;
+	VkBlendFactor dst_color = blend_enabled ? _skr_to_vk_blend_factor(mat_key->blend_state.dst_color_factor) : VK_BLEND_FACTOR_ZERO;
+	VkBlendFactor src_alpha = blend_enabled ? _skr_to_vk_blend_factor(mat_key->blend_state.src_alpha_factor) : VK_BLEND_FACTOR_ONE;
+	VkBlendFactor dst_alpha = blend_enabled ? _skr_to_vk_blend_factor(mat_key->blend_state.dst_alpha_factor) : VK_BLEND_FACTOR_ZERO;
 
 	VkPipelineColorBlendAttachmentState color_blend_attachment = {
 		.blendEnable         = blend_enabled ? VK_TRUE : VK_FALSE,
 		.srcColorBlendFactor = src_color,
 		.dstColorBlendFactor = dst_color,
-		.colorBlendOp        = _skr_to_vk_blend_op(mat_info->blend_state.color_op),
+		.colorBlendOp        = _skr_to_vk_blend_op(mat_key->blend_state.color_op),
 		.srcAlphaBlendFactor = src_alpha,
 		.dstAlphaBlendFactor = dst_alpha,
-		.alphaBlendOp        = _skr_to_vk_blend_op(mat_info->blend_state.alpha_op),
+		.alphaBlendOp        = _skr_to_vk_blend_op(mat_key->blend_state.alpha_op),
 		.colorWriteMask      =
-			((mat_info->write_mask & skr_write_r) ? VK_COLOR_COMPONENT_R_BIT : 0) |
-			((mat_info->write_mask & skr_write_g) ? VK_COLOR_COMPONENT_G_BIT : 0) |
-			((mat_info->write_mask & skr_write_b) ? VK_COLOR_COMPONENT_B_BIT : 0) |
-			((mat_info->write_mask & skr_write_a) ? VK_COLOR_COMPONENT_A_BIT : 0),
+			((mat_key->write_mask & skr_write_r) ? VK_COLOR_COMPONENT_R_BIT : 0) |
+			((mat_key->write_mask & skr_write_g) ? VK_COLOR_COMPONENT_G_BIT : 0) |
+			((mat_key->write_mask & skr_write_b) ? VK_COLOR_COMPONENT_B_BIT : 0) |
+			((mat_key->write_mask & skr_write_a) ? VK_COLOR_COMPONENT_A_BIT : 0),
 	};
 
 	VkPipelineColorBlendStateCreateInfo color_blending = {
@@ -792,12 +798,12 @@ static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_
 	char name[256];
 
 	// Material dimension (shader + blend mode)
-	const char* shader_name = (mat_info->shader->meta && mat_info->shader->meta->name[0])
-		? mat_info->shader->meta->name
+	const char* shader_name = (mat_key->shader->meta && mat_key->shader->meta->name[0])
+		? mat_key->shader->meta->name
 		: "shader";
 
 	snprintf(name, sizeof(name), "pipeline_%s_(", shader_name);
-	_skr_append_material_config  (name, sizeof(name), mat_info);
+	_skr_append_material_config(name, sizeof(name), mat_key);
 	strcat(name, ")_(");
 	_skr_append_renderpass_config(name, sizeof(name), rp_key);
 	strcat(name, ")_(");
