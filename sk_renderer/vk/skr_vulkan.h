@@ -158,6 +158,7 @@ typedef struct skr_material_t {
 	uint32_t               param_buffer_size;     // Size of parameter buffer in bytes
 
 	bool                   has_system_buffer;
+	uint32_t               instance_buffer_stride; // Element size of instance buffer (0 = no instance buffer)
 } skr_material_t;
 
 typedef struct skr_compute_t {

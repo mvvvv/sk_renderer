@@ -58,6 +58,14 @@ struct Packed {
 // Output for accumulation
 RWStructuredBuffer<float4> output : register(u0);
 
+// Raw primitive type buffers (no struct wrapper)
+StructuredBuffer<float4x4>   buf_raw_matrix    : register(t9);
+StructuredBuffer<float4>     buf_raw_float4    : register(t10);
+StructuredBuffer<float3>     buf_raw_float3    : register(t11);
+StructuredBuffer<float>      buf_raw_float     : register(t12);
+StructuredBuffer<int4>       buf_raw_int4      : register(t13);
+RWStructuredBuffer<float4x4> buf_raw_matrix_rw : register(u4);
+
 // ByteAddressBuffer - raw byte access, no element size concept
 ByteAddressBuffer   raw_read  : register(t8);
 RWByteAddressBuffer raw_write : register(u3);
@@ -120,6 +128,17 @@ void cs(uint3 id : SV_DispatchThreadID) {
 	Packed p = buf_packed[id.x];
 	result += p.a + p.b;
 	result.xy += p.c + p.d;
+
+	// Raw primitive types (no struct wrapper)
+	float4x4 raw_mat = buf_raw_matrix[id.x];
+	result += mul(float4(1,1,1,1), raw_mat);
+	result += buf_raw_float4[id.x];
+	result.xyz += buf_raw_float3[id.x];
+	result.x += buf_raw_float[id.x];
+	result += float4(buf_raw_int4[id.x]);
+
+	// Write to RW matrix buffer
+	buf_raw_matrix_rw[id.x] = raw_mat;
 
 	// RW versions - read and write back modified
 	Simple s_rw = buf_simple_rw[id.x];

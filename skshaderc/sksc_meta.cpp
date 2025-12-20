@@ -474,11 +474,18 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 			tex->bind.register_type = binding->resource_type == SPV_REFLECT_RESOURCE_FLAG_SRV ? skr_register_read_buffer : skr_register_readwrite;
 
 			// For StructuredBuffer<T>, DXC wraps the runtime array in a block with
-			// a single member named @data. The member's size is the element stride.
+			// a single member named @data. The member's array.stride gives us the
+			// properly aligned element size (accounts for HLSL struct padding).
 			uint32_t element_size = 0;
 			if (binding->block.member_count > 0 && binding->block.members != nullptr) {
 				SpvReflectBlockVariable* member = &binding->block.members[0];
-				element_size = member->size;
+
+				// Prefer type_description's array stride (includes HLSL struct alignment padding)
+				if      (member->type_description && member->type_description->traits.array.stride > 0) { element_size = member->type_description->traits.array.stride; }
+				else if (member->array.stride > 0) { element_size = member->array.stride; } // Fall back to member's array stride
+				else if (member->padded_size  > 0) { element_size = member->padded_size;  } // Fall back to padded_size
+				else                               { element_size = member->size;         } // Fall back to size
+				
 
 				// For primitive types (float4, int, etc.), size may be 0.
 				// Calculate from type traits: width * component_count / 8

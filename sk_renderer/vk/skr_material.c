@@ -83,6 +83,15 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 		}
 	}
 
+	// Check if we have a StructuredBuffer bound to the instance buffer slot
+	out_material->instance_buffer_stride = 0;
+	for (uint32_t i = 0; i < meta->resource_count; i++) {
+		if (meta->resources[i].bind.slot == SKR_BIND_SHIFT_TEXTURE + _skr_vk.bind_settings.instance_slot && meta->resources[i].bind.stage_bits != 0) {
+			out_material->instance_buffer_stride = meta->resources[i].element_size;
+			break;
+		}
+	}
+
 	// Register material with pipeline system
 	out_material->pipeline_material_idx = _skr_pipeline_register_material(&out_material->key);
 

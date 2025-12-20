@@ -669,7 +669,11 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		}
 
 		// Instance data buffer
-		if (item->instance_data_size > 0) {
+		if (item->material->instance_buffer_stride > 0) {
+			if (item->instance_data_size != item->material->instance_buffer_stride) {
+				skr_log(skr_log_warning, "Instance data size mismatch: shader %s expects %u bytes, got %u bytes",
+					item->material->key.shader->meta->name, item->material->instance_buffer_stride, item->instance_data_size);
+			}
 			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = list->instance_buffer.buffer,
 				.offset = item->instance_offset,
