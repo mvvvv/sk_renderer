@@ -274,7 +274,19 @@ void skr_material_get_param(const skr_material_t* material, const char* name, sk
 	memcpy(out_data, (uint8_t*)material->param_buffer + var->offset, copy_size);
 }
 
-void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct) {
+const char* _skr_material_bind_name(const sksc_shader_meta_t* meta, int32_t bind_idx) {
+	if (!meta || bind_idx < 0) return "unknown";
+	if ((uint32_t)bind_idx < meta->buffer_count) {
+		return meta->buffers[bind_idx].name;
+	}
+	uint32_t res_idx = (uint32_t)bind_idx - meta->buffer_count;
+	if (res_idx < meta->resource_count) {
+		return meta->resources[res_idx].name;
+	}
+	return "unknown";
+}
+
+int32_t _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct) {
  	for (uint32_t i = 0; i < bind_ct; i++) {
 		int32_t       slot          = binds[i].bind.slot;
 		skr_register_ register_type = binds[i].bind.register_type;
@@ -287,14 +299,14 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 			}
 		}
 		if (skip) continue;
-		
+
 		switch(register_type) {
 		case skr_register_constant: { // cbuffer, (b in HLSL)
 			if (*ref_write_ct >= write_max || *ref_buffer_ct >= buffer_max) continue;
 
 			skr_buffer_t* buffer = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_BUFFER];
 			if (!buffer)  buffer = binds[i].buffer;
-			assert(buffer);
+			if (!buffer) return (int32_t)i;
 
 			ref_buffer_infos[*ref_buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = buffer->buffer,
@@ -315,7 +327,7 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 
 			skr_buffer_t* buffer = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_TEXTURE];
 			if (!buffer)  buffer = binds[i].buffer;
-			assert(buffer);
+			if (!buffer) return (int32_t)i;
 
 			ref_buffer_infos[*ref_buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = buffer->buffer,
@@ -336,7 +348,7 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 
 			skr_tex_t* tex = _skr_vk.global_textures[slot-SKR_BIND_SHIFT_TEXTURE];
 			if (!tex)  tex = binds[i].texture;
-			assert(tex);
+			if (!tex) return (int32_t)i;
 
 			ref_image_infos[*ref_image_ct] = (VkDescriptorImageInfo){
 				.sampler     = tex->sampler,
@@ -360,7 +372,7 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 
 			skr_buffer_t* buffer = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_UAV];
 			if (!buffer)  buffer = binds[i].buffer;
-			assert(buffer);
+			if (!buffer) return (int32_t)i;
 
 			ref_buffer_infos[*ref_buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = buffer->buffer,
@@ -381,7 +393,7 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 
 			skr_tex_t* tex = _skr_vk.global_textures[slot-SKR_BIND_SHIFT_UAV];
 			if (!tex)  tex = binds[i].texture;
-			assert(tex);
+			if (!tex) return (int32_t)i;
 
 			ref_image_infos[*ref_image_ct] = (VkDescriptorImageInfo){
 				.sampler     = tex->sampler,
@@ -397,7 +409,8 @@ void _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind_ct
 			};
 			(*ref_write_ct)++;
 			(*ref_image_ct)++;
-		} break; 
+		} break;
 		default: break;}
 	}
+	return -1;
 }

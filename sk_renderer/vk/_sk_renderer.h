@@ -166,8 +166,9 @@ VkDescriptorSetLayout _skr_shader_make_layout               (VkDevice device, bo
 // Format helpers
 bool                  _skr_format_has_stencil               (VkFormat format);
 
-// Material descriptor caching
-void                  _skr_material_add_writes              (const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);
+// Material descriptor caching. Returns -1 on success, or the failing bind index if a resource is missing.
+int32_t               _skr_material_add_writes              (const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);
+const char*           _skr_material_bind_name               (const sksc_shader_meta_t* meta, int32_t bind_idx);
 
 // Render list sorting
 void                  _skr_render_list_sort                 (skr_render_list_t* ref_list);

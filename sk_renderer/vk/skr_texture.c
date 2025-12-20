@@ -1216,7 +1216,7 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 			SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,  // Already handled above
 			bind_source.slot                                               // Source texture (per-mip, handled above)
 		};
-		_skr_material_add_writes(
+		int32_t fail_idx = _skr_material_add_writes(
 			material.binds, material.bind_count,
 			ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
 			writes,       sizeof(writes      )/sizeof(writes      [0]),
@@ -1224,6 +1224,12 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 			image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 			&write_ct, &buffer_ct, &image_ct
 		);
+		if (fail_idx >= 0) {
+			const sksc_shader_meta_t* meta = material.key.shader->meta;
+			skr_log(skr_log_critical, "Mipmap generation missing binding '%s' in shader '%s'", _skr_material_bind_name(meta, fail_idx), meta->name);
+			vkCmdEndRenderPass(ctx.cmd);
+			continue;
+		}
 
 		// Push descriptors and draw
 		_skr_bind_descriptors(
