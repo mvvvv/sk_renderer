@@ -49,7 +49,7 @@ bool sksc_shader_file_verify(const void *data, uint32_t size, uint16_t *out_vers
 sksc_result_ sksc_shader_file_load_memory(const void *data, uint32_t size, sksc_shader_file_t *out_file) {
 	uint16_t file_version = 0;
 	if (!sksc_shader_file_verify(data, size, &file_version, NULL, 0)) return sksc_result_bad_format;
-	if (file_version != 4)                                            return sksc_result_old_version;
+	if (file_version != 5)                                            return sksc_result_old_version;
 
 	const uint8_t *bytes = (uint8_t*)data;
 	uint32_t at = 10;
@@ -126,10 +126,11 @@ sksc_result_ sksc_shader_file_load_memory(const void *data, uint32_t size, sksc_
 
 	for (uint32_t i = 0; i < out_file->meta->resource_count; i++) {
 		sksc_shader_resource_t *res = &out_file->meta->resources[i];
-		memcpy( res->name,  &bytes[at], sizeof(res->name )); at += sizeof(res->name );
-		memcpy( res->value, &bytes[at], sizeof(res->value)); at += sizeof(res->value);
-		memcpy( res->tags,  &bytes[at], sizeof(res->tags )); at += sizeof(res->tags );
-		memcpy(&res->bind,  &bytes[at], sizeof(res->bind )); at += sizeof(res->bind );
+		memcpy( res->name,         &bytes[at], sizeof(res->name        )); at += sizeof(res->name        );
+		memcpy( res->value,        &bytes[at], sizeof(res->value       )); at += sizeof(res->value       );
+		memcpy( res->tags,         &bytes[at], sizeof(res->tags        )); at += sizeof(res->tags        );
+		memcpy(&res->bind,         &bytes[at], sizeof(res->bind        )); at += sizeof(res->bind        );
+		memcpy(&res->element_size, &bytes[at], sizeof(res->element_size)); at += sizeof(res->element_size);
 		res->name_hash = skr_hash(res->name);
 	}
 

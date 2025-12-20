@@ -46,7 +46,7 @@ bool sksc_compile(const char *filename, const char *hlsl_text, sksc_settings_t *
 		if (entrypoints[i][0] == 0)
 			continue;
 
-		// SPIRV is needed regardless, since we use it for reflection!
+		// Build SPIRV
 		sksc_shader_file_stage_t spirv_stage  = {};
 		compile_result_          spirv_result = sksc_hlsl_to_spirv(filename, hlsl_text, settings, compile_stages[i], NULL, 0, &spirv_stage);
 		if (spirv_result == compile_result_fail) {
@@ -54,10 +54,11 @@ bool sksc_compile(const char *filename, const char *hlsl_text, sksc_settings_t *
 			return false;
 		} else if (spirv_result == compile_result_skip)
 			continue;
+			
+		// Extract metadata from the SPIRV
 		sksc_spirv_to_meta(&spirv_stage, out_file->meta);
 
-		//// SPIRV ////
-
+		// Add it as a stage in our sks file
 		if (settings->target_langs[skr_shader_lang_spirv]) {
 			stages.add(spirv_stage);
 		}
@@ -204,7 +205,13 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 		for (uint32_t i = 0; i < meta->resource_count; i++) {
 			sksc_shader_resource_t *tex = &meta->resources[i];
 			if (tex->bind.stage_bits & stage->stage) {
-				sksc_log(sksc_log_level_info, "|  %c%u : %s", tex->bind.register_type == skr_register_texture || tex->bind.register_type == skr_register_read_buffer ? 't' : 'u', tex->bind.slot, tex->name);
+				bool is_storage_buffer = tex->bind.register_type == skr_register_read_buffer || tex->bind.register_type == skr_register_readwrite;
+				char reg_char          = (tex->bind.register_type == skr_register_texture || tex->bind.register_type == skr_register_read_buffer) ? 't' : 'u';
+				if (is_storage_buffer && tex->element_size > 0) {
+					sksc_log(sksc_log_level_info, "|  %c%u : %s (%u bytes/element)", reg_char, tex->bind.slot, tex->name, tex->element_size);
+				} else {
+					sksc_log(sksc_log_level_info, "|  %c%u : %s", reg_char, tex->bind.slot, tex->name);
+				}
 			}
 		}
 	}
@@ -238,7 +245,7 @@ void sksc_build_file(const sksc_shader_file_t *file, void **out_data, uint32_t *
 	file_data_t data = {};
 
 	const char tag[8] = {'S','K','S','H','A','D','E','R'};
-	uint16_t version = 4;
+	uint16_t version = 5;
 	data.write(tag);
 	data.write(version);
 
@@ -295,6 +302,7 @@ void sksc_build_file(const sksc_shader_file_t *file, void **out_data, uint32_t *
 		data.write_fixed_str(res->value, sizeof(res->value));
 		data.write_fixed_str(res->tags,  sizeof(res->tags));
 		data.write(res->bind);
+		data.write(res->element_size);
 	}
 
 	for (uint32_t i = 0; i < file->stage_count; i++) {
