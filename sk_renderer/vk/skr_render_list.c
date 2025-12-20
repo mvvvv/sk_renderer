@@ -73,6 +73,26 @@ void skr_render_list_clear(skr_render_list_t* ref_list) {
 	ref_list->needs_sort = false;
 }
 
+// Sort key layout (64 bits, ascending sort):
+// Bits 63-32 (32 bits): alpha_mode * 10000 + queue_offset (separates opaque/a2c/transparent)
+// Bits 31-16 (16 bits): pipeline_material_idx (groups by shader/render state)
+// Bits 15-0  (16 bits): mesh pointer hash (groups same mesh for instancing)
+static inline uint64_t _skr_render_sort_key(skr_material_t* material, skr_mesh_t* mesh) {
+	// Derive alpha mode: 0 = opaque, 1 = alpha-to-coverage, 2 = transparent
+	uint32_t alpha_mode = 0;
+	if (material->key.alpha_to_coverage) {
+		alpha_mode = 1;
+	} else if (material->key.blend_state.dst_color_factor != skr_blend_zero) {
+		alpha_mode = 2;
+	}
+	// Combine alpha mode and queue_offset into sections (bias queue to handle negatives)
+	uint32_t queue   = alpha_mode * 10000 + (uint32_t)(material->queue_offset + 1000);
+	uint16_t mat_idx = (uint16_t)material->pipeline_material_idx;
+	// Use pointer bits for mesh grouping (shift past alignment, take 16 bits)
+	uint16_t mesh_id = (uint16_t)((uintptr_t)mesh >> 4);
+	return ((uint64_t)queue << 32) | ((uint64_t)mat_idx << 16) | mesh_id;
+}
+
 void skr_render_list_add_indexed(skr_render_list_t* ref_list, skr_mesh_t* mesh, skr_material_t* material, int32_t first_index, int32_t index_count, int32_t vertex_offset, const void* opt_instance_data, uint32_t single_instance_data_size, uint32_t instance_count) {
 	if (!ref_list || !mesh || !material) return;
 
@@ -92,6 +112,7 @@ void skr_render_list_add_indexed(skr_render_list_t* ref_list, skr_mesh_t* mesh, 
 	skr_render_item_t* item = &ref_list->items[ref_list->count++];
 	item->mesh               = mesh;
 	item->material           = material;
+	item->sort_key           = _skr_render_sort_key(material, mesh);
 	item->instance_offset    = ref_list->instance_data_used;
 	item->instance_data_size = single_instance_data_size;
 	item->instance_count     = instance_count;
@@ -130,22 +151,11 @@ static int _skr_render_item_compare(const void* a, const void* b) {
 	const skr_render_item_t* item_a = (const skr_render_item_t*)a;
 	const skr_render_item_t* item_b = (const skr_render_item_t*)b;
 
-	// Sort by queue offset first (allows explicit draw order control)
-	int32_t queue_a = item_a->material->queue_offset;
-	int32_t queue_b = item_b->material->queue_offset;
-	if (queue_a < queue_b) return -1;
-	if (queue_a > queue_b) return  1;
+	// Primary: sort by pre-computed key
+	if (item_a->sort_key < item_b->sort_key) return -1;
+	if (item_a->sort_key > item_b->sort_key) return  1;
 
-	// Then by mesh (instancing batches)
-	if (item_a->mesh < item_b->mesh) return -1;
-	if (item_a->mesh > item_b->mesh) return  1;
-
-	// Then by material
-	if (item_a->material < item_b->material) return -1;
-	if (item_a->material > item_b->material) return  1;
-
-	// Then by draw parameters (first_index, index_count, vertex_offset)
-	// Items with different draw parameters can't be batched together
+	// Secondary: indexed draw parameters (uncommon, only for sub-mesh draws)
 	if (item_a->first_index < item_b->first_index) return -1;
 	if (item_a->first_index > item_b->first_index) return  1;
 

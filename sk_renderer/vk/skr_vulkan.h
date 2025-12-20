@@ -178,6 +178,7 @@ typedef struct skr_compute_t {
 typedef struct skr_render_item_t {
 	skr_mesh_t*     mesh;
 	skr_material_t* material;
+	uint64_t        sort_key;             // Pre-computed sort key for fast sorting
 	uint32_t        instance_offset;      // Offset into instance_data (bytes)
 	uint32_t        instance_data_size;   // Size per instance (bytes)
 	uint32_t        instance_count;       // Number of instances
