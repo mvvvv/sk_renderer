@@ -103,11 +103,12 @@ sksc_result_ sksc_shader_file_load_memory(const void *data, uint32_t size, sksc_
 
 		for (uint32_t t = 0; t < buffer->var_count; t++) {
 			sksc_shader_var_t *var = &buffer->vars[t];
-			memcpy( var->name,       &bytes[at], sizeof(var->name ));      at += sizeof(var->name  );
-			memcpy( var->extra,      &bytes[at], sizeof(var->extra));      at += sizeof(var->extra );
-			memcpy(&var->offset,     &bytes[at], sizeof(var->offset));     at += sizeof(var->offset);
-			memcpy(&var->size,       &bytes[at], sizeof(var->size));       at += sizeof(var->size  );
-			memcpy(&var->type,       &bytes[at], sizeof(var->type));       at += sizeof(var->type  );
+			memcpy( var->name,       &bytes[at], sizeof(var->name     )); at += sizeof(var->name     );
+			memcpy( var->extra,      &bytes[at], sizeof(var->extra    )); at += sizeof(var->extra    );
+			memcpy( var->type_name,  &bytes[at], sizeof(var->type_name)); at += sizeof(var->type_name);
+			memcpy(&var->offset,     &bytes[at], sizeof(var->offset   )); at += sizeof(var->offset   );
+			memcpy(&var->size,       &bytes[at], sizeof(var->size     )); at += sizeof(var->size     );
+			memcpy(&var->type,       &bytes[at], sizeof(var->type     )); at += sizeof(var->type     );
 			memcpy(&var->type_count, &bytes[at], sizeof(var->type_count)); at += sizeof(var->type_count);
 			var->name_hash = skr_hash(var->name);
 		}
