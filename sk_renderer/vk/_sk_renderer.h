@@ -53,6 +53,37 @@ typedef struct skr_destroy_list_t {
 	mtx_t    mutex;  // Thread-safe access for cross-thread destruction
 } skr_destroy_list_t;
 
+// Sampler cache for deduplicating VkSampler objects
+// Most textures use one of a handful of sampler configurations
+typedef struct {
+	skr_tex_sampler_t settings;
+	VkSampler         sampler;
+	uint32_t          ref_count;
+} _skr_sampler_entry_t;
+
+typedef struct {
+	_skr_sampler_entry_t* entries;
+	uint32_t              count;
+	uint32_t              capacity;
+	mtx_t                 mutex;
+} _skr_sampler_cache_t;
+
+// Bind pool for material resource bindings
+// Manages consecutive runs of slots for safe lifetime management
+typedef struct {
+	uint32_t start;
+	uint32_t count;
+} _skr_bind_range_t;
+
+typedef struct {
+	skr_material_bind_t* binds;
+	uint32_t             capacity;
+	_skr_bind_range_t*   free_ranges;
+	uint32_t             free_range_count;
+	uint32_t             free_range_capacity;
+	mtx_t                mutex;
+} _skr_bind_pool_t;
+
 typedef struct {
 	VkCommandBuffer    cmd;
 	VkFence            fence;
@@ -151,6 +182,12 @@ typedef struct {
 
 	// Deferred destruction
 	skr_destroy_list_t       destroy_list;
+
+	// Material bind pool
+	_skr_bind_pool_t         bind_pool;
+
+	// Sampler cache
+	_skr_sampler_cache_t     sampler_cache;
 } _skr_vk_t;
 
 extern _skr_vk_t _skr_vk;
@@ -169,6 +206,21 @@ bool                  _skr_format_has_stencil               (VkFormat format);
 // Material descriptor caching. Returns -1 on success, or the failing bind index if a resource is missing.
 int32_t               _skr_material_add_writes              (const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);
 const char*           _skr_material_bind_name               (const sksc_shader_meta_t* meta, int32_t bind_idx);
+
+// Bind pool management
+void                  _skr_bind_pool_init                   (void);
+void                  _skr_bind_pool_shutdown               (void);
+int32_t               _skr_bind_pool_alloc                  (uint32_t count);  // Returns start index, -1 on failure
+void                  _skr_bind_pool_free                   (int32_t start, uint32_t count);
+skr_material_bind_t*  _skr_bind_pool_get                    (int32_t start);   // Get pointer to slot (NULL if invalid)
+void                  _skr_bind_pool_lock                   (void);            // Lock pool for safe pointer access
+void                  _skr_bind_pool_unlock                 (void);            // Unlock pool after done with pointer
+
+// Sampler cache management
+void                  _skr_sampler_cache_init               (void);
+void                  _skr_sampler_cache_shutdown           (void);
+VkSampler             _skr_sampler_cache_acquire            (skr_tex_sampler_t settings);  // Get or create sampler, increment ref
+void                  _skr_sampler_cache_release            (skr_tex_sampler_t settings);  // Decrement ref, destroy if zero
 
 // Render list sorting
 void                  _skr_render_list_sort                 (skr_render_list_t* ref_list);
@@ -227,6 +279,9 @@ void                  _skr_cmd_destroy_swapchain            (skr_destroy_list_t*
 void                  _skr_cmd_destroy_surface              (skr_destroy_list_t* opt_ref_list, VkSurfaceKHR             handle);
 void                  _skr_cmd_destroy_debug_messenger      (skr_destroy_list_t* opt_ref_list, VkDebugUtilsMessengerEXT handle);
 void                  _skr_cmd_destroy_memory               (skr_destroy_list_t* opt_ref_list, VkDeviceMemory           handle);
+
+// Custom deferred destruction (non-Vulkan types)
+void                  _skr_cmd_destroy_bind_pool_slots      (skr_destroy_list_t* opt_ref_list, int32_t start, uint32_t count);
 
 // Descriptor helper (allocates and binds descriptor set, handles push descriptors vs fallback)
 void                  _skr_bind_descriptors                 (VkCommandBuffer cmd, VkDescriptorPool pool, VkPipelineBindPoint bind_point, VkPipelineLayout layout, VkDescriptorSetLayout desc_layout, VkWriteDescriptorSet* writes, uint32_t write_count);

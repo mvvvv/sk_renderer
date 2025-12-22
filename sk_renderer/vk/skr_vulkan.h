@@ -42,9 +42,11 @@ typedef struct skr_vert_type_t {
 	int32_t                            pipeline_idx; // Cached pipeline vertex format index
 } skr_vert_type_t;
 
+#define SKR_MAX_VERTEX_BUFFERS 2
+
 typedef struct skr_mesh_t {
-	skr_buffer_t*          vertex_buffers;        // Array of vertex buffers (one per binding)
-	uint32_t               vertex_buffer_count;   // Number of vertex buffers
+	skr_buffer_t           vertex_buffers[SKR_MAX_VERTEX_BUFFERS];
+	uint32_t               vertex_buffer_count;   // Number of vertex buffers in use
 	uint32_t               vertex_buffer_owned;   // Bitmask: which buffers are owned (vs externally referenced)
 	skr_buffer_t           index_buffer;
 	const skr_vert_type_t* vert_type;
@@ -151,7 +153,7 @@ typedef struct skr_material_t {
 	_skr_pipeline_material_key_t key;                   // Pipeline-affecting state
 	int32_t                      queue_offset;          // Render queue offset (not pipeline-affecting)
 
-	skr_material_bind_t*   binds;
+	int32_t                bind_start;            // Index into global bind pool (-1 if none)
 	uint32_t               bind_count;
 	// Material parameters
 	void*                  param_buffer;          // CPU-side parameter data

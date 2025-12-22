@@ -772,7 +772,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	}
 
 	// Store texture properties
-	out_tex->sampler = _skr_sampler_create_vk(_skr_vk.device, sampler);
+	out_tex->sampler = _skr_sampler_cache_acquire(sampler);
 
 	return skr_err_success;
 }
@@ -782,7 +782,7 @@ void skr_tex_destroy(skr_tex_t* ref_tex) {
 
 	_skr_cmd_destroy_framebuffer(NULL, ref_tex->framebuffer);
 	_skr_cmd_destroy_framebuffer(NULL, ref_tex->framebuffer_depth);
-	_skr_cmd_destroy_sampler    (NULL, ref_tex->sampler);
+	_skr_sampler_cache_release(ref_tex->sampler_settings);
 	_skr_cmd_destroy_image_view (NULL, ref_tex->view);
 
 	// Only destroy image/memory if we own them (not external)
@@ -824,13 +824,13 @@ skr_tex_sampler_t skr_tex_get_sampler(const skr_tex_t* tex) {
 void skr_tex_set_sampler(skr_tex_t* ref_tex, skr_tex_sampler_t sampler) {
 	if (!ref_tex || ref_tex->image == VK_NULL_HANDLE) return;
 
-	// Destroy old sampler (deferred until GPU is done with it)
+	// Release old sampler from cache
 	if (ref_tex->sampler != VK_NULL_HANDLE) {
-		_skr_cmd_destroy_sampler(NULL, ref_tex->sampler);
+		_skr_sampler_cache_release(ref_tex->sampler_settings);
 	}
 
-	// Create new sampler and update settings
-	ref_tex->sampler          = _skr_sampler_create_vk(_skr_vk.device, sampler);
+	// Acquire new sampler from cache and update settings
+	ref_tex->sampler          = _skr_sampler_cache_acquire(sampler);
 	ref_tex->sampler_settings = sampler;
 }
 
@@ -1218,14 +1218,18 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 			SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,  // Already handled above
 			bind_source.slot                                               // Source texture (per-mip, handled above)
 		};
+
+		_skr_bind_pool_lock();
 		int32_t fail_idx = _skr_material_add_writes(
-			material.binds, material.bind_count,
+			_skr_bind_pool_get(material.bind_start), material.bind_count,
 			ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
 			writes,       sizeof(writes      )/sizeof(writes      [0]),
 			buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 			image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 			&write_ct, &buffer_ct, &image_ct
 		);
+		_skr_bind_pool_unlock();
+
 		if (fail_idx >= 0) {
 			const sksc_shader_meta_t* meta = material.key.shader->meta;
 			skr_log(skr_log_critical, "Mipmap generation missing binding '%s' in shader '%s'", _skr_material_bind_name(meta, fail_idx), meta->name);
@@ -1311,6 +1315,113 @@ VkSampler _skr_sampler_create_vk(VkDevice device, skr_tex_sampler_t settings) {
 	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_SAMPLER, (uint64_t)vk_sampler, name);
 
 	return vk_sampler;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Sampler cache implementation
+///////////////////////////////////////////////////////////////////////////////
+
+#define SKR_SAMPLER_CACHE_INITIAL_CAPACITY 16
+
+static bool _skr_sampler_settings_equal(skr_tex_sampler_t a, skr_tex_sampler_t b) {
+	return a.sample         == b.sample &&
+	       a.address        == b.address &&
+	       a.sample_compare == b.sample_compare &&
+	       a.anisotropy     == b.anisotropy;
+}
+
+void _skr_sampler_cache_init(void) {
+	_skr_sampler_cache_t* cache = &_skr_vk.sampler_cache;
+
+	mtx_init(&cache->mutex, mtx_plain);
+
+	cache->capacity = SKR_SAMPLER_CACHE_INITIAL_CAPACITY;
+	cache->count    = 0;
+	cache->entries  = _skr_calloc(cache->capacity, sizeof(_skr_sampler_entry_t));
+}
+
+void _skr_sampler_cache_shutdown(void) {
+	_skr_sampler_cache_t* cache = &_skr_vk.sampler_cache;
+
+	// Destroy all cached samplers
+	for (uint32_t i = 0; i < cache->count; i++) {
+		if (cache->entries[i].sampler != VK_NULL_HANDLE) {
+			vkDestroySampler(_skr_vk.device, cache->entries[i].sampler, NULL);
+		}
+	}
+
+	mtx_destroy(&cache->mutex);
+
+	_skr_free(cache->entries);
+	*cache = (_skr_sampler_cache_t){0};
+}
+
+VkSampler _skr_sampler_cache_acquire(skr_tex_sampler_t settings) {
+	_skr_sampler_cache_t* cache = &_skr_vk.sampler_cache;
+	VkSampler result = VK_NULL_HANDLE;
+
+	mtx_lock(&cache->mutex);
+
+	// Search for existing sampler with matching settings
+	for (uint32_t i = 0; i < cache->count; i++) {
+		if (_skr_sampler_settings_equal(cache->entries[i].settings, settings)) {
+			cache->entries[i].ref_count++;
+			result = cache->entries[i].sampler;
+			goto done;
+		}
+	}
+
+	// Not found, create new sampler (this can be slow, but happens rarely)
+	result = _skr_sampler_create_vk(_skr_vk.device, settings);
+	if (result == VK_NULL_HANDLE) {
+		goto done;
+	}
+
+	// Grow cache if needed
+	if (cache->count >= cache->capacity) {
+		uint32_t new_capacity = cache->capacity * 2;
+		_skr_sampler_entry_t* new_entries = _skr_realloc(cache->entries, new_capacity * sizeof(_skr_sampler_entry_t));
+		if (!new_entries) {
+			skr_log(skr_log_warning, "Failed to grow sampler cache, sampler will not be cached");
+			// Return the sampler anyway - it just won't be cached for reuse
+			goto done;
+		}
+		cache->entries  = new_entries;
+		cache->capacity = new_capacity;
+	}
+
+	// Add new entry
+	cache->entries[cache->count++] = (_skr_sampler_entry_t){
+		.settings  = settings,
+		.sampler   = result,
+		.ref_count = 1,
+	};
+
+done:
+	mtx_unlock(&cache->mutex);
+	return result;
+}
+
+void _skr_sampler_cache_release(skr_tex_sampler_t settings) {
+	_skr_sampler_cache_t* cache = &_skr_vk.sampler_cache;
+
+	mtx_lock(&cache->mutex);
+
+	// Find the entry and decrement ref count
+	// We don't destroy samplers when ref hits zero because the GPU might still
+	// be using them. Samplers are tiny (~64 bytes) and reused, so keeping them
+	// until shutdown is fine. They'll be destroyed in _skr_sampler_cache_shutdown.
+	for (uint32_t i = 0; i < cache->count; i++) {
+		if (_skr_sampler_settings_equal(cache->entries[i].settings, settings)) {
+			if (cache->entries[i].ref_count > 0) {
+				cache->entries[i].ref_count--;
+			}
+			mtx_unlock(&cache->mutex);
+			return;
+		}
+	}
+
+	mtx_unlock(&cache->mutex);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1495,9 +1606,9 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 		}
 	}
 
-	// Create sampler
+	// Acquire sampler from cache
 	out_tex->sampler_settings = info.sampler;
-	out_tex->sampler          = _skr_sampler_create_vk(_skr_vk.device, info.sampler);
+	out_tex->sampler          = _skr_sampler_cache_acquire(info.sampler);
 
 	return skr_err_success;
 }

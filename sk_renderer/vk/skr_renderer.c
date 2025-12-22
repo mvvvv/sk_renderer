@@ -446,22 +446,27 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	// Material texture and buffer binds
 	const sksc_shader_meta_t* meta = material->key.shader->meta;
 	const int32_t ignore_slots[] = { SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot };
-	int32_t fail_idx = _skr_material_add_writes(material->binds, material->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
+
+	_skr_bind_pool_lock();
+	skr_material_bind_t* mat_binds = _skr_bind_pool_get(material->bind_start);
+	int32_t fail_idx = _skr_material_add_writes(mat_binds, material->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
 		writes,       sizeof(writes      )/sizeof(writes      [0]),
 		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 		&write_ct, &buffer_ct, &image_ct);
 	if (fail_idx >= 0) {
+		_skr_bind_pool_unlock();
 		skr_log(skr_log_critical, "Blit missing binding '%s' in shader '%s'", _skr_material_bind_name(meta, fail_idx), meta->name);
 		return;
 	}
 
 	// Transition any source textures in material to shader-read layout
 	for (uint32_t i=0; i<meta->resource_count; i++) {
-		skr_material_bind_t* res = &material->binds[meta->buffer_count + i];
+		skr_material_bind_t* res = &mat_binds[meta->buffer_count + i];
 		if (res->texture)
 			_skr_tex_transition_for_shader_read(ctx.cmd, res->texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 	}
+	_skr_bind_pool_unlock();
 
 	// Transition target texture to color attachment layout
 	_skr_tex_transition(ctx.cmd, to, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -698,11 +703,15 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		// Material texture and buffer binds
 		const skr_material_t* mat = item->material;
 		const sksc_shader_meta_t* meta = mat->key.shader->meta;
-		int32_t fail_idx = _skr_material_add_writes(mat->binds, mat->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
+
+		_skr_bind_pool_lock();
+		int32_t fail_idx = _skr_material_add_writes(_skr_bind_pool_get(mat->bind_start), mat->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
 			writes,       sizeof(writes      )/sizeof(writes      [0]),
 			buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 			image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 			&write_ct, &buffer_ct, &image_ct);
+		_skr_bind_pool_unlock();
+
 		if (fail_idx >= 0) {
 			skr_log(skr_log_critical, "Draw missing binding '%s' in shader '%s'", _skr_material_bind_name(meta, fail_idx), meta->name);
 			i += batch_count;
@@ -806,11 +815,15 @@ void skr_renderer_draw_mesh_immediate(skr_mesh_t* mesh, skr_material_t* material
 
 	// Add material texture and buffer bindings
 	const sksc_shader_meta_t* meta = material->key.shader->meta;
-	int32_t fail_idx = _skr_material_add_writes(material->binds, material->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
+
+	_skr_bind_pool_lock();
+	int32_t fail_idx = _skr_material_add_writes(_skr_bind_pool_get(material->bind_start), material->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
 		writes,       sizeof(writes      )/sizeof(writes      [0]),
 		buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 		image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 		&write_ct, &buffer_ct, &image_ct);
+	_skr_bind_pool_unlock();
+
 	if (fail_idx >= 0) {
 		skr_log(skr_log_critical, "Immediate draw missing binding '%s' in shader '%s'", _skr_material_bind_name(meta, fail_idx), meta->name);
 		_skr_cmd_release(cmd);
