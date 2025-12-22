@@ -577,25 +577,7 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 	VkCommandBuffer cmd = ctx.cmd;
 
 	_skr_render_list_sort(list);
-
-	// This consolidates all material params into a single buffer
-	list->material_data_used = 0;
-	skr_material_t* prev_material = NULL;
-	for (uint32_t i = 0; i < list->count; i++) {
-		skr_material_t* material = list->items[i].material;
-		if (material == prev_material) continue;
-
-		// Resize material param data if needed
-		while (list->material_data_used + material->param_buffer_size > list->material_data_capacity) {
-			list->material_data_capacity = list->material_data_capacity * 2;
-			list->material_data          = _skr_realloc(list->material_data, list->material_data_capacity);
-		}
-
-		memcpy(&list->material_data[list->material_data_used], material->param_buffer, material->param_buffer_size);
-		list->material_data_used += material->param_buffer_size;
-
-		prev_material = material;
-	}
+	// Material param data is already copied at add-time into list->material_data
 
 	// Upload data to our material and instance buffers
 	if (system_data && system_data_size > 0) _skr_ensure_buffer(&list->system_buffer,         &list->system_buffer_valid,         system_data,         system_data_size,         skr_buffer_type_constant, "system_buffer");
@@ -603,28 +585,28 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 	if (list->instance_data_used        > 0) _skr_ensure_buffer(&list->instance_buffer,       &list->instance_buffer_valid,       list->instance_data, list->instance_data_used, skr_buffer_type_storage,  "renderlist_inst_data");
 
 	// Draw items with batching
-	VkPipeline bound_pipeline       = VK_NULL_HANDLE;
-	uint32_t   material_data_offset = 0;
-	prev_material = NULL;
+	VkPipeline bound_pipeline = VK_NULL_HANDLE;
 	for (uint32_t i = 0; i < list->count; ) {
 		const skr_render_item_t* item = &list->items[i];
 
-		// Get pipeline from the cache
-		VkPipeline pipeline = _skr_pipeline_get(item->material->pipeline_material_idx, _skr_vk.current_renderpass_idx, item->mesh->vert_type->pipeline_idx);
+		// Get pipeline from the cache (using inlined indices)
+		VkPipeline pipeline = _skr_pipeline_get(item->pipeline_material_idx, _skr_vk.current_renderpass_idx, item->pipeline_vert_idx);
 		assert(pipeline != VK_NULL_HANDLE && "Is the Vertex format out of scope?");
 
 		// Find consecutive items with same mesh/material/draw-params for batching
+		// Compare inlined data instead of pointers
 		uint32_t batch_count     = 1;
 		uint32_t total_instances = item->instance_count;
 		uint32_t total_inst_data = item->instance_data_size * item->instance_count;
 		while (i + batch_count < list->count) {
 			const skr_render_item_t* next = &list->items[i + batch_count];
 			// Can only batch if mesh, material, AND draw parameters all match
-			if (next->mesh          != item->mesh        ||
-			    next->material      != item->material    ||
-			    next->first_index   != item->first_index ||
-			    next->index_count   != item->index_count ||
-			    next->vertex_offset != item->vertex_offset)
+			if (next->vertex_buffers[0]      != item->vertex_buffers[0]      ||
+			    next->pipeline_material_idx  != item->pipeline_material_idx  ||
+			    next->bind_start             != item->bind_start             ||
+			    next->first_index            != item->first_index            ||
+			    next->index_count            != item->index_count            ||
+			    next->vertex_offset          != item->vertex_offset)
 				break;
 			total_instances += next->instance_count;
 			total_inst_data += next->instance_data_size * next->instance_count;
@@ -645,12 +627,12 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		uint32_t buffer_ct = 0;
 		uint32_t image_ct  = 0;
 
-		// Material parameter buffer
-		if (item->material->param_buffer_size > 0) {
+		// Material parameter buffer (using inlined param_buffer_size and param_data_offset)
+		if (item->param_buffer_size > 0) {
 			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = list->material_param_buffer.buffer,
-				.offset = material_data_offset,
-				.range  = item->material->param_buffer_size,
+				.offset = item->param_data_offset,
+				.range  = item->param_buffer_size,
 			};
 			writes[write_ct++] = (VkWriteDescriptorSet){
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -661,8 +643,8 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 			};
 		}
 
-		// System data buffer
-		if (item->material->has_system_buffer) {
+		// System data buffer (using inlined has_system_buffer)
+		if (item->has_system_buffer) {
 			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = list->system_buffer.buffer,
 				.range  = list->system_buffer.size,
@@ -676,11 +658,11 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 			};
 		}
 
-		// Instance data buffer
-		if (item->material->instance_buffer_stride > 0) {
-			if (item->instance_data_size != item->material->instance_buffer_stride) {
-				skr_log(skr_log_warning, "Instance data size mismatch: shader %s expects %u bytes, got %u bytes",
-					item->material->key.shader->meta->name, item->material->instance_buffer_stride, item->instance_data_size);
+		// Instance data buffer (using inlined instance_buffer_stride)
+		if (item->instance_buffer_stride > 0) {
+			if (item->instance_data_size != item->instance_buffer_stride) {
+				skr_log(skr_log_warning, "Instance data size mismatch: shader expects %u bytes, got %u bytes",
+					item->instance_buffer_stride, item->instance_data_size);
 			}
 			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = list->instance_buffer.buffer,
@@ -700,12 +682,10 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 			SKR_BIND_SHIFT_TEXTURE + _skr_vk.bind_settings.instance_slot,
 			SKR_BIND_SHIFT_BUFFER  + _skr_vk.bind_settings.material_slot,
 			SKR_BIND_SHIFT_BUFFER  + _skr_vk.bind_settings.system_slot };
-		// Material texture and buffer binds
-		const skr_material_t* mat = item->material;
-		const sksc_shader_meta_t* meta = mat->key.shader->meta;
 
+		// Material texture and buffer binds (using inlined bind_start/bind_count)
 		_skr_bind_pool_lock();
-		int32_t fail_idx = _skr_material_add_writes(_skr_bind_pool_get(mat->bind_start), mat->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
+		int32_t fail_idx = _skr_material_add_writes(_skr_bind_pool_get(item->bind_start), item->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
 			writes,       sizeof(writes      )/sizeof(writes      [0]),
 			buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 			image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
@@ -713,26 +693,26 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		_skr_bind_pool_unlock();
 
 		if (fail_idx >= 0) {
-			skr_log(skr_log_critical, "Draw missing binding '%s' in shader '%s'", _skr_material_bind_name(meta, fail_idx), meta->name);
+			skr_log(skr_log_critical, "Draw missing binding at index %d", fail_idx);
 			i += batch_count;
 			continue;
 		}
 
-		// Push all descriptors at once
+		// Push all descriptors at once (using inlined pipeline_material_idx)
 		_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		                      _skr_pipeline_get_layout(mat->pipeline_material_idx),
-		                      _skr_pipeline_get_descriptor_layout(mat->pipeline_material_idx),
+		                      _skr_pipeline_get_layout(item->pipeline_material_idx),
+		                      _skr_pipeline_get_descriptor_layout(item->pipeline_material_idx),
 		                      writes, write_ct);
 
-		// Bind vertex buffers
-		if (item->mesh->vertex_buffer_count > 0) {
-			VkBuffer     buffers[16];
-			VkDeviceSize offsets[16];
+		// Bind vertex buffers (using inlined VkBuffer handles)
+		if (item->vertex_buffer_count > 0) {
+			VkBuffer     buffers[SKR_MAX_VERTEX_BUFFERS];
+			VkDeviceSize offsets[SKR_MAX_VERTEX_BUFFERS];
 			uint32_t     bind_count = 0;
 
-			for (uint32_t j = 0; j < item->mesh->vertex_buffer_count; j++) {
-				if (skr_buffer_is_valid(&item->mesh->vertex_buffers[j])) {
-					buffers[bind_count] = item->mesh->vertex_buffers[j].buffer;
+			for (uint32_t j = 0; j < item->vertex_buffer_count; j++) {
+				if (item->vertex_buffers[j] != VK_NULL_HANDLE) {
+					buffers[bind_count] = item->vertex_buffers[j];
 					offsets[bind_count] = 0;
 					bind_count++;
 				}
@@ -743,22 +723,17 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 			}
 		}
 
-		// Draw with instancing
+		// Draw with instancing (using inlined mesh data)
 		uint32_t draw_instances = total_instances * instance_multiplier;
-		if (skr_buffer_is_valid(&item->mesh->index_buffer)) {
-			vkCmdBindIndexBuffer(cmd, item->mesh->index_buffer.buffer, 0, item->mesh->ind_format_vk);
-			uint32_t draw_index_count = item->index_count > 0 ? item->index_count : item->mesh->ind_count;
+		if (item->index_buffer != VK_NULL_HANDLE) {
+			vkCmdBindIndexBuffer(cmd, item->index_buffer, 0, (VkIndexType)item->index_format);
+			uint32_t draw_index_count = item->index_count > 0 ? (uint32_t)item->index_count : item->ind_count;
 			vkCmdDrawIndexed(cmd, draw_index_count, draw_instances, item->first_index, item->vertex_offset, 0);
 		} else {
-			vkCmdDraw(cmd, item->mesh->vert_count, draw_instances, 0, 0);
+			vkCmdDraw(cmd, item->vert_count, draw_instances, 0, 0);
 		}
 
 		i += batch_count;
-
-		if (item->material != prev_material) {
-			prev_material         = item->material;
-			material_data_offset += item->material->param_buffer_size;
-		}
 	}
 	_skr_cmd_release(cmd);
 }

@@ -128,6 +128,7 @@ target_sources(sk_renderer_test PRIVATE
 	scene_cloth.c
 	scene_text.c
 	scene_tex_copy.c
+	scene_lifetime_stress.c
 	bloom.c
 	text/text.c
 	tools/scene_util.c

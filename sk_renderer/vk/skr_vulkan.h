@@ -178,16 +178,37 @@ typedef struct skr_compute_t {
 	bool                   param_dirty;
 } skr_compute_t;
 
+// Render item with inlined mesh/material data - mesh/material can be destroyed after add.
+// Fields are packed by size to minimize padding (~80 bytes vs ~104 bytes unpacked).
 typedef struct skr_render_item_t {
-	skr_mesh_t*     mesh;
-	skr_material_t* material;
-	uint64_t        sort_key;             // Pre-computed sort key for fast sorting
-	uint32_t        instance_offset;      // Offset into instance_data (bytes)
-	uint32_t        instance_data_size;   // Size per instance (bytes)
-	uint32_t        instance_count;       // Number of instances
-	int32_t         first_index;          // Index buffer offset (0 = use mesh defaults)
-	int32_t         index_count;          // Number of indices (0 = use mesh ind_count)
-	int32_t         vertex_offset;        // Base vertex offset
+	// 8-byte aligned (VkBuffer = pointer = 8 bytes)
+	VkBuffer    vertex_buffers[SKR_MAX_VERTEX_BUFFERS]; // From mesh->vertex_buffers[].buffer
+	VkBuffer    index_buffer;                           // From mesh->index_buffer.buffer
+	uint64_t    sort_key;                               // Pre-computed sort key for fast sorting
+
+	// 4-byte aligned
+	uint32_t    vert_count;           // From mesh->vert_count
+	uint32_t    ind_count;            // From mesh->ind_count
+	uint32_t    param_data_offset;    // Offset into render_list->material_data (bytes)
+	uint32_t    instance_offset;      // Offset into render_list->instance_data (bytes)
+	uint32_t    instance_count;       // Number of instances to draw
+	int32_t     first_index;          // Index buffer offset (0 = use mesh defaults)
+	int32_t     index_count;          // Number of indices (0 = use mesh ind_count)
+	int32_t     vertex_offset;        // Base vertex offset
+	int32_t     bind_start;           // Index into bind pool (bind pool uses deferred destruction)
+
+	// 2-byte aligned (max 65535 is plenty for these)
+	uint16_t    pipeline_vert_idx;      // From mesh->vert_type->pipeline_idx
+	uint16_t    pipeline_material_idx;  // From material->pipeline_material_idx
+	uint16_t    param_buffer_size;      // From material->param_buffer_size
+	uint16_t    instance_buffer_stride; // From material->instance_buffer_stride
+	uint16_t    instance_data_size;     // Size per instance (bytes)
+
+	// 1-byte aligned (small values)
+	uint8_t     vertex_buffer_count;  // From mesh->vertex_buffer_count (max SKR_MAX_VERTEX_BUFFERS=2)
+	uint8_t     bind_count;           // From material->bind_count (textures+buffers, rarely >32)
+	uint8_t     index_format;         // From mesh->ind_format_vk (VkIndexType: 0=uint16, 1=uint32)
+	uint8_t     has_system_buffer;    // From material->has_system_buffer (bool)
 } skr_render_item_t;
 
 typedef struct skr_render_list_t {
