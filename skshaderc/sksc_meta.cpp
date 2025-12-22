@@ -375,17 +375,50 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 				strncpy(buff->vars[m].name, member_name, sizeof(buff->vars[m].name));
 				buff->vars[m].offset     = member->offset;
 				buff->vars[m].size       = member->size;
-				
+
 				uint32_t vec_size = member->type_description->traits.numeric.vector.component_count;
 				uint32_t columns  = member->type_description->traits.numeric.matrix.column_count;
 				if (vec_size == 0) vec_size = 1;
 				if (columns  == 0) columns  = 1;
-				
+
 				buff->vars[m].type_count = dim_size * vec_size * columns;
-				
+
 				if (buff->vars[m].type_count == 0)
 					buff->vars[m].type_count = 1;
-				
+
+				// Build type name - use SPIRV type_name for structs, construct for primitives
+				const char* type_name = member->type_description->type_name;
+				if (type_name) {
+					strncpy(buff->vars[m].type_name, type_name, sizeof(buff->vars[m].type_name));
+				} else {
+					// Construct type name for primitive types
+					const char* base_type = "unknown";
+					switch (member->type_description->type_flags & 0xFF) {
+						case SPV_REFLECT_TYPE_FLAG_INT:
+							if (member->type_description->traits.numeric.scalar.signedness) {
+								base_type = "int";
+							} else {
+								base_type = member->type_description->traits.numeric.scalar.width == 8 ? "uint8" : "uint";
+							}
+							break;
+						case SPV_REFLECT_TYPE_FLAG_FLOAT:
+							base_type = member->type_description->traits.numeric.scalar.width == 64 ? "double" : "float";
+							break;
+						case SPV_REFLECT_TYPE_FLAG_BOOL:
+							base_type = "bool";
+							break;
+					}
+
+					// Build: base, base2, base3, base4, or base4x4 for matrices
+					if (columns > 1) {
+						snprintf(buff->vars[m].type_name, sizeof(buff->vars[m].type_name), "%s%ux%u", base_type, vec_size, columns);
+					} else if (vec_size > 1) {
+						snprintf(buff->vars[m].type_name, sizeof(buff->vars[m].type_name), "%s%u", base_type, vec_size);
+					} else {
+						strncpy(buff->vars[m].type_name, base_type, sizeof(buff->vars[m].type_name));
+					}
+				}
+
 				switch (member->type_description->type_flags & 0xFF) {
 					case SPV_REFLECT_TYPE_FLAG_INT:
 						if (member->type_description->traits.numeric.scalar.signedness) {

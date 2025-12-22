@@ -712,6 +712,15 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 
 	vkBindImageMemory(_skr_vk.device, out_tex->image, out_tex->memory, 0);
 
+	// Initialize layout tracking BEFORE any transitions
+	// This must happen before _skr_tex_upload_data or _skr_tex_transition calls
+	// since those functions update current_layout
+	out_tex->current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
+	out_tex->current_queue_family = _skr_vk.graphics_queue_family;
+	out_tex->first_use            = true;
+	// Transient discard optimization for non-readable depth/MSAA (tile GPU optimization)
+	out_tex->is_transient_discard = (is_msaa_attachment || (is_depth && !(flags & skr_tex_flags_readable)));
+
 	// Upload texture data if provided (or just transition to shader read layout)
 	if (opt_data && opt_data->data) {
 		skr_err_ upload_err = _skr_tex_upload_data(out_tex, opt_data);
@@ -763,14 +772,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	}
 
 	// Store texture properties
-	out_tex->sampler              = _skr_sampler_create_vk(_skr_vk.device, sampler);
-
-	// Initialize layout tracking
-	out_tex->current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
-	out_tex->current_queue_family = _skr_vk.graphics_queue_family;
-	out_tex->first_use            = true;
-	// Transient discard optimization for non-readable depth/MSAA (tile GPU optimization)
-	out_tex->is_transient_discard = (is_msaa_attachment || (is_depth && !(flags & skr_tex_flags_readable)));
+	out_tex->sampler = _skr_sampler_create_vk(_skr_vk.device, sampler);
 
 	return skr_err_success;
 }

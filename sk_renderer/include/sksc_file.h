@@ -122,6 +122,7 @@ typedef struct {
 	char     name [32];
 	uint64_t name_hash;
 	char     extra[64];
+	char     type_name[32]; // For struct types, the name of the struct (e.g., "circle_mask_t")
 	uint32_t offset;
 	uint32_t size;
 	// of type sksc_shader_var_

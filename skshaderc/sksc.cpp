@@ -117,14 +117,7 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 		sksc_log(sksc_log_level_info, "|  %s - %u bytes%s", buff->name, buff->size, buff->defaults ? " (has defaults)" : "");
 		for (size_t v = 0; v < buff->var_count; v++) {
 			sksc_shader_var_t *var = &buff->vars[v];
-			const char *type_name = "misc";
-			switch (var->type) {
-			case sksc_shader_var_double: type_name = "dbl";   break;
-			case sksc_shader_var_float:  type_name = "flt";   break;
-			case sksc_shader_var_int:    type_name = "int";   break;
-			case sksc_shader_var_uint:   type_name = "uint";  break;
-			case sksc_shader_var_uint8:  type_name = "uint8"; break;
-			}
+			const char *type_str = var->type_name[0] ? var->type_name : "unknown";
 
 			// Show default value if present
 			char default_str[256] = "";
@@ -148,7 +141,7 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 					}
 				}
 			}
-			sksc_log(sksc_log_level_info, "|    %-15s: +%-4u %5ub - %s[%u]%s", var->name, var->offset, var->size, type_name, var->type_count, default_str);
+			sksc_log(sksc_log_level_info, "|    %-15s: +%-4u %5ub - %s[%u]%s", var->name, var->offset, var->size, type_str, var->type_count, default_str);
 		}
 	}
 
@@ -279,8 +272,9 @@ void sksc_build_file(const sksc_shader_file_t *file, void **out_data, uint32_t *
 
 		for (uint32_t t = 0; t < buff->var_count; t++) {
 			sksc_shader_var_t *var = &buff->vars[t];
-			data.write_fixed_str(var->name,  sizeof(var->name));
-			data.write_fixed_str(var->extra, sizeof(var->extra));
+			data.write_fixed_str(var->name,      sizeof(var->name));
+			data.write_fixed_str(var->extra,     sizeof(var->extra));
+			data.write_fixed_str(var->type_name, sizeof(var->type_name));
 			data.write(var->offset);
 			data.write(var->size);
 			data.write(var->type);
