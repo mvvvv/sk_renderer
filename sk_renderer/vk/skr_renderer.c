@@ -475,10 +475,13 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 
 	if (is_cubemap || is_array) {
 		// Layered rendering: create multi-layer view and framebuffer for single instanced draw
+		// IMPORTANT: For framebuffer attachments with SV_RenderTargetArrayIndex, we must use
+		// VK_IMAGE_VIEW_TYPE_2D_ARRAY even for cubemaps. Cube views are for sampling, but for
+		// rendering to individual layers we treat the cubemap as a 6-layer 2D array.
 		VkImageViewCreateInfo view_info = {
 			.sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 			.image      = to->image,
-			.viewType   = is_cubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+			.viewType   = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
 			.format     = skr_tex_fmt_to_native(to->format),
 			.subresourceRange = {
 				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
