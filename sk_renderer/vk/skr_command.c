@@ -484,3 +484,26 @@ void skr_future_wait(const skr_future_t* future) {
 	// Block until fence signals
 	vkWaitForFences(_skr_vk.device, 1, &slot->fence, VK_TRUE, UINT64_MAX);
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// Command Batching API - for grouping multiple GPU operations
+///////////////////////////////////////////////////////////////////////////////
+
+void skr_cmd_begin() {
+	_skr_cmd_acquire();
+}
+
+skr_future_t skr_cmd_end() {
+	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
+	assert(pool && pool->ref_count > 0 && "Unbalanced skr_cmd_begin/end");
+
+	// Capture future before potentially clearing active_cmd
+	skr_future_t future = {
+		.slot       = pool->active_cmd,
+		.generation = pool->active_cmd->generation,
+	};
+
+	_skr_cmd_release(pool->active_cmd->cmd);
+
+	return future;
+}
