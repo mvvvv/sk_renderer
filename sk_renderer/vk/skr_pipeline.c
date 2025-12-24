@@ -192,7 +192,6 @@ int32_t _skr_pipeline_register_material(const _skr_pipeline_material_key_t* key)
 			}
 		} else if (free_slot == -1) {
 			free_slot = i;
-			break;
 		}
 	}
 
@@ -263,7 +262,6 @@ int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* k
 			}
 		} else if (free_slot == -1) {
 			free_slot = i;
-			break;
 		}
 	}
 
@@ -375,7 +373,6 @@ int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
 			}
 		} else if (free_slot == -1) {
 			free_slot = i;
-			break;
 		}
 	}
 
