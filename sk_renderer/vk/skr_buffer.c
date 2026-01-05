@@ -163,7 +163,7 @@ bool skr_buffer_is_valid(const skr_buffer_t* buffer) {
 void skr_buffer_set(skr_buffer_t* ref_buffer, const void* data, uint32_t size_bytes) {
 	if (!ref_buffer || !data) return;
 
-	if (ref_buffer->use == skr_use_dynamic && ref_buffer->mapped) {
+	if ((ref_buffer->use & skr_use_dynamic) && ref_buffer->mapped) {
 		memcpy(ref_buffer->mapped, data, size_bytes < ref_buffer->size ? size_bytes : ref_buffer->size);
 	} else {
 		skr_log(skr_log_critical, "skr_buffer_set only supports dynamic buffers");
@@ -173,7 +173,7 @@ void skr_buffer_set(skr_buffer_t* ref_buffer, const void* data, uint32_t size_by
 void skr_buffer_get(const skr_buffer_t *buffer, void *ref_buffer, uint32_t buffer_size) {
 	if (!buffer || !ref_buffer) return;
 
-	if (buffer->use != skr_use_dynamic) {
+	if (!(buffer->use & skr_use_dynamic)) {
 		skr_log(skr_log_critical, "skr_buffer_get only supports dynamic buffers");
 		return;
 	}
