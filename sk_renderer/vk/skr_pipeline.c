@@ -702,7 +702,7 @@ static VkPipeline _skr_pipeline_create(int32_t material_idx, int32_t renderpass_
 	// Rasterization
 	VkPipelineRasterizationStateCreateInfo rasterizer = {
 		.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-		.depthClampEnable        = VK_FALSE,
+		.depthClampEnable        = mat_key->depth_clamp && _skr_vk.has_depth_clamp ? VK_TRUE : VK_FALSE,
 		.rasterizerDiscardEnable = VK_FALSE,
 		.polygonMode             = VK_POLYGON_MODE_FILL,
 		.cullMode                = _skr_to_vk_cull(mat_key->cull),

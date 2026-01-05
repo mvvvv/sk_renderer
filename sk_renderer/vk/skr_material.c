@@ -223,6 +223,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 		.depth_test        = info.depth_test,
 		.blend_state       = info.blend_state,
 		.alpha_to_coverage = info.alpha_to_coverage,
+		.depth_clamp       = info.depth_clamp,
 		.stencil_front     = info.stencil_front,
 		.stencil_back      = info.stencil_back,
 	};

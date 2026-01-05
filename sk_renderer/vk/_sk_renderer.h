@@ -134,6 +134,7 @@ typedef struct {
 	VkDebugUtilsMessengerEXT debug_messenger;
 	bool                     validation_enabled;
 	bool                     has_push_descriptors;  // VK_KHR_push_descriptor support
+	bool                     has_depth_clamp;       // VkPhysicalDeviceFeatures::depthClamp support
 	bool                     initialized;
 
 	// Memory allocators

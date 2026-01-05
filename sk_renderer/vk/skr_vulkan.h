@@ -144,6 +144,7 @@ typedef struct {
 	skr_compare_         depth_test;
 	skr_blend_state_t    blend_state;
 	bool                 alpha_to_coverage;
+	bool                 depth_clamp;
 	skr_stencil_state_t  stencil_front;
 	skr_stencil_state_t  stencil_back;
 } _skr_pipeline_material_key_t;
