@@ -194,6 +194,11 @@ void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_
 	// Require at least one attachment (color or depth)
 	if (!color && !depth) return;
 
+	// Lock pipeline cache for the duration of this render pass.
+	// This protects all pipeline get operations during drawing.
+	// Unlocked in skr_renderer_end_pass.
+	_skr_pipeline_lock();
+
 	VkCommandBuffer cmd = _skr_cmd_acquire().cmd;
 
 	// Flush all pending texture transitions BEFORE starting render pass
@@ -213,7 +218,7 @@ void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_
 
 	// Get render pass from pipeline system
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(_skr_vk.current_renderpass_idx);
-	if (render_pass == VK_NULL_HANDLE) return;
+	if (render_pass == VK_NULL_HANDLE) { _skr_pipeline_unlock(); return; }
 
 	// Determine which texture to use for framebuffer caching
 	// Priority: resolve target (for MSAA) > color > depth
@@ -227,7 +232,7 @@ void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_
 	// Get or create cached framebuffer
 	VkFramebuffer framebuffer = _skr_get_or_create_framebuffer(_skr_vk.device, fb_cache_target, render_pass, color, depth, opt_resolve, depth != NULL);
 
-	if (framebuffer == VK_NULL_HANDLE) return;
+	if (framebuffer == VK_NULL_HANDLE) { _skr_pipeline_unlock(); return; }
 
 	// Transition depth texture to attachment layout if needed
 	// Automatic system handles the optimization:
@@ -325,6 +330,9 @@ void skr_renderer_end_pass() {
 	_skr_vk.current_color_texture = NULL;
 	_skr_vk.current_depth_texture = NULL;
 	_skr_cmd_release(cmd);
+
+	// Unlock pipeline cache (locked in skr_renderer_begin_pass)
+	_skr_pipeline_unlock();
 }
 
 void skr_renderer_set_global_constants(int32_t bind, const skr_buffer_t* buffer) {
@@ -397,6 +405,9 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	uint32_t width  = bounds_px.w > 0 ? bounds_px.w : to->size.x;
 	uint32_t height = bounds_px.h > 0 ? bounds_px.h : to->size.y;
 
+	// Lock pipeline cache for this blit operation
+	_skr_pipeline_lock();
+
 	// Register render pass format with pipeline system
 	// Use DONT_CARE for full blit (discard previous contents), LOAD for partial (preserve)
 	skr_pipeline_renderpass_key_t rp_key = {
@@ -413,6 +424,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	// Get render pass from pipeline system
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(renderpass_idx);
 	if (render_pass == VK_NULL_HANDLE) {
+		_skr_pipeline_unlock();
 		return;
 	}
 
@@ -567,6 +579,8 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 
 	skr_buffer_destroy(&param_buffer);
 	_skr_cmd_release(ctx.cmd);
+
+	_skr_pipeline_unlock();
 }
 
 void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_t system_data_size, int32_t instance_multiplier) {

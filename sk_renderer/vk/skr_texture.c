@@ -984,6 +984,9 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 		return;
 	}
 
+	// Lock pipeline cache for the duration of this mipmap generation
+	_skr_pipeline_lock();
+
 	// Register render pass format with pipeline system (cached for reuse)
 	VkFormat format = skr_tex_fmt_to_native(ref_tex->format);
 	skr_pipeline_renderpass_key_t rp_key = {
@@ -1000,6 +1003,7 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 	// Get cached render pass
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(renderpass_idx);
 	if (render_pass == VK_NULL_HANDLE) {
+		_skr_pipeline_unlock();
 		skr_material_destroy(&material);
 		return;
 	}
@@ -1008,6 +1012,7 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 	_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
 	if (!ctx.cmd) {
 		skr_log(skr_log_warning, "Failed to acquire command buffer for mipmap generation");
+		_skr_pipeline_unlock();
 		skr_material_destroy(&material);
 		return;
 	}
@@ -1025,6 +1030,7 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 	if (pipeline == VK_NULL_HANDLE) {
 		skr_log(skr_log_warning, "Failed to get pipeline for mipmap generation");
 		_skr_cmd_release(ctx.cmd);
+		_skr_pipeline_unlock();
 		skr_material_destroy(&material);
 		return;
 	}
@@ -1262,6 +1268,7 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 	skr_material_destroy(&material);
 
 	_skr_cmd_release(ctx.cmd);
+	_skr_pipeline_unlock();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
