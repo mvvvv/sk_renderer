@@ -292,7 +292,6 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 
 	// Register material with pipeline system
 	out_material->pipeline_material_idx = _skr_pipeline_register_material(&out_material->key);
-	skr_log(skr_log_info, "Material registered to #%d with %s", out_material->pipeline_material_idx, meta->name);
 
 	if (out_material->pipeline_material_idx < 0) {
 		skr_log(skr_log_critical, "Failed to register material with pipeline system");
