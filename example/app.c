@@ -146,15 +146,15 @@ app_t* app_create(int32_t start_scene) {
 	app->offscreen_format = skr_tex_fmt_rgba32_srgb;//skr_tex_fmt_bgra32_srgb;
 
 	// Choose depth format (prefer smaller/faster formats with stencil for stencil masking demo)
-	if (skr_tex_fmt_is_supported(skr_tex_fmt_depth16s8)) {
+	if (skr_tex_fmt_is_supported(skr_tex_fmt_depth16s8, skr_tex_flags_writeable, app->msaa)) {
 		app->depth_format = skr_tex_fmt_depth16s8;
-	} else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth24s8)) {
+	} else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth24s8, skr_tex_flags_writeable, app->msaa)) {
 		app->depth_format = skr_tex_fmt_depth24s8;
-	} else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth32s8)) {
+	} else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth32s8, skr_tex_flags_writeable, app->msaa)) {
 		app->depth_format = skr_tex_fmt_depth32s8;
-	}else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth16)) {
+	} else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth16, skr_tex_flags_writeable, app->msaa)) {
 		app->depth_format = skr_tex_fmt_depth16;
-	}  else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth32)) {
+	} else if (skr_tex_fmt_is_supported(skr_tex_fmt_depth32, skr_tex_flags_writeable, app->msaa)) {
 		app->depth_format = skr_tex_fmt_depth32;
 	} else {
 		su_log(su_log_critical, "No supported depth format found!");
