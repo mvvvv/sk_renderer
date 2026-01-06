@@ -662,39 +662,6 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		.flags         = (out_tex->flags & skr_tex_flags_cubemap) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
 	};
 
-	// Check if MSAA depth format is supported, try fallbacks if not
-	if (is_msaa_depth) {
-		VkImageFormatProperties format_props;
-		VkResult check = vkGetPhysicalDeviceImageFormatProperties(
-			_skr_vk.physical_device, vk_format, image_type, VK_IMAGE_TILING_OPTIMAL, usage, 0, &format_props);
-		
-		if (check != VK_SUCCESS || !(format_props.sampleCounts & out_tex->samples)) {
-			skr_tex_fmt_ fallbacks[] = { skr_tex_fmt_depth32, skr_tex_fmt_depth24s8, skr_tex_fmt_depth16 };
-			bool found = false;
-			
-			for (int i = 0; i < 3; i++) {
-				if (fallbacks[i] == format) continue;
-				VkFormat fallback_fmt = skr_tex_fmt_to_native(fallbacks[i]);
-				check = vkGetPhysicalDeviceImageFormatProperties(
-					_skr_vk.physical_device, fallback_fmt, image_type, VK_IMAGE_TILING_OPTIMAL, usage, 0, &format_props);
-				
-				if (check == VK_SUCCESS && (format_props.sampleCounts & out_tex->samples)) {
-					format = fallbacks[i];
-					vk_format = fallback_fmt;
-					out_tex->format = format;
-					image_info.format = vk_format;
-					found = true;
-					break;
-				}
-			}
-			
-			if (!found) {
-				skr_log(skr_log_critical, "No supported MSAA depth format found");
-				return skr_err_unsupported;
-			}
-		}
-	}
-
 	VkResult vr = vkCreateImage(_skr_vk.device, &image_info, NULL, &out_tex->image);
 	if (vr != VK_SUCCESS) {
 		skr_log(skr_log_critical, "vkCreateImage failed");
@@ -1433,17 +1400,60 @@ void _skr_sampler_cache_release(skr_tex_sampler_t settings) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool skr_tex_fmt_is_supported(skr_tex_fmt_ format) {
+bool skr_tex_fmt_is_supported(skr_tex_fmt_ format, skr_tex_flags_ flags, int32_t multisample) {
 	VkFormat vk_format = skr_tex_fmt_to_native(format);
 	if (vk_format == VK_FORMAT_UNDEFINED) {
 		return false;
 	}
 
-	VkFormatProperties props;
-	vkGetPhysicalDeviceFormatProperties(_skr_vk.physical_device, vk_format, &props);
+	// Check if this is a depth format
+	bool is_depth = (
+		format == skr_tex_fmt_depth16 ||
+		format == skr_tex_fmt_depth32 ||
+		format == skr_tex_fmt_depth32s8 ||
+		format == skr_tex_fmt_depth24s8 ||
+		format == skr_tex_fmt_depth16s8);
 
-	// Check if format supports either optimal tiling (for sampling/rendering) or linear tiling
-	return (props.optimalTilingFeatures != 0) || (props.linearTilingFeatures != 0);
+	// Build usage flags based on tex_flags
+	VkImageUsageFlags usage = 0;
+
+	if (flags & skr_tex_flags_writeable) {
+		if (is_depth) { usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT; } 
+		else          { usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; }
+	}
+	if (flags & skr_tex_flags_readable) { usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT; }
+	if (flags & skr_tex_flags_dynamic)  { usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT; }
+	if (flags & skr_tex_flags_compute)  { usage |= VK_IMAGE_USAGE_STORAGE_BIT; }
+
+	// Default: sampled texture
+	if (usage == 0 || !(flags & skr_tex_flags_writeable)) {
+		// For MSAA depth textures, don't add SAMPLED_BIT as it's often not supported
+		bool is_msaa_depth = (multisample > 1) && is_depth;
+		if (!is_msaa_depth) { usage |= VK_IMAGE_USAGE_SAMPLED_BIT; }
+	}
+
+	VkSampleCountFlagBits samples = (multisample > 1) ? (VkSampleCountFlagBits)multisample : VK_SAMPLE_COUNT_1_BIT;
+
+	VkImageFormatProperties format_props;
+	VkResult result = vkGetPhysicalDeviceImageFormatProperties(
+		_skr_vk.physical_device,
+		vk_format,
+		VK_IMAGE_TYPE_2D,
+		VK_IMAGE_TILING_OPTIMAL,
+		usage,
+		0,
+		&format_props);
+
+	if (result != VK_SUCCESS) {
+		return false;
+	}
+
+	// Check if requested sample count is supported
+	if (multisample > 1 && !(format_props.sampleCounts & samples)) {
+		return false;
+	}
+
+	return true;
 }
 
 void skr_tex_fmt_block_info(skr_tex_fmt_ format, uint32_t* opt_out_block_width, uint32_t* opt_out_block_height, uint32_t* opt_out_bytes_per_block) {
