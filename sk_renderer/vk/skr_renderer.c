@@ -699,18 +699,32 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 
 		// Material texture and buffer binds (using inlined bind_start/bind_count)
 		_skr_bind_pool_lock();
-		int32_t fail_idx = _skr_material_add_writes(_skr_bind_pool_get(item->bind_start), item->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
+		const skr_material_bind_t* binds = _skr_bind_pool_get(item->bind_start);
+		int32_t fail_idx = _skr_material_add_writes(binds, item->bind_count, ignore_slots, sizeof(ignore_slots)/sizeof(ignore_slots[0]),
 			writes,       sizeof(writes      )/sizeof(writes      [0]),
 			buffer_infos, sizeof(buffer_infos)/sizeof(buffer_infos[0]),
 			image_infos,  sizeof(image_infos )/sizeof(image_infos [0]),
 			&write_ct, &buffer_ct, &image_ct);
-		_skr_bind_pool_unlock();
 
 		if (fail_idx >= 0) {
-			skr_log(skr_log_critical, "Draw missing binding at index %d", fail_idx);
+			int32_t       slot = binds[fail_idx].bind.slot;
+			skr_register_ type = (skr_register_)binds[fail_idx].bind.register_type;
+			char          reg_char;
+			int32_t       reg_num;
+			switch (type) {
+			case skr_register_constant:      reg_char = 'b'; reg_num = slot - SKR_BIND_SHIFT_BUFFER;  break;
+			case skr_register_texture:
+			case skr_register_read_buffer:   reg_char = 't'; reg_num = slot - SKR_BIND_SHIFT_TEXTURE; break;
+			case skr_register_readwrite:
+			case skr_register_readwrite_tex: reg_char = 'u'; reg_num = slot - SKR_BIND_SHIFT_UAV;     break;
+			default:                         reg_char = '?'; reg_num = slot;                          break;
+			}
+			skr_log(skr_log_critical, "Draw call missing binding for register(%c%d)", reg_char, reg_num);
+			_skr_bind_pool_unlock();
 			i += batch_count;
 			continue;
 		}
+		_skr_bind_pool_unlock();
 
 		// Push all descriptors at once (using inlined pipeline_material_idx)
 		_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_GRAPHICS,
