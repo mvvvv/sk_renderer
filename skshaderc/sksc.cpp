@@ -83,6 +83,13 @@ bool sksc_compile(const char *filename, const char *hlsl_text, sksc_settings_t *
 		return false;
 	}
 
+	const char *dup_name1, *dup_name2;
+	uint32_t    dup_slot;
+	if (!sksc_meta_check_dup_resources(out_file->meta, &dup_name1, &dup_name2, &dup_slot)) {
+		sksc_log(sksc_log_level_err, "Resources '%s' and '%s' are both bound to the same slot (t%u)", dup_name1, dup_name2, dup_slot);
+		return false;
+	}
+
 	return true;
 }
 
