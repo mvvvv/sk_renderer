@@ -379,10 +379,10 @@ void skr_compute_execute(skr_compute_t* ref_compute, uint32_t x, uint32_t y, uin
 	vkCmdDispatch(cmd, x, y, z);
 
 	// Add memory barrier for storage resources to ensure writes are visible to next operation
-	// This now includes both compute→compute and compute→fragment transitions
+	// This includes compute→compute, compute→vertex, and compute→fragment transitions
 	vkCmdPipelineBarrier(cmd,
 		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,  // Fixed: include fragment shader
+		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 		0, 1, &(VkMemoryBarrier){
 			.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
 			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
