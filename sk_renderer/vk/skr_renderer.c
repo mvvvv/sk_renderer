@@ -47,24 +47,6 @@ static VkFramebuffer _skr_get_or_create_framebuffer(VkDevice device, skr_tex_t* 
 	return *cached_fb;
 }
 
-static void _skr_ensure_buffer(skr_buffer_t* ref_buffer, bool* ref_valid, const void* data, uint32_t size, skr_buffer_type_ type, const char* name) {
-	bool needs_recreate = !*ref_valid || ref_buffer->size < size;
-
-	if (needs_recreate) {
-		// Destroy old buffer if it exists
-		if (*ref_valid) {
-			skr_buffer_destroy(ref_buffer);
-		}
-		// Create new buffer with required size
-		skr_buffer_create(data, size, 1, type, skr_use_dynamic, ref_buffer);
-		skr_buffer_set_name(ref_buffer, name);
-		*ref_valid = true;
-	} else {
-		// Buffer is valid and large enough, just update contents
-		skr_buffer_set(ref_buffer, data, size);
-	}
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 // Deferred Texture Transition System
 ///////////////////////////////////////////////////////////////////////////////
@@ -438,21 +420,23 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	uint32_t buffer_ct = 0;
 	uint32_t image_ct  = 0;
 
-	skr_buffer_t param_buffer = {0};
+	skr_bump_result_t param_bump = {0};
 	if (material->param_buffer_size > 0) {
-		skr_buffer_create(material->param_buffer, 1, material->param_buffer_size, skr_buffer_type_constant, skr_use_dynamic, &param_buffer);
-
-		buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
-			.buffer = param_buffer.buffer,
-			.range  = param_buffer.size,
-		};
-		writes[write_ct++] = (VkWriteDescriptorSet){
-			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.dstBinding      = SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,
-			.descriptorCount = 1,
-			.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.pBufferInfo     = &buffer_infos[buffer_ct++],
-		};
+		param_bump = _skr_bump_alloc_write(ctx.const_bump, material->param_buffer, material->param_buffer_size);
+		if (param_bump.buffer) {
+			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
+				.buffer = param_bump.buffer->buffer,
+				.offset = param_bump.offset,
+				.range  = material->param_buffer_size,
+			};
+			writes[write_ct++] = (VkWriteDescriptorSet){
+				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstBinding      = SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,
+				.descriptorCount = 1,
+				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.pBufferInfo     = &buffer_infos[buffer_ct++],
+			};
+		}
 	}
 
 	// Material texture and buffer binds
@@ -577,7 +561,6 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 	// Automatic system tracks that it's currently in COLOR_ATTACHMENT_OPTIMAL
 	_skr_tex_transition_for_shader_read(ctx.cmd, to, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	skr_buffer_destroy(&param_buffer);
 	_skr_cmd_release(ctx.cmd);
 
 	_skr_pipeline_unlock();
@@ -593,10 +576,20 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 	_skr_render_list_sort(list);
 	// Material param data is already copied at add-time into list->material_data
 
-	// Upload data to our material and instance buffers
-	if (system_data && system_data_size > 0) _skr_ensure_buffer(&list->system_buffer,         &list->system_buffer_valid,         system_data,         system_data_size,         skr_buffer_type_constant, "system_buffer");
-	if (list->material_data_used        > 0) _skr_ensure_buffer(&list->material_param_buffer, &list->material_param_buffer_valid, list->material_data, list->material_data_used, skr_buffer_type_constant, "renderlist_material_params");
-	if (list->instance_data_used        > 0) _skr_ensure_buffer(&list->instance_buffer,       &list->instance_buffer_valid,       list->instance_data, list->instance_data_used, skr_buffer_type_storage,  "renderlist_inst_data");
+	// Upload data to bump allocators from command context
+	skr_bump_result_t system_bump   = {0};
+	skr_bump_result_t material_bump = {0};
+	skr_bump_result_t instance_bump = {0};
+
+	if (system_data && system_data_size > 0) {
+		system_bump = _skr_bump_alloc_write(ctx.const_bump, system_data, system_data_size);
+	}
+	if (list->material_data_used > 0) {
+		material_bump = _skr_bump_alloc_write(ctx.const_bump, list->material_data, list->material_data_used);
+	}
+	if (list->instance_data_used > 0) {
+		instance_bump = _skr_bump_alloc_write(ctx.storage_bump, list->instance_data, list->instance_data_used);
+	}
 
 	// Draw items with batching
 	VkPipeline bound_pipeline = VK_NULL_HANDLE;
@@ -642,10 +635,10 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		uint32_t image_ct  = 0;
 
 		// Material parameter buffer (using inlined param_buffer_size and param_data_offset)
-		if (item->param_buffer_size > 0) {
+		if (item->param_buffer_size > 0 && material_bump.buffer) {
 			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
-				.buffer = list->material_param_buffer.buffer,
-				.offset = item->param_data_offset,
+				.buffer = material_bump.buffer->buffer,
+				.offset = material_bump.offset + item->param_data_offset,
 				.range  = item->param_buffer_size,
 			};
 			writes[write_ct++] = (VkWriteDescriptorSet){
@@ -658,10 +651,11 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		}
 
 		// System data buffer (using inlined has_system_buffer)
-		if (item->has_system_buffer) {
+		if (item->has_system_buffer && system_bump.buffer) {
 			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
-				.buffer = list->system_buffer.buffer,
-				.range  = list->system_buffer.size,
+				.buffer = system_bump.buffer->buffer,
+				.offset = system_bump.offset,
+				.range  = system_data_size,
 			};
 			writes[write_ct++] = (VkWriteDescriptorSet){
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -673,14 +667,14 @@ void skr_renderer_draw(skr_render_list_t* list, const void* system_data, uint32_
 		}
 
 		// Instance data buffer (using inlined instance_buffer_stride)
-		if (item->instance_buffer_stride > 0) {
+		if (item->instance_buffer_stride > 0 && instance_bump.buffer) {
 			if (item->instance_data_size != item->instance_buffer_stride) {
 				skr_log(skr_log_warning, "Instance data size mismatch: shader expects %u bytes, got %u bytes",
 					item->instance_buffer_stride, item->instance_data_size);
 			}
 			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
-				.buffer = list->instance_buffer.buffer,
-				.offset = item->instance_offset,
+				.buffer = instance_bump.buffer->buffer,
+				.offset = instance_bump.offset + item->instance_offset,
 				.range  = total_inst_data,
 			};
 			writes[write_ct++] = (VkWriteDescriptorSet){
@@ -790,24 +784,24 @@ void skr_renderer_draw_mesh_immediate(skr_mesh_t* mesh, skr_material_t* material
 	uint32_t buffer_ct = 0;
 	uint32_t image_ct  = 0;
 
-	// Create temporary material parameter buffer if needed
-	skr_buffer_t temp_material_buffer = {0};
-	bool temp_buffer_valid = false;
+	// Upload material parameters to bump allocator if needed
+	skr_bump_result_t material_bump = {0};
 	if (material->param_buffer_size > 0) {
-		_skr_ensure_buffer(&temp_material_buffer, &temp_buffer_valid, material->param_buffer,
-		                   material->param_buffer_size, skr_buffer_type_constant, "immediate_material_params");
-		buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
-			.buffer = temp_material_buffer.buffer,
-			.offset = 0,
-			.range  = material->param_buffer_size,
-		};
-		writes[write_ct++] = (VkWriteDescriptorSet){
-			.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.dstBinding      = SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,
-			.descriptorCount = 1,
-			.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.pBufferInfo     = &buffer_infos[buffer_ct++],
-		};
+		material_bump = _skr_bump_alloc_write(ctx.const_bump, material->param_buffer, material->param_buffer_size);
+		if (material_bump.buffer) {
+			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
+				.buffer = material_bump.buffer->buffer,
+				.offset = material_bump.offset,
+				.range  = material->param_buffer_size,
+			};
+			writes[write_ct++] = (VkWriteDescriptorSet){
+				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstBinding      = SKR_BIND_SHIFT_BUFFER + _skr_vk.bind_settings.material_slot,
+				.descriptorCount = 1,
+				.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+				.pBufferInfo     = &buffer_infos[buffer_ct++],
+			};
+		}
 	}
 
 	// No system buffer or instance buffer for immediate draws
@@ -865,12 +859,6 @@ void skr_renderer_draw_mesh_immediate(skr_mesh_t* mesh, skr_material_t* material
 		vkCmdDrawIndexed(cmd, draw_index_count, instance_count, first_index, vertex_offset, 0);
 	} else {
 		vkCmdDraw(cmd, mesh->vert_count, instance_count, 0, 0);
-	}
-
-	// Clean up temporary material buffer (deferred to command completion)
-	if (material->param_buffer_size > 0) {
-		_skr_cmd_destroy_buffer(ctx.destroy_list, temp_material_buffer.buffer);
-		_skr_cmd_destroy_memory(ctx.destroy_list, temp_material_buffer.memory);
 	}
 
 	_skr_cmd_release(cmd);

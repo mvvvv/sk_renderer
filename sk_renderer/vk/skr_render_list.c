@@ -38,26 +38,12 @@ skr_err_ skr_render_list_create(skr_render_list_t* out_list) {
 		return skr_err_out_of_memory;
 	}
 
-	// Buffers will be lazily created in skr_renderer_draw() when needed
-	out_list->system_buffer_valid = false;
-	out_list->instance_buffer_valid = false;
-	out_list->material_param_buffer_valid = false;
-
 	return skr_err_success;
 }
 
 void skr_render_list_destroy(skr_render_list_t* ref_list) {
 	if (!ref_list) return;
 
-	if (ref_list->instance_buffer_valid) {
-		skr_buffer_destroy(&ref_list->instance_buffer);
-	}
-	if (ref_list->material_param_buffer_valid) {
-		skr_buffer_destroy(&ref_list->material_param_buffer);
-	}
-	if (ref_list->system_buffer_valid) {
-		skr_buffer_destroy(&ref_list->system_buffer);
-	}
 	_skr_free(ref_list->instance_data);
 	_skr_free(ref_list->instance_data_sorted);
 	_skr_free(ref_list->material_data);

@@ -133,6 +133,8 @@ typedef struct  {
 		skr_buffer_t* buffer;
 	};
 	skr_bind_t bind;
+	uint32_t   buffer_offset; // Offset within buffer (for bump-allocated buffers)
+	uint32_t   buffer_range;  // Range to bind (0 = use buffer->size)
 } skr_material_bind_t;
 
 // Internal key struct for pipeline-affecting material parameters only.
@@ -164,6 +166,13 @@ typedef struct skr_material_t {
 	uint32_t               instance_buffer_stride; // Element size of instance buffer (0 = no instance buffer)
 } skr_material_t;
 
+// Pooled GPU buffer with future for tracking completion
+typedef struct skr_param_buffer_slot_t {
+	skr_buffer_t buffer;
+	skr_future_t future;
+	uint64_t     hash;  // Content hash for reuse matching
+} skr_param_buffer_slot_t;
+
 typedef struct skr_compute_t {
 	const skr_shader_t*    shader;  // Reference to shader (not owned)
 	VkPipelineLayout       layout;
@@ -173,9 +182,9 @@ typedef struct skr_compute_t {
 	skr_material_bind_t*   binds;
 	uint32_t               bind_count;
 
+	// CPU-side parameter staging
 	void*                  param_buffer;
 	uint32_t               param_buffer_size;
-	skr_buffer_t           param_gpu_buffer;
 	bool                   param_dirty;
 } skr_compute_t;
 
@@ -224,12 +233,5 @@ typedef struct skr_render_list_t {
 	uint8_t*           material_data;
 	uint32_t           material_data_used;
 	uint32_t           material_data_capacity;
-	// GPU buffers (uploaded once per frame)
-	skr_buffer_t       instance_buffer;
-	bool               instance_buffer_valid;
-	skr_buffer_t       material_param_buffer;
-	bool               material_param_buffer_valid;
-	skr_buffer_t       system_buffer;
-	bool               system_buffer_valid;
 	bool               needs_sort;  // Dirty flag for sorting
 } skr_render_list_t;

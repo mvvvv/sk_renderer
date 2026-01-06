@@ -521,13 +521,20 @@ int32_t _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind
 		case skr_register_constant: { // cbuffer, (b in HLSL)
 			if (*ref_write_ct >= write_max || *ref_buffer_ct >= buffer_max) continue;
 
-			skr_buffer_t* buffer = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_BUFFER];
-			if (!buffer)  buffer = binds[i].buffer;
+			skr_buffer_t* buffer  = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_BUFFER];
+			uint32_t      offset  = 0;
+			uint32_t      range   = 0;
+			if (!buffer) {
+				buffer = binds[i].buffer;
+				offset = binds[i].buffer_offset;
+				range  = binds[i].buffer_range;
+			}
 			if (!buffer) return (int32_t)i;
 
 			ref_buffer_infos[*ref_buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = buffer->buffer,
-				.range  = buffer->size,
+				.offset = offset,
+				.range  = range > 0 ? range : buffer->size,
 			};
 			ref_writes[*ref_write_ct] = (VkWriteDescriptorSet){
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -542,13 +549,20 @@ int32_t _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind
 		case skr_register_read_buffer: { // StructuredBuffer, (t in HLSL)
 			if (*ref_write_ct >= write_max || *ref_buffer_ct >= buffer_max) continue;
 
-			skr_buffer_t* buffer = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_TEXTURE];
-			if (!buffer)  buffer = binds[i].buffer;
+			skr_buffer_t* buffer  = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_TEXTURE];
+			uint32_t      offset  = 0;
+			uint32_t      range   = 0;
+			if (!buffer) {
+				buffer = binds[i].buffer;
+				offset = binds[i].buffer_offset;
+				range  = binds[i].buffer_range;
+			}
 			if (!buffer) return (int32_t)i;
 
 			ref_buffer_infos[*ref_buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = buffer->buffer,
-				.range  = buffer->size,
+				.offset = offset,
+				.range  = range > 0 ? range : buffer->size,
 			};
 			ref_writes[*ref_write_ct] = (VkWriteDescriptorSet){
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -587,13 +601,20 @@ int32_t _skr_material_add_writes(const skr_material_bind_t* binds, uint32_t bind
 		case skr_register_readwrite: { // RWStructuredBuffer (u in HLSL)
 			if (*ref_write_ct >= write_max || *ref_buffer_ct >= buffer_max) continue;
 
-			skr_buffer_t* buffer = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_UAV];
-			if (!buffer)  buffer = binds[i].buffer;
+			skr_buffer_t* buffer  = _skr_vk.global_buffers[slot-SKR_BIND_SHIFT_UAV];
+			uint32_t      offset  = 0;
+			uint32_t      range   = 0;
+			if (!buffer) {
+				buffer = binds[i].buffer;
+				offset = binds[i].buffer_offset;
+				range  = binds[i].buffer_range;
+			}
 			if (!buffer) return (int32_t)i;
 
 			ref_buffer_infos[*ref_buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = buffer->buffer,
-				.range  = buffer->size,
+				.offset = offset,
+				.range  = range > 0 ? range : buffer->size,
 			};
 			ref_writes[*ref_write_ct] = (VkWriteDescriptorSet){
 				.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,

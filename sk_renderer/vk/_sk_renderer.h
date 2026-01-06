@@ -84,11 +84,45 @@ typedef struct {
 	mtx_t                mutex;
 } _skr_bind_pool_t;
 
+///////////////////////////////////////////////////////////////////////////////
+// Bump Allocator - provides (buffer, offset) pairs with overflow support
+///////////////////////////////////////////////////////////////////////////////
+
+// Result of a bump allocation
+typedef struct skr_bump_result_t {
+	skr_buffer_t* buffer;
+	uint32_t      offset;
+} skr_bump_result_t;
+
+// Bump allocator with automatic overflow handling
+typedef struct skr_bump_alloc_t {
+	// Main buffer (resized between frames based on high-water mark)
+	skr_buffer_t     main_buffer;
+	uint32_t         main_used;
+	bool             main_valid;
+
+	// Overflow buffers (created mid-frame if main is exhausted)
+	skr_buffer_t*    overflow;
+	uint32_t         overflow_count;
+	uint32_t         overflow_capacity;
+
+	// High-water mark for next-frame sizing
+	uint32_t         high_water_mark;
+
+	// Configuration
+	skr_buffer_type_ buffer_type;
+	uint32_t         alignment;  // Minimum alignment for allocations (e.g., 256 for UBOs)
+} skr_bump_alloc_t;
+
+///////////////////////////////////////////////////////////////////////////////
+
 typedef struct {
 	VkCommandBuffer    cmd;
 	VkFence            fence;
 	VkDescriptorPool   descriptor_pool;  // Per-command descriptor pool (for non-push-descriptor fallback)
 	skr_destroy_list_t destroy_list;
+	skr_bump_alloc_t   const_bump;       // Bump allocator for constant buffers (compute $Globals, system, material params)
+	skr_bump_alloc_t   storage_bump;     // Bump allocator for storage buffers (instance data)
 	bool               alive;
 	uint64_t           generation;  // Incremented each time this slot is reused
 } _skr_cmd_ring_slot_t;
@@ -98,6 +132,8 @@ typedef struct {
 	VkCommandBuffer     cmd;
 	VkDescriptorPool    descriptor_pool;  // Per-command descriptor pool (VK_NULL_HANDLE if push descriptors enabled)
 	skr_destroy_list_t* destroy_list;
+	skr_bump_alloc_t*   const_bump;       // Bump allocator for constant buffers
+	skr_bump_alloc_t*   storage_bump;     // Bump allocator for storage buffers
 } _skr_cmd_ctx_t;
 
 typedef struct {
@@ -222,6 +258,12 @@ void                  _skr_sampler_cache_init               (void);
 void                  _skr_sampler_cache_shutdown           (void);
 VkSampler             _skr_sampler_cache_acquire            (skr_tex_sampler_t settings);  // Get or create sampler, increment ref
 void                  _skr_sampler_cache_release            (skr_tex_sampler_t settings);  // Decrement ref, destroy if zero
+
+// Bump allocator management
+void                  _skr_bump_alloc_init                  (skr_bump_alloc_t* ref_alloc, skr_buffer_type_ type, uint32_t alignment);
+void                  _skr_bump_alloc_destroy               (skr_bump_alloc_t* ref_alloc);
+void                  _skr_bump_alloc_reset                 (skr_bump_alloc_t* ref_alloc);  // Call at frame start: resize main buffer, clean overflow
+skr_bump_result_t     _skr_bump_alloc_write                 (skr_bump_alloc_t* ref_alloc, const void* data, uint32_t size);  // Allocate + write, returns buffer+offset
 
 // Render list sorting
 void                  _skr_render_list_sort                 (skr_render_list_t* ref_list);
