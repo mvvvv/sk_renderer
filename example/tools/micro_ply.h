@@ -231,7 +231,11 @@ bool ply_read(const void *file_data, size_t data_size, ply_file_t *out_file) {
 	// Parse the data
 	for (int32_t i = 0; i < out_file->count; i++) {
 		ply_element_t *el = &out_file->elements[i];
-		el->data = malloc(el->data_stride*el->count);
+		el->data = malloc((size_t)el->data_stride * (size_t)el->count);
+		if (el->data == NULL) {
+			ply_free(out_file);
+			return false;
+		}
 		uint8_t *data = (uint8_t*)el->data;
 
 		// If it's a list type
@@ -347,7 +351,12 @@ void ply_convert(const ply_file_t *file, const char *element_name, const ply_map
 		}
 
 		// Now convert and copy each item
-		*out_data  = malloc(elements->count * format_stride);
+		// Use size_t to avoid integer overflow for large files (>7M vertices)
+		*out_data  = malloc((size_t)elements->count * (size_t)format_stride);
+		if (*out_data == NULL) {
+			free(map);
+			return;
+		}
 		*out_count = elements->count;
 		uint8_t *src  = (uint8_t*)elements->data;
 		uint8_t *dest = (uint8_t*)*out_data;
@@ -383,7 +392,10 @@ void ply_convert(const ply_file_t *file, const char *element_name, const ply_map
 			src   += src_size;
 		}
 
-		*out_data  = malloc(count * format_stride);
+		*out_data  = malloc((size_t)count * (size_t)format_stride);
+		if (*out_data == NULL) {
+			return;
+		}
 		*out_count = count;
 		src              = (uint8_t*)elements->data;
 		uint8_t *src_ind = (uint8_t*)elements->list_data;
