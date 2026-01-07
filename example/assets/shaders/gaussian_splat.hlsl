@@ -133,9 +133,11 @@ static const float SH_C3_5 = 1.445305721320277f;
 static const float SH_C3_6 = -0.5900435899266435f;
 
 // Evaluate spherical harmonics for a given direction
+// Note: sh_dc is already preprocessed at load time as (f_dc * SH_C0 + 0.5)
+// So DC term is used directly, higher orders add to it
 float3 eval_sh(GaussianSplat splat, float3 dir) {
-	// Start with DC term (order 0)
-	float3 result = SH_C0 * splat.sh_dc;
+	// Start with preprocessed DC term (already has SH_C0 * f_dc + 0.5 applied)
+	float3 result = splat.sh_dc;
 
 	if (sh_degree < 1) return result;
 
@@ -338,8 +340,13 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	output.uv = quad_offset_pixels;
 
 	// Compute color from spherical harmonics
+	// Negate direction to match 3DGS convention (affects odd SH bands 1 and 3)
 	float3 view_dir = normalize(cam_pos[view_idx].xyz - splat.position);
-	output.color = max(eval_sh(splat, view_dir) + 0.5f, 0.0f);
+	// DC is preprocessed with +0.5, so no additional offset needed
+	// Use max(0) like Aras to clamp negative values only (allows HDR)
+	float3 sh_color = max(0.0f, eval_sh(splat, view_dir));
+
+	output.color = sh_color;
 
 	// Sigmoid activation for opacity
 	output.opacity = 1.0f / (1.0f + exp(-splat.opacity)) * opacity_scale;
@@ -361,6 +368,7 @@ float4 ps(psIn input) : SV_TARGET {
 	float alpha = min(0.99f, input.opacity * exp(power));
 	if (alpha < 1.0f / 255.0f) discard;
 
-	float3 color_srgb = pow(input.color, 2.2f);
-	return float4(color_srgb * alpha, alpha);
+	// Colors are already in linear space (converted at load time)
+	// sRGB framebuffer will convert to sRGB for correct display
+	return float4(input.color * alpha, alpha);
 }

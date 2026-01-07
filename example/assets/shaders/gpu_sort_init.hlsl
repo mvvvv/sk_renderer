@@ -72,9 +72,9 @@ void cs(uint3 dtid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID, uint3 g
             float3 pos = float3(splats[idx].pos_x, splats[idx].pos_y, splats[idx].pos_z);
             float depth = ComputeDepth(pos);
 
-            // Negate depth so larger distances sort first (back-to-front)
+            // Front-to-back sorting (smaller distances first) for "under" operator
             // Use sortable uint for correct radix sort ordering
-            b_sort[idx] = FloatToSortableUint(-depth);
+            b_sort[idx] = FloatToSortableUint(depth);
             b_sortPayload[idx] = idx;
         }
     }

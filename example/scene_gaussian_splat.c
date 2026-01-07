@@ -208,11 +208,25 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 	}
 
 	// Define the mapping from PLY properties to unpacked splat structure
-	float zero = 0.0f;
-	float one  = 1.0f;
+	// Build a single map with all properties (14 basic + 45 f_rest) for one ply_convert call
+	static float zero = 0.0f;
+	static float one  = 1.0f;
 
-	// Position and basic properties
-	ply_map_t map_basic[] = {
+	// Property name storage for f_rest_* (need stable pointers for ply_map_t)
+	static char f_rest_names[45][16];
+	static bool names_initialized = false;
+	if (!names_initialized) {
+		for (int32_t i = 0; i < 45; i++) {
+			snprintf(f_rest_names[i], sizeof(f_rest_names[i]), "f_rest_%d", i);
+		}
+		names_initialized = true;
+	}
+
+	// Build complete property map: 14 basic properties + 45 f_rest properties
+	// f_rest reorganization: PLY has f_rest_0..14 (R), f_rest_15..29 (G), f_rest_30..44 (B)
+	// We need: sh_rest[i] = {f_rest_i, f_rest_{i+15}, f_rest_{i+30}} for i=0..14
+	ply_map_t ply_map[14 + 45] = {
+		// Basic properties (14)
 		{ PLY_PROP_POSITION_X, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, position) + 0,  &zero },
 		{ PLY_PROP_POSITION_Y, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, position) + 4,  &zero },
 		{ PLY_PROP_POSITION_Z, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, position) + 8,  &zero },
@@ -229,59 +243,24 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 		{ "rot_3",             ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, rotation) + 12, &zero },
 	};
 
-	// Convert basic properties
+	// Add f_rest properties (45 total, reorganized into 15 float4s)
+	// sh_rest[i].x = f_rest_i, sh_rest[i].y = f_rest_{i+15}, sh_rest[i].z = f_rest_{i+30}
+	for (int32_t i = 0; i < 15; i++) {
+		uint16_t base_offset = offsetof(gaussian_splat_unpacked_t, sh_rest) + i * 16;
+		ply_map[14 + i*3 + 0] = (ply_map_t){ f_rest_names[i],      ply_prop_decimal, sizeof(float), base_offset + 0, &zero };
+		ply_map[14 + i*3 + 1] = (ply_map_t){ f_rest_names[i + 15], ply_prop_decimal, sizeof(float), base_offset + 4, &zero };
+		ply_map[14 + i*3 + 2] = (ply_map_t){ f_rest_names[i + 30], ply_prop_decimal, sizeof(float), base_offset + 8, &zero };
+	}
+
+	// Single ply_convert call for all properties
 	void*   out_data  = NULL;
 	int32_t out_count = 0;
-	ply_convert(&ply, PLY_ELEMENT_VERTICES, map_basic, sizeof(map_basic) / sizeof(ply_map_t),
+	ply_convert(&ply, PLY_ELEMENT_VERTICES, ply_map, 14 + 45,
 	            sizeof(gaussian_splat_unpacked_t), &out_data, &out_count);
 
 	if (out_data && out_count > 0) {
-		memcpy(splats_unpacked, out_data, out_count * sizeof(gaussian_splat_unpacked_t));
+		memcpy(splats_unpacked, out_data, (size_t)out_count * sizeof(gaussian_splat_unpacked_t));
 		free(out_data);
-	}
-
-	// Now load the SH rest coefficients (f_rest_0 to f_rest_44)
-	// These are stored as 45 floats, but we want to reorganize them into 15 float3s
-	// PLY order: f_rest_0..14 (SH order 1,2,3 for R), f_rest_15..29 (G), f_rest_30..44 (B)
-	// We need: sh_rest[0] = {f_rest_0, f_rest_15, f_rest_30}, etc.
-
-	// Find the vertex element
-	ply_element_t* vert_elem = NULL;
-	for (int32_t i = 0; i < ply.count; i++) {
-		if (strcmp(ply.elements[i].name, PLY_ELEMENT_VERTICES) == 0) {
-			vert_elem = &ply.elements[i];
-			break;
-		}
-	}
-
-	if (vert_elem) {
-		// Load f_rest coefficients one by one
-		for (int32_t sh_idx = 0; sh_idx < 15; sh_idx++) {
-			char name_r[16], name_g[16], name_b[16];
-			snprintf(name_r, sizeof(name_r), "f_rest_%d", sh_idx);
-			snprintf(name_g, sizeof(name_g), "f_rest_%d", sh_idx + 15);
-			snprintf(name_b, sizeof(name_b), "f_rest_%d", sh_idx + 30);
-
-			// sh_rest is float4[15] to match HLSL alignment (float3 arrays pad to 16 bytes/element)
-			ply_map_t map_sh[] = {
-				{ name_r, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, sh_rest) + sh_idx * 16 + 0, &zero },
-				{ name_g, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, sh_rest) + sh_idx * 16 + 4, &zero },
-				{ name_b, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, sh_rest) + sh_idx * 16 + 8, &zero },
-			};
-
-			void*   sh_data  = NULL;
-			int32_t sh_count = 0;
-			ply_convert(&ply, PLY_ELEMENT_VERTICES, map_sh, 3, sizeof(gaussian_splat_unpacked_t), &sh_data, &sh_count);
-
-			if (sh_data && sh_count > 0) {
-				// Copy just the sh_rest data
-				for (int32_t v = 0; v < sh_count && v < vertex_count; v++) {
-					gaussian_splat_unpacked_t* src = (gaussian_splat_unpacked_t*)sh_data + v;
-					splats_unpacked[v].sh_rest[sh_idx] = src->sh_rest[sh_idx];
-				}
-				free(sh_data);
-			}
-		}
 	}
 
 	// Normalize quaternions and compute bounding box
@@ -327,6 +306,9 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 		return false;
 	}
 
+	// SH_C0 constant for preprocessing (matches shader and 3DGS reference)
+	const float SH_C0 = 0.28209479177387814f;
+
 	for (int32_t i = 0; i < vertex_count; i++) {
 		gaussian_splat_unpacked_t* src = &splats_unpacked[i];
 		gaussian_splat_t* dst = &splats[i];
@@ -343,9 +325,21 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 		dst->scale_xy       = pack_halfs(src->scale.x, src->scale.y);
 		dst->scale_z_opacity = pack_halfs(src->scale.z, src->opacity);
 
-		// SH DC: half precision
-		dst->sh_dc_rg    = pack_halfs(src->sh_dc.x, src->sh_dc.y);
-		dst->sh_dc_b_pad = pack_halfs(src->sh_dc.z, 0.0f);
+		// SH DC: preprocess like Aras does (color = f_dc * SH_C0 + 0.5)
+		// Then convert from sRGB to linear space for proper rendering
+		float dc_r = src->sh_dc.x * SH_C0 + 0.5f;
+		float dc_g = src->sh_dc.y * SH_C0 + 0.5f;
+		float dc_b = src->sh_dc.z * SH_C0 + 0.5f;
+		// Clamp to [0,1] before gamma to avoid NaN from negative values
+		dc_r = fmaxf(0.0f, fminf(1.0f, dc_r));
+		dc_g = fmaxf(0.0f, fminf(1.0f, dc_g));
+		dc_b = fmaxf(0.0f, fminf(1.0f, dc_b));
+		// Convert sRGB to linear (3DGS colors are in sRGB/perceptual space)
+		dc_r = powf(dc_r, 2.2f);
+		dc_g = powf(dc_g, 2.2f);
+		dc_b = powf(dc_b, 2.2f);
+		dst->sh_dc_rg    = pack_halfs(dc_r, dc_g);
+		dst->sh_dc_b_pad = pack_halfs(dc_b, 0.0f);
 
 		// SH rest: 45 floats -> 23 uint32s (45 halfs, padded to 46)
 		float sh_flat[46];
@@ -371,13 +365,12 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 	};*/
 
 	// Set camera distance based on bounding box size
-	float3 bbox_size = {1,1,1};/* {
+	float3 bbox_size = {
 		bbox_max.x - bbox_min.x,
 		bbox_max.y - bbox_min.y,
 		bbox_max.z - bbox_min.z
-	};*/
+	};
 	float max_dim = fmaxf(fmaxf(bbox_size.x, bbox_size.y), bbox_size.z);
-	scene->cam_distance = max_dim * 1.5f;
 
 	su_log(su_log_info, "gaussian_splat: Bounds [%.2f,%.2f,%.2f] - [%.2f,%.2f,%.2f], size %.2f",
 	       bbox_min.x, bbox_min.y, bbox_min.z,
@@ -466,7 +459,8 @@ static scene_t* _scene_gaussian_splat_create(void) {
 
 	
 	// Load PLY file
-	scene->ply_path = strdup("/home/koujaku/Downloads/bicycle-road.ply");//"goldorak-ply.ply");
+	//scene->ply_path = strdup("/home/koujaku/Downloads/Temple.ply"); // https://superspl.at/view?id=4653e2b9
+	scene->ply_path = strdup("test_cube.ply");
 	if (!_load_splat_ply(scene, scene->ply_path)) {
 		su_log(su_log_warning, "gaussian_splat: Failed to load default PLY, scene will be empty");
 	}
@@ -489,13 +483,22 @@ static scene_t* _scene_gaussian_splat_create(void) {
 		su_log(su_log_warning, "gaussian_splat: Failed to load render shader");
 	}
 
-	// Create material with alpha blending (premultiplied blend, no depth write)
+	// Create material with alpha blending
+	// Using Aras's front-to-back "under" operator: Blend OneMinusDstAlpha One
+	skr_blend_state_t blend_front_to_back = {
+		.src_color_factor = skr_blend_one_minus_dst_alpha,
+		.dst_color_factor = skr_blend_one,
+		.color_op         = skr_blend_op_add,
+		.src_alpha_factor = skr_blend_one_minus_dst_alpha,
+		.dst_alpha_factor = skr_blend_one,
+		.alpha_op         = skr_blend_op_add,
+	};
 	skr_material_create((skr_material_info_t){
 		.shader       = &scene->render_shader,
 		.cull         = skr_cull_none,
 		.write_mask   = skr_write_rgba,  // No depth write for proper alpha blending
 		.depth_test   = skr_compare_less_or_eq,
-		.blend_state  = skr_blend_premultiplied,
+		.blend_state  = blend_front_to_back,
 		.queue_offset = 100,  // Render after opaque objects
 	}, &scene->render_material);
 
@@ -609,35 +612,79 @@ static void _scene_gaussian_splat_update(scene_t* base, float delta_time) {
 	// Run compute shader for sorting (must be outside render pass)
 	_run_sort_compute(scene);
 
-	// Camera control (same as scene_text)
+	// Camera control - hybrid orbit + fly camera
 	const float rotate_sensitivity = 0.003f;
-	const float pan_sensitivity    = 0.002f;
 	const float zoom_sensitivity   = 0.2f;
 	const float velocity_damping   = 0.0001f;
 	const float pitch_limit        = 1.5f;
-	const float min_distance       = 0.5f;
+	const float min_distance       = 0.1f;
 	const float max_distance       = 100.0f;
+	const float move_speed         = 5.0f;  // Units per second
 
 	ImGuiIO* io = igGetIO();
 
+	// Compute camera vectors for movement
+	float cos_pitch = cosf(scene->cam_pitch);
+	float sin_pitch = sinf(scene->cam_pitch);
+	float cos_yaw   = cosf(scene->cam_yaw);
+	float sin_yaw   = sinf(scene->cam_yaw);
+
+	// Forward is from camera toward target (opposite of orbit direction)
+	float3 forward = { -cos_pitch * sin_yaw, -sin_pitch, -cos_pitch * cos_yaw };
+	float3 right   = {  cos_yaw, 0.0f, -sin_yaw };
+	// Camera up = cross(right, forward)
+	float3 up      = { -sin_yaw * sin_pitch, cos_pitch, -cos_yaw * sin_pitch };
+
+	// WASD + QE fly movement (always active when not typing in UI)
+	if (!io->WantCaptureKeyboard) {
+		float move_delta = move_speed * delta_time;
+
+		// Check for shift to move faster
+		if (igIsKeyDown_Nil(ImGuiKey_LeftShift) || igIsKeyDown_Nil(ImGuiKey_RightShift)) {
+			move_delta *= 3.0f;
+		}
+
+		if (igIsKeyDown_Nil(ImGuiKey_W)) {
+			scene->cam_target.x += forward.x * move_delta;
+			scene->cam_target.y += forward.y * move_delta;
+			scene->cam_target.z += forward.z * move_delta;
+		}
+		if (igIsKeyDown_Nil(ImGuiKey_S)) {
+			scene->cam_target.x -= forward.x * move_delta;
+			scene->cam_target.y -= forward.y * move_delta;
+			scene->cam_target.z -= forward.z * move_delta;
+		}
+		if (igIsKeyDown_Nil(ImGuiKey_A)) {
+			scene->cam_target.x -= right.x * move_delta;
+			scene->cam_target.z -= right.z * move_delta;
+		}
+		if (igIsKeyDown_Nil(ImGuiKey_D)) {
+			scene->cam_target.x += right.x * move_delta;
+			scene->cam_target.z += right.z * move_delta;
+		}
+		if (igIsKeyDown_Nil(ImGuiKey_E)) {
+			scene->cam_target.x += up.x * move_delta;
+			scene->cam_target.y += up.y * move_delta;
+			scene->cam_target.z += up.z * move_delta;
+		}
+		if (igIsKeyDown_Nil(ImGuiKey_Q)) {
+			scene->cam_target.x -= up.x * move_delta;
+			scene->cam_target.y -= up.y * move_delta;
+			scene->cam_target.z -= up.z * move_delta;
+		}
+	}
+
 	if (!io->WantCaptureMouse) {
-		// Left mouse: arc rotate
+		// Left mouse: arc rotate (orbit around target)
 		if (io->MouseDown[0]) {
 			scene->cam_yaw_vel   -= io->MouseDelta.x * rotate_sensitivity;
 			scene->cam_pitch_vel += io->MouseDelta.y * rotate_sensitivity;
 		}
 
-		// Right mouse: pan
+		// Right mouse: mouse look (same rotation, feels like FPS when combined with WASD)
 		if (io->MouseDown[1]) {
-			float cos_yaw = cosf(scene->cam_yaw);
-			float sin_yaw = sinf(scene->cam_yaw);
-
-			float3 right = { cos_yaw, 0.0f, -sin_yaw };
-
-			float pan_scale = scene->cam_distance * pan_sensitivity;
-			scene->cam_target_vel.x -= right.x * io->MouseDelta.x * pan_scale;
-			scene->cam_target_vel.z -= right.z * io->MouseDelta.x * pan_scale;
-			scene->cam_target_vel.y += io->MouseDelta.y * pan_scale;
+			scene->cam_yaw_vel   -= io->MouseDelta.x * rotate_sensitivity;
+			scene->cam_pitch_vel += io->MouseDelta.y * rotate_sensitivity;
 		}
 
 		// Scroll wheel: zoom
