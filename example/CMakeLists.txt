@@ -186,8 +186,10 @@ skshaderc_compile_assets(sk_renderer_test ${CMAKE_CURRENT_BINARY_DIR}/generated/
 	assets/shaders/unlit.hlsl
 	assets/shaders/video.hlsl
 	assets/shaders/gaussian_splat.hlsl
-	assets/shaders/gaussian_splat_sort.hlsl
-	assets/shaders/gaussian_splat_radix.hlsl
+	assets/shaders/gpu_sort_init.hlsl
+	assets/shaders/gpu_sort_upsweep.hlsl
+	assets/shaders/gpu_sort_scan.hlsl
+	assets/shaders/gpu_sort_downsweep.hlsl
 )
 target_skapp_assets(sk_renderer_test
 	${CMAKE_CURRENT_BINARY_DIR}/generated)

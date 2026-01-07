@@ -10,26 +10,95 @@ float  opacity_scale;    // Opacity multiplier
 float2 screen_size;      // Screen resolution in pixels
 float  max_radius;       // Max splat radius in pixels (0 = unlimited)
 
-// Gaussian splat data - packed for efficiency (with HLSL alignment padding)
-// Position (12) + Opacity (4) = 16 bytes
-// SH DC (12) + pad (4) = 16 bytes
-// Scale (12) + pad (4) = 16 bytes
-// Rotation quat = 16 bytes
-// SH rest (15 x float4) = 240 bytes
-// Total = 304 bytes per splat
+// Packed Gaussian splat data (124 bytes per splat, 59% smaller than unpacked)
+// Uses half precision and smallest-3 quaternion encoding
+struct GaussianSplatPacked {
+	float  pos_x, pos_y, pos_z;  // 12 bytes - full precision position
+	uint   rot_packed;           // 4 bytes  - smallest-3 quaternion (10.10.10.2)
+	uint   scale_xy;             // 4 bytes  - scale.x | scale.y (half floats)
+	uint   scale_z_opacity;      // 4 bytes  - scale.z | opacity (half floats)
+	uint   sh_dc_rg;             // 4 bytes  - sh_dc.r | sh_dc.g (half floats)
+	uint   sh_dc_b_pad;          // 4 bytes  - sh_dc.b | padding (half floats)
+	uint   sh_rest[23];          // 92 bytes - 45 half floats packed
+};
 
+// Unpacked splat data (computed from packed)
 struct GaussianSplat {
 	float3 position;
 	float  opacity;
-	float3 sh_dc;      // f_dc_0, f_dc_1, f_dc_2
-	float  _pad1;      // Padding to match C struct alignment
-	float3 scale;      // scale_0, scale_1, scale_2 (log scale)
-	float  _pad2;      // Padding to match C struct alignment
-	float4 rotation;   // rot_0, rot_1, rot_2, rot_3 (quaternion)
-	float4 sh_rest[15]; // f_rest in groups of 3 (HLSL pads float3[] to float4[])
+	float3 sh_dc;
+	float3 scale;
+	float4 rotation;
+	float3 sh_rest[15];
 };
 
-StructuredBuffer<GaussianSplat> splats       : register(t3, space0);
+// Unpack two half floats from uint
+float2 unpack_halfs(uint packed) {
+	return float2(f16tof32(packed), f16tof32(packed >> 16));
+}
+
+// Unpack smallest-3 quaternion (10.10.10.2 format)
+float4 unpack_quat_smallest3(uint packed) {
+	// Extract components
+	float a = ((packed      ) & 0x3FF) / 1023.0f;
+	float b = ((packed >> 10) & 0x3FF) / 1023.0f;
+	float c = ((packed >> 20) & 0x3FF) / 1023.0f;
+	uint  idx = (packed >> 30) & 0x3;
+
+	// Convert from 0-1 to -1/sqrt(2) to +1/sqrt(2)
+	const float scale = 1.41421356237f;  // sqrt(2)
+	float3 three = float3(a, b, c) * 2.0f - 1.0f;
+	three *= scale * 0.5f;
+
+	// Reconstruct 4th component
+	float w = sqrt(max(0.0f, 1.0f - dot(three, three)));
+
+	// Reorder based on which component was largest
+	float4 q;
+	if (idx == 0)      q = float4(w, three.x, three.y, three.z);
+	else if (idx == 1) q = float4(three.x, w, three.y, three.z);
+	else if (idx == 2) q = float4(three.x, three.y, w, three.z);
+	else               q = float4(three.x, three.y, three.z, w);
+	return q;
+}
+
+// Unpack a packed splat into usable format
+GaussianSplat unpack_splat(GaussianSplatPacked p) {
+	GaussianSplat s;
+
+	s.position = float3(p.pos_x, p.pos_y, p.pos_z);
+	s.rotation = unpack_quat_smallest3(p.rot_packed);
+
+	float2 scale_xy = unpack_halfs(p.scale_xy);
+	float2 scale_z_opacity = unpack_halfs(p.scale_z_opacity);
+	s.scale = float3(scale_xy.x, scale_xy.y, scale_z_opacity.x);
+	s.opacity = scale_z_opacity.y;
+
+	float2 sh_dc_rg = unpack_halfs(p.sh_dc_rg);
+	float2 sh_dc_b_pad = unpack_halfs(p.sh_dc_b_pad);
+	s.sh_dc = float3(sh_dc_rg.x, sh_dc_rg.y, sh_dc_b_pad.x);
+
+	// Unpack SH rest: 45 halfs from 23 uints
+	[unroll]
+	for (int i = 0; i < 15; i++) {
+		int base = i * 3;
+		int uint_idx0 = base / 2;
+		int uint_idx1 = (base + 1) / 2;
+		int uint_idx2 = (base + 2) / 2;
+
+		float2 pair0 = unpack_halfs(p.sh_rest[uint_idx0]);
+		float2 pair1 = unpack_halfs(p.sh_rest[uint_idx1]);
+		float2 pair2 = unpack_halfs(p.sh_rest[uint_idx2]);
+
+		s.sh_rest[i].x = (base % 2 == 0) ? pair0.x : pair0.y;
+		s.sh_rest[i].y = ((base + 1) % 2 == 0) ? pair1.x : pair1.y;
+		s.sh_rest[i].z = ((base + 2) % 2 == 0) ? pair2.x : pair2.y;
+	}
+
+	return s;
+}
+
+StructuredBuffer<GaussianSplatPacked> splats : register(t3, space0);
 StructuredBuffer<uint>          sort_indices : register(t4, space0);
 
 struct vsIn {
@@ -44,10 +113,7 @@ struct psIn {
 	float2 uv         : TEXCOORD0;     // Pixel offset from center
 	float3 color      : COLOR0;
 	float  opacity    : COLOR1;
-	float2 conic_xy   : TEXCOORD1;
-	float  conic_z    : TEXCOORD2;
-	float2 major_axis : TEXCOORD3;     // Major axis direction (normalized)
-	float2 axis_lens  : TEXCOORD4;     // (major_len, minor_len) for edge fade
+	float3 conic      : TEXCOORD1;     // Inverse covariance (xx, xy, yy)
 };
 
 // Spherical harmonics constants
@@ -78,7 +144,7 @@ float3 eval_sh(GaussianSplat splat, float3 dir) {
 	float y = dir.y;
 	float z = dir.z;
 
-	result += SH_C1 * (-y * splat.sh_rest[0].xyz + z * splat.sh_rest[1].xyz - x * splat.sh_rest[2].xyz);
+	result += SH_C1 * (-y * splat.sh_rest[0] + z * splat.sh_rest[1] - x * splat.sh_rest[2]);
 
 	if (sh_degree < 2) return result;
 
@@ -86,22 +152,22 @@ float3 eval_sh(GaussianSplat splat, float3 dir) {
 	float xx = x * x, yy = y * y, zz = z * z;
 	float xy = x * y, yz = y * z, xz = x * z;
 
-	result += SH_C2_0 * xy * splat.sh_rest[3].xyz;
-	result += SH_C2_1 * yz * splat.sh_rest[4].xyz;
-	result += SH_C2_2 * (2.0f * zz - xx - yy) * splat.sh_rest[5].xyz;
-	result += SH_C2_3 * xz * splat.sh_rest[6].xyz;
-	result += SH_C2_4 * (xx - yy) * splat.sh_rest[7].xyz;
+	result += SH_C2_0 * xy * splat.sh_rest[3];
+	result += SH_C2_1 * yz * splat.sh_rest[4];
+	result += SH_C2_2 * (2.0f * zz - xx - yy) * splat.sh_rest[5];
+	result += SH_C2_3 * xz * splat.sh_rest[6];
+	result += SH_C2_4 * (xx - yy) * splat.sh_rest[7];
 
 	if (sh_degree < 3) return result;
 
 	// Order 3
-	result += SH_C3_0 * y * (3.0f * xx - yy) * splat.sh_rest[8].xyz;
-	result += SH_C3_1 * xy * z * splat.sh_rest[9].xyz;
-	result += SH_C3_2 * y * (4.0f * zz - xx - yy) * splat.sh_rest[10].xyz;
-	result += SH_C3_3 * z * (2.0f * zz - 3.0f * xx - 3.0f * yy) * splat.sh_rest[11].xyz;
-	result += SH_C3_4 * x * (4.0f * zz - xx - yy) * splat.sh_rest[12].xyz;
-	result += SH_C3_5 * z * (xx - yy) * splat.sh_rest[13].xyz;
-	result += SH_C3_6 * x * (xx - 3.0f * yy) * splat.sh_rest[14].xyz;
+	result += SH_C3_0 * y * (3.0f * xx - yy) * splat.sh_rest[8];
+	result += SH_C3_1 * xy * z * splat.sh_rest[9];
+	result += SH_C3_2 * y * (4.0f * zz - xx - yy) * splat.sh_rest[10];
+	result += SH_C3_3 * z * (2.0f * zz - 3.0f * xx - 3.0f * yy) * splat.sh_rest[11];
+	result += SH_C3_4 * x * (4.0f * zz - xx - yy) * splat.sh_rest[12];
+	result += SH_C3_5 * z * (xx - yy) * splat.sh_rest[13];
+	result += SH_C3_6 * x * (xx - 3.0f * yy) * splat.sh_rest[14];
 
 	return result;
 }
@@ -122,76 +188,73 @@ float3x3 quat_to_matrix(float4 q) {
 }
 
 // Compute 2D covariance matrix from 3D Gaussian (in pixel space, following original 3DGS)
+// Returns clip-space position to avoid redundant viewproj multiply
 void compute_cov2d(float3 mean, float3 scale, float4 rotation, uint view_idx,
-                   out float3 cov2d, out float2 screen_pos) {
-	// Build 3D covariance matrix: Sigma = M * M^T where M = R * S
-	float3x3 R = quat_to_matrix(rotation);
-
-	// Scale matrix (diagonal) - convert from log scale
-	float3 s = exp(scale) * splat_scale;
-	float3x3 S = float3x3(
-		s.x, 0, 0,
-		0, s.y, 0,
-		0, 0, s.z
-	);
-
-	float3x3 M = mul(R, S);
-	float3x3 Sigma = mul(M, transpose(M));
-
-	// Transform to view space
+                   out float3 cov2d, out float4 clip_pos) {
+	// Transform to clip and view space
 	float4x4 V = view[view_idx];
 	float4 p_view = mul(float4(mean, 1), V);
+	clip_pos = mul(float4(mean, 1), viewproj[view_idx]);
 
 	// Check if behind camera (right-handed: objects in front have negative Z)
 	float view_z = -p_view.z;  // Flip to positive-forward convention
 	if (view_z <= 0.1f) {
 		cov2d = float3(0, 0, 0);
-		screen_pos = float2(-1000, -1000);
+		clip_pos = float4(-1000, -1000, 0, 1);
 		return;
 	}
 
-	// Convert NDC focal length to pixel focal length (original 3DGS uses pixels)
-	// NDC focal = 1/tan(fov/2), pixel focal = (screen_size/2) / tan(fov/2)
-	float focal_ndc_x = projection[view_idx][0][0];
-	float focal_ndc_y = projection[view_idx][1][1];
-	float focal_x = focal_ndc_x * screen_size.x * 0.5f;
-	float focal_y = focal_ndc_y * screen_size.y * 0.5f;
+	// Build 3D covariance: Sigma = R * S² * R^T
+	// Instead of building matrices, compute M = R * S directly by scaling R columns
+	float3x3 R = quat_to_matrix(rotation);
+	float3 s = exp(scale) * splat_scale;
+	float3 s2 = s * s;  // Variance (σ²) along each axis
 
-	// Clamp view-space position to avoid extreme distortion at edges
-	float tan_fov_x = 1.0f / focal_ndc_x;
-	float tan_fov_y = 1.0f / focal_ndc_y;
-	float limx = 1.3f * tan_fov_x;
-	float limy = 1.3f * tan_fov_y;
-
-	float txz = clamp(p_view.x / view_z, -limx, limx);
-	float tyz = clamp(p_view.y / view_z, -limy, limy);
-
-	float x = txz * view_z;
-	float y = tyz * view_z;
-
-	// Jacobian of perspective projection (now in pixel space)
-	// Third column: d(screen)/d(p_view.z) = d(screen)/d(view_z) * d(view_z)/d(p_view.z)
-	// Since view_z = -p_view.z, we get an extra -1 factor, making the result positive
-	float3x3 J = float3x3(
-		focal_x / view_z, 0, focal_x * x / (view_z * view_z),
-		0, focal_y / view_z, focal_y * y / (view_z * view_z),
-		0, 0, 0
+	// Sigma[i][j] = sum_k (R[i][k] * s2[k] * R[j][k])
+	// Vectorized: Sigma row i = R_row_i * s2 dot R_rows
+	float3 Rs0 = R[0] * s2;  // R row 0 scaled by s²
+	float3 Rs1 = R[1] * s2;
+	float3 Rs2 = R[2] * s2;
+	float3x3 Sigma = float3x3(
+		dot(Rs0, R[0]), dot(Rs0, R[1]), dot(Rs0, R[2]),
+		dot(Rs1, R[0]), dot(Rs1, R[1]), dot(Rs1, R[2]),
+		dot(Rs2, R[0]), dot(Rs2, R[1]), dot(Rs2, R[2])
 	);
 
-	// Transform covariance to screen space (pixel²)
-	// T = J * W, cov2D = T * Σ * T^T
-	// W is the rotation part of the view matrix (world -> camera rotation)
+	// Focal lengths in pixels
+	float2 focal_ndc = float2(projection[view_idx][0][0], projection[view_idx][1][1]);
+	float2 focal = focal_ndc * screen_size * 0.5f;
+
+	// Clamp view-space position to avoid extreme distortion at edges
+	float2 tan_fov = 1.0f / focal_ndc;
+	float2 lim = 1.3f * tan_fov;
+	float2 t = clamp(p_view.xy / view_z, -lim, lim);
+	float2 xy = t * view_z;
+
+	// Jacobian of perspective projection (sparse - only 2 rows matter, third row is zero)
+	// J = | f.x/z    0     f.x*x/z² |
+	//     |   0    f.y/z   f.y*y/z² |
+	// Third column: positive because view_z = -p_view.z (chain rule sign flip)
+	float z_inv = 1.0f / view_z;
+	float z_inv2 = z_inv * z_inv;
+	float2 j_diag = focal * z_inv;           // J[0][0], J[1][1]
+	float2 j_z = focal * xy * z_inv2;        // J[0][2], J[1][2]
+
+	// W = transpose of view rotation (world->view rotation)
+	// T = J * W, but J has special structure, so compute T rows directly:
+	// T[0] = J[0][0] * W[0] + J[0][2] * W[2] = j_diag.x * W_col0 + j_z.x * W_col2
+	// T[1] = J[1][1] * W[1] + J[1][2] * W[2] = j_diag.y * W_col1 + j_z.y * W_col2
 	float3x3 W = transpose((float3x3)V);
-	float3x3 T = mul(J, W);
-	float3x3 cov = mul(T, mul(Sigma, transpose(T)));
+	float3 T0 = j_diag.x * W[0] + j_z.x * W[2];
+	float3 T1 = j_diag.y * W[1] + j_z.y * W[2];
 
-	// Extract 2x2 covariance (ignore z)
-	// Low-pass filter of 0.3 ensures minimum ~1 pixel splat size (standard 3DGS value)
-	cov2d = float3(cov[0][0] + 0.3f, cov[0][1], cov[1][1] + 0.3f);
+	// cov2D = T * Sigma * T^T (only need 2x2 upper-left)
+	// cov[0][0] = T0 · (Sigma * T0), cov[0][1] = T0 · (Sigma * T1), cov[1][1] = T1 · (Sigma * T1)
+	float3 ST0 = mul(Sigma, T0);
+	float3 ST1 = mul(Sigma, T1);
 
-	// Project to screen (NDC)
-	float4 p_clip = mul(float4(mean, 1), viewproj[view_idx]);
-	screen_pos = p_clip.xy / p_clip.w;
+	// Low-pass filter of 0.3 ensures minimum ~1 pixel splat size
+	cov2d = float3(dot(T0, ST0) + 0.3f, dot(T0, ST1), dot(T1, ST1) + 0.3f);
 }
 
 psIn vs(vsIn input, uint id : SV_InstanceID) {
@@ -206,14 +269,14 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 		return output;
 	}
 
-	// Get sorted splat index
+	// Get sorted splat index and unpack
 	uint sorted_idx = sort_indices[splat_idx];
-	GaussianSplat splat = splats[sorted_idx];
+	GaussianSplat splat = unpack_splat(splats[sorted_idx]);
 
-	// Compute 2D covariance and screen position
+	// Compute 2D covariance and clip position (reused for depth)
 	float3 cov2d;
-	float2 screen_center;
-	compute_cov2d(splat.position, splat.scale, splat.rotation, view_idx, cov2d, screen_center);
+	float4 clip_pos;
+	compute_cov2d(splat.position, splat.scale, splat.rotation, view_idx, cov2d, clip_pos);
 
 	// Invert 2x2 covariance to get conic
 	float det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
@@ -225,94 +288,73 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	float3 conic = float3(cov2d.z * det_inv, -cov2d.y * det_inv, cov2d.x * det_inv);
 
 	// Compute eigenvalues of 2D covariance (ellipse axis lengths squared)
-	// cov2d is [xx, xy, yy] in pixel² space
 	float mid = 0.5f * (cov2d.x + cov2d.z);
-	float disc = max(0.0f, mid * mid - det);  // Allow near-zero for circular projections
-	float lambda1 = mid + sqrt(disc);
-	float lambda2 = max(0.3f, mid - sqrt(disc));  // Clamp result, not input (0.3 matches low-pass filter)
+	float disc = max(0.0f, mid * mid - det);
+	float sqrt_disc = sqrt(disc);
+	float lambda1 = mid + sqrt_disc;
+	float lambda2 = max(0.3f, mid - sqrt_disc);
 
 	// Axis lengths in pixels (3 sigma covers 99.7%)
 	float major_len = 3.0f * sqrt(lambda1);
 	float minor_len = 3.0f * sqrt(lambda2);
 
 	// Compute eigenvector for lambda1 (major axis direction)
-	// For symmetric matrix [a b; b c], eigenvector for λ is (b, λ-a) normalized
-	float2 major_axis;
-	if (abs(cov2d.y) > 1e-6f) {
-		major_axis = normalize(float2(cov2d.y, lambda1 - cov2d.x));
-	} else {
-		// Diagonal matrix - axes are screen-aligned
-		major_axis = (cov2d.x >= cov2d.z) ? float2(1, 0) : float2(0, 1);
-	}
-	float2 minor_axis = float2(-major_axis.y, major_axis.x);  // Perpendicular
+	float2 major_axis = (abs(cov2d.y) > 1e-6f)
+		? normalize(float2(cov2d.y, lambda1 - cov2d.x))
+		: ((cov2d.x >= cov2d.z) ? float2(1, 0) : float2(0, 1));
+	float2 minor_axis = float2(-major_axis.y, major_axis.x);
 
 	// Cap axis lengths to prevent massive overdraw
-	// When capping, scale the conic so Gaussian still falls off properly at quad edge
-	float orig_major_len = major_len;
-	float orig_minor_len = minor_len;
+	float2 orig_lens = float2(major_len, minor_len);
 	if (max_radius > 0.0f) {
 		major_len = min(major_len, max_radius);
 		minor_len = min(minor_len, max_radius);
 	}
-	// Scale conic by inverse square of cap ratio to preserve falloff at edge
-	float scale_major = orig_major_len / major_len;  // >= 1 when capped
-	float scale_minor = orig_minor_len / minor_len;
-	// Conic transforms: scale along major axis by 1/s_major², along minor by 1/s_minor²
-	// In the eigenvector basis: conic' = [[1/s_major², 0], [0, 1/s_minor²]] * conic
-	// Transform to screen space using major/minor axis rotation
-	float2x2 R = float2x2(major_axis.x, minor_axis.x,
-	                      major_axis.y, minor_axis.y);
-	float2x2 S = float2x2(scale_major * scale_major, 0,
-	                      0, scale_minor * scale_minor);
-	float2x2 conic_mat = float2x2(conic.x, conic.y, conic.y, conic.z);
-	float2x2 conic_scaled = mul(mul(R, mul(S, transpose(R))), conic_mat);
-	conic = float3(conic_scaled[0][0], conic_scaled[0][1], conic_scaled[1][1]);
+
+	// Scale conic when capping to preserve Gaussian falloff at quad edge
+	// R * S² * R^T * conic where R rotates to eigenvector basis, S² scales by cap ratio squared
+	float2 cap_scale = orig_lens / float2(major_len, minor_len);  // >= 1 when capped
+	float2 s2 = cap_scale * cap_scale;
+	if (s2.x != 1.0f || s2.y != 1.0f) {
+		// Rotation matrix from screen space to eigenvector basis
+		float2x2 Rot = float2x2(major_axis.x, -major_axis.y,
+		                        major_axis.y,  major_axis.x);
+		float2x2 Scale = float2x2(s2.x, 0, 0, s2.y);
+		float2x2 conic_mat = float2x2(conic.x, conic.y, conic.y, conic.z);
+		float2x2 RSR = mul(Rot, mul(Scale, transpose(Rot)));
+		float2x2 result = mul(RSR, conic_mat);
+		conic = float3(result[0][0], result[0][1], result[1][1]);
+	}
 
 	// Transform quad vertex by ellipse axes (oriented rectangle)
-	// input.pos.xy is in [-1, 1], so this gives us a tight-fitting quad
 	float2 quad_offset_pixels = input.pos.x * major_axis * major_len +
 	                            input.pos.y * minor_axis * minor_len;
 
-	// Convert to NDC
-	float2 quad_offset_ndc = quad_offset_pixels / (screen_size * 0.5f);
+	// Convert to clip space offset and add to center
+	float2 quad_offset_ndc = clamp(quad_offset_pixels / (screen_size * 0.5f), -1.0f, 1.0f);
+	float2 screen_center = clip_pos.xy / clip_pos.w;
 
-	// Clamp to reasonable bounds
-	quad_offset_ndc = clamp(quad_offset_ndc, -1.0f, 1.0f);
-
-	// Position the quad centered at screen_center
-	float2 ndc_pos = screen_center + quad_offset_ndc;
-
-	// Get depth for proper ordering
-	float4 p_clip = mul(float4(splat.position, 1), viewproj[view_idx]);
-	float depth = p_clip.z / p_clip.w;
-
-	output.pos = float4(ndc_pos, depth, 1);
-	// UV = actual pixel offset from center for Gaussian falloff
+	output.pos = float4(screen_center + quad_offset_ndc, clip_pos.z / clip_pos.w, 1);
 	output.uv = quad_offset_pixels;
 
 	// Compute color from spherical harmonics
-	// Direction should be FROM splat TO camera (view direction), matching Aras's implementation
 	float3 view_dir = normalize(cam_pos[view_idx].xyz - splat.position);
-	float3 sh_color = eval_sh(splat, view_dir);
-	output.color = max(sh_color + 0.5f, 0.0f); // SH outputs [-0.5, inf), shift to [0, inf)
+	output.color = max(eval_sh(splat, view_dir) + 0.5f, 0.0f);
 
 	// Sigmoid activation for opacity
 	output.opacity = 1.0f / (1.0f + exp(-splat.opacity)) * opacity_scale;
 
-	output.conic_xy = conic.xy;
-	output.conic_z = conic.z;
-	output.major_axis = major_axis;
-	output.axis_lens = float2(major_len, minor_len);
+	output.conic = conic;
 
 	return output;
 }
 
 float4 ps(psIn input) : SV_TARGET {
-	// Compute Gaussian falloff
+	// Compute Gaussian falloff: power = -0.5 * d^T * conic * d
 	float2 d = input.uv;
-	float power = -0.5f * (input.conic_xy.x * d.x * d.x +
-	                        input.conic_z * d.y * d.y +
-	                        2.0f * input.conic_xy.y * d.x * d.y);
+	float power = -0.5f * (input.conic.x * d.x * d.x +
+	                       input.conic.z * d.y * d.y +
+	                       2.0f * input.conic.y * d.x * d.y);
 
 	if (power > 0.0f) discard;
 

@@ -16,18 +16,86 @@
 #include <string.h>
 #include <math.h>
 
-// Gaussian splat data structure (must match shader's structured buffer layout)
-// HLSL arrays of float3 pad each element to 16 bytes!
+// Unpacked Gaussian splat for PLY loading (intermediate format)
 typedef struct {
 	float3   position;
 	float    opacity;
-	float3   sh_dc;      // f_dc_0, f_dc_1, f_dc_2
-	float    _pad1;      // Padding to align scale
-	float3   scale;      // scale_0, scale_1, scale_2
-	float    _pad2;      // Padding to align rotation
-	float4   rotation;   // rot_0, rot_1, rot_2, rot_3
-	float4   sh_rest[15]; // f_rest_0..44 grouped by channel (HLSL pads float3[] to float4[])
-} gaussian_splat_t;
+	float3   sh_dc;
+	float    _pad1;
+	float3   scale;
+	float    _pad2;
+	float4   rotation;
+	float4   sh_rest[15];
+} gaussian_splat_unpacked_t;
+
+// Packed Gaussian splat (124 bytes, must match shader's structured buffer layout)
+// Uses half precision and smallest-3 quaternion encoding for ~59% size reduction
+typedef struct {
+	float    pos_x, pos_y, pos_z;  // 12 bytes - full precision position
+	uint32_t rot_packed;           // 4 bytes  - smallest-3 quaternion (10.10.10.2)
+	uint32_t scale_xy;             // 4 bytes  - scale.x | scale.y (half floats)
+	uint32_t scale_z_opacity;      // 4 bytes  - scale.z | opacity (half floats)
+	uint32_t sh_dc_rg;             // 4 bytes  - sh_dc.r | sh_dc.g (half floats)
+	uint32_t sh_dc_b_pad;          // 4 bytes  - sh_dc.b | padding (half floats)
+	uint32_t sh_rest[23];          // 92 bytes - 45 half floats packed (+ 1 padding)
+} gaussian_splat_t;  // Total: 124 bytes
+
+// Half-float conversion (IEEE 754 binary16)
+static inline uint16_t f32_to_f16(float f) {
+	uint32_t x = *(uint32_t*)&f;
+	uint32_t sign = (x >> 16) & 0x8000;
+	int32_t  exp  = ((x >> 23) & 0xFF) - 127 + 15;
+	uint32_t mant = (x >> 13) & 0x3FF;
+
+	if (exp <= 0) {
+		// Denormal or zero
+		if (exp < -10) return (uint16_t)sign;  // Too small, flush to zero
+		mant = (mant | 0x400) >> (1 - exp);
+		return (uint16_t)(sign | mant);
+	} else if (exp >= 31) {
+		// Infinity or NaN
+		return (uint16_t)(sign | 0x7C00 | (mant ? 0x200 : 0));
+	}
+	return (uint16_t)(sign | (exp << 10) | mant);
+}
+
+// Pack two half floats into one uint32
+static inline uint32_t pack_halfs(float a, float b) {
+	return (uint32_t)f32_to_f16(a) | ((uint32_t)f32_to_f16(b) << 16);
+}
+
+// Pack quaternion using smallest-3 encoding (10.10.10.2 bits)
+static inline uint32_t pack_quat_smallest3(float4 q) {
+	// Find largest absolute component
+	float absQ[4] = { fabsf(q.x), fabsf(q.y), fabsf(q.z), fabsf(q.w) };
+	int32_t idx = 0;
+	float maxV = absQ[0];
+	for (int32_t i = 1; i < 4; i++) {
+		if (absQ[i] > maxV) { idx = i; maxV = absQ[i]; }
+	}
+
+	// Reorder so largest is last (will be reconstructed)
+	float three[3];
+	float sign = 1.0f;
+	switch (idx) {
+		case 0: three[0] = q.y; three[1] = q.z; three[2] = q.w; sign = (q.x >= 0) ? 1.0f : -1.0f; break;
+		case 1: three[0] = q.x; three[1] = q.z; three[2] = q.w; sign = (q.y >= 0) ? 1.0f : -1.0f; break;
+		case 2: three[0] = q.x; three[1] = q.y; three[2] = q.w; sign = (q.z >= 0) ? 1.0f : -1.0f; break;
+		case 3: three[0] = q.x; three[1] = q.y; three[2] = q.z; sign = (q.w >= 0) ? 1.0f : -1.0f; break;
+	}
+
+	// Normalize to 0-1 range (components are in -1/sqrt(2) to 1/sqrt(2))
+	const float scale = 0.70710678118f;  // 1/sqrt(2)
+	uint32_t a = (uint32_t)((three[0] * sign / scale * 0.5f + 0.5f) * 1023.0f + 0.5f) & 0x3FF;
+	uint32_t b = (uint32_t)((three[1] * sign / scale * 0.5f + 0.5f) * 1023.0f + 0.5f) & 0x3FF;
+	uint32_t c = (uint32_t)((three[2] * sign / scale * 0.5f + 0.5f) * 1023.0f + 0.5f) & 0x3FF;
+
+	return a | (b << 10) | (c << 20) | ((uint32_t)idx << 30);
+}
+
+// Radix sort constants (must match shader)
+#define RADIX_BINS      256
+#define RADIX_PART_SIZE 3840  // 256 threads * 15 keys
 
 // Scene state
 typedef struct {
@@ -36,26 +104,32 @@ typedef struct {
 	// Splat data
 	uint32_t        splat_count;
 	skr_buffer_t    splat_buffer;
-	skr_buffer_t    sort_index_buffer;    // indices_a
-	skr_buffer_t    sort_depth_buffer;    // depths_a
-	skr_buffer_t    sort_index_buffer_b;  // indices_b (radix ping-pong)
-	skr_buffer_t    sort_depth_buffer_b;  // depths_b (radix ping-pong)
-	skr_buffer_t    histogram_buffer;     // radix histogram (65536 bins)
-	skr_buffer_t    ranks_buffer;         // per-element rank within bin (for stable sort)
+
+	// Radix sort buffers
+	skr_buffer_t    sort_keys_a;      // uint keys (float depths converted to sortable uint)
+	skr_buffer_t    sort_keys_b;      // uint keys alt (ping-pong)
+	skr_buffer_t    sort_payload_a;   // uint payloads (splat indices)
+	skr_buffer_t    sort_payload_b;   // uint payloads alt (ping-pong)
+	skr_buffer_t    global_hist;      // Global histogram (RADIX * 4 = 1024)
+	skr_buffer_t    pass_hist;        // Per-partition histograms (RADIX * thread_blocks)
+	skr_buffer_t    sort_indices;     // Final sorted indices for rendering
 
 	// Rendering
 	skr_mesh_t      quad_mesh;
 	skr_shader_t    render_shader;
 	skr_material_t  render_material;
 
-	// Sorting compute (bitonic - legacy)
-	skr_shader_t    sort_shader;
-	skr_compute_t   sort_compute;
-
-	// Radix sort compute
-	skr_shader_t    radix_shader;
-	skr_compute_t   radix_compute;
-	bool            use_radix_sort;
+	// GPU Sort compute shaders (GPUSorting library)
+	skr_shader_t    sort_init_shader;
+	skr_shader_t    sort_upsweep_shader;
+	skr_shader_t    sort_scan_shader;
+	skr_shader_t    sort_downsweep_shader;
+	skr_compute_t   sort_init;
+	skr_compute_t   sort_upsweep;
+	skr_compute_t   sort_scan;
+	skr_compute_t   sort_downsweep;
+	uint32_t        thread_blocks;    // Number of partitions for radix sort
+	bool            sort_buffers_swapped; // Track ping-pong state
 
 	// UI controls
 	float           splat_scale;
@@ -69,12 +143,12 @@ typedef struct {
 	// Sort state (incremental sorting across frames)
 	uint32_t        sort_stage;
 	uint32_t        sort_step;
-	bool            sort_depths_computed;
-	bool            initial_sort_complete;  // True after first full bitonic sort
-	uint32_t        oddeven_phase;          // 0 = even pairs, 1 = odd pairs
-	uint32_t        radix_pass;             // Current radix sort pass (0-4)
-	float4x4        last_sorted_view_mat;   // View matrix from last completed sort
-	bool            needs_resort;           // True when camera moved and re-sort needed
+	bool            sort_initialized;     // Keys/payloads initialized from depths
+	bool            initial_sort_complete;
+	uint32_t        radix_byte;           // Current radix byte being sorted (0-3)
+	uint32_t        radix_step;           // Step within current byte (0=upsweep, 1=scan, 2=downsweep, 3=swap)
+	float3          last_sorted_cam_pos;
+	bool            needs_resort;
 
 	// Camera state (arc-ball style)
 	float           cam_yaw;
@@ -122,47 +196,47 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 		return false;
 	}
 
-	su_log(su_log_info, "gaussian_splat: Loading %d splats from %s (struct size: %zu bytes)",
-	       vertex_count, filename, sizeof(gaussian_splat_t));
+	su_log(su_log_info, "gaussian_splat: Loading %d splats from %s (packed: %zu bytes, unpacked: %zu bytes)",
+	       vertex_count, filename, sizeof(gaussian_splat_t), sizeof(gaussian_splat_unpacked_t));
 
-	// Allocate splat data
-	gaussian_splat_t* splats = calloc(vertex_count, sizeof(gaussian_splat_t));
-	if (!splats) {
+	// Allocate unpacked splat data for loading
+	gaussian_splat_unpacked_t* splats_unpacked = calloc(vertex_count, sizeof(gaussian_splat_unpacked_t));
+	if (!splats_unpacked) {
 		ply_free(&ply);
 		free(data);
 		return false;
 	}
 
-	// Define the mapping from PLY properties to our splat structure
+	// Define the mapping from PLY properties to unpacked splat structure
 	float zero = 0.0f;
 	float one  = 1.0f;
 
 	// Position and basic properties
 	ply_map_t map_basic[] = {
-		{ PLY_PROP_POSITION_X, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, position) + 0,  &zero },
-		{ PLY_PROP_POSITION_Y, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, position) + 4,  &zero },
-		{ PLY_PROP_POSITION_Z, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, position) + 8,  &zero },
-		{ "opacity",           ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, opacity),       &zero },
-		{ "f_dc_0",            ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, sh_dc) + 0,     &zero },
-		{ "f_dc_1",            ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, sh_dc) + 4,     &zero },
-		{ "f_dc_2",            ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, sh_dc) + 8,     &zero },
-		{ "scale_0",           ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, scale) + 0,     &zero },
-		{ "scale_1",           ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, scale) + 4,     &zero },
-		{ "scale_2",           ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, scale) + 8,     &zero },
-		{ "rot_0",             ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, rotation) + 0,  &one  },
-		{ "rot_1",             ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, rotation) + 4,  &zero },
-		{ "rot_2",             ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, rotation) + 8,  &zero },
-		{ "rot_3",             ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, rotation) + 12, &zero },
+		{ PLY_PROP_POSITION_X, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, position) + 0,  &zero },
+		{ PLY_PROP_POSITION_Y, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, position) + 4,  &zero },
+		{ PLY_PROP_POSITION_Z, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, position) + 8,  &zero },
+		{ "opacity",           ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, opacity),       &zero },
+		{ "f_dc_0",            ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, sh_dc) + 0,     &zero },
+		{ "f_dc_1",            ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, sh_dc) + 4,     &zero },
+		{ "f_dc_2",            ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, sh_dc) + 8,     &zero },
+		{ "scale_0",           ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, scale) + 0,     &zero },
+		{ "scale_1",           ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, scale) + 4,     &zero },
+		{ "scale_2",           ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, scale) + 8,     &zero },
+		{ "rot_0",             ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, rotation) + 0,  &one  },
+		{ "rot_1",             ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, rotation) + 4,  &zero },
+		{ "rot_2",             ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, rotation) + 8,  &zero },
+		{ "rot_3",             ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, rotation) + 12, &zero },
 	};
 
 	// Convert basic properties
 	void*   out_data  = NULL;
 	int32_t out_count = 0;
 	ply_convert(&ply, PLY_ELEMENT_VERTICES, map_basic, sizeof(map_basic) / sizeof(ply_map_t),
-	            sizeof(gaussian_splat_t), &out_data, &out_count);
+	            sizeof(gaussian_splat_unpacked_t), &out_data, &out_count);
 
 	if (out_data && out_count > 0) {
-		memcpy(splats, out_data, out_count * sizeof(gaussian_splat_t));
+		memcpy(splats_unpacked, out_data, out_count * sizeof(gaussian_splat_unpacked_t));
 		free(out_data);
 	}
 
@@ -190,20 +264,20 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 
 			// sh_rest is float4[15] to match HLSL alignment (float3 arrays pad to 16 bytes/element)
 			ply_map_t map_sh[] = {
-				{ name_r, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, sh_rest) + sh_idx * 16 + 0, &zero },
-				{ name_g, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, sh_rest) + sh_idx * 16 + 4, &zero },
-				{ name_b, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_t, sh_rest) + sh_idx * 16 + 8, &zero },
+				{ name_r, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, sh_rest) + sh_idx * 16 + 0, &zero },
+				{ name_g, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, sh_rest) + sh_idx * 16 + 4, &zero },
+				{ name_b, ply_prop_decimal, sizeof(float), offsetof(gaussian_splat_unpacked_t, sh_rest) + sh_idx * 16 + 8, &zero },
 			};
 
 			void*   sh_data  = NULL;
 			int32_t sh_count = 0;
-			ply_convert(&ply, PLY_ELEMENT_VERTICES, map_sh, 3, sizeof(gaussian_splat_t), &sh_data, &sh_count);
+			ply_convert(&ply, PLY_ELEMENT_VERTICES, map_sh, 3, sizeof(gaussian_splat_unpacked_t), &sh_data, &sh_count);
 
 			if (sh_data && sh_count > 0) {
 				// Copy just the sh_rest data
 				for (int32_t v = 0; v < sh_count && v < vertex_count; v++) {
-					gaussian_splat_t* src = (gaussian_splat_t*)sh_data + v;
-					splats[v].sh_rest[sh_idx] = src->sh_rest[sh_idx];
+					gaussian_splat_unpacked_t* src = (gaussian_splat_unpacked_t*)sh_data + v;
+					splats_unpacked[v].sh_rest[sh_idx] = src->sh_rest[sh_idx];
 				}
 				free(sh_data);
 			}
@@ -217,25 +291,25 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 	for (int32_t i = 0; i < vertex_count; i++) {
 		// Apply coordinate transform for COLMAP/3DGS (Y-down, Z-forward) to sk_renderer (Y-up, Z-backward)
 		// Position: flip Y and Z
-		splats[i].position.y = -splats[i].position.y;
-		splats[i].position.z = -splats[i].position.z;
+		splats_unpacked[i].position.y = -splats_unpacked[i].position.y;
+		splats_unpacked[i].position.z = -splats_unpacked[i].position.z;
 		// Quaternion: for Y-Z flip, negate the y and z components
 		// Storage: .x=w, .y=x, .z=y, .w=z
-		splats[i].rotation.z = -splats[i].rotation.z;  // Negate y component
-		splats[i].rotation.w = -splats[i].rotation.w;  // Negate z component
+		splats_unpacked[i].rotation.z = -splats_unpacked[i].rotation.z;  // Negate y component
+		splats_unpacked[i].rotation.w = -splats_unpacked[i].rotation.w;  // Negate z component
 
 		// Normalize quaternion
-		float4 q = splats[i].rotation;
+		float4 q = splats_unpacked[i].rotation;
 		float len = sqrtf(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
 		if (len > 0.0001f) {
-			splats[i].rotation.x = q.x / len;
-			splats[i].rotation.y = q.y / len;
-			splats[i].rotation.z = q.z / len;
-			splats[i].rotation.w = q.w / len;
+			splats_unpacked[i].rotation.x = q.x / len;
+			splats_unpacked[i].rotation.y = q.y / len;
+			splats_unpacked[i].rotation.z = q.z / len;
+			splats_unpacked[i].rotation.w = q.w / len;
 		}
 
 		// Update bounding box
-		float3 p = splats[i].position;
+		float3 p = splats_unpacked[i].position;
 		if (p.x < bbox_min.x) bbox_min.x = p.x;
 		if (p.y < bbox_min.y) bbox_min.y = p.y;
 		if (p.z < bbox_min.z) bbox_min.z = p.z;
@@ -243,6 +317,51 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 		if (p.y > bbox_max.y) bbox_max.y = p.y;
 		if (p.z > bbox_max.z) bbox_max.z = p.z;
 	}
+
+	// Pack splat data into compressed format
+	gaussian_splat_t* splats = calloc(vertex_count, sizeof(gaussian_splat_t));
+	if (!splats) {
+		free(splats_unpacked);
+		ply_free(&ply);
+		free(data);
+		return false;
+	}
+
+	for (int32_t i = 0; i < vertex_count; i++) {
+		gaussian_splat_unpacked_t* src = &splats_unpacked[i];
+		gaussian_splat_t* dst = &splats[i];
+
+		// Position: full precision
+		dst->pos_x = src->position.x;
+		dst->pos_y = src->position.y;
+		dst->pos_z = src->position.z;
+
+		// Rotation: smallest-3 quaternion (PLY stores as w,x,y,z)
+		dst->rot_packed = pack_quat_smallest3(src->rotation);
+
+		// Scale + opacity: half precision
+		dst->scale_xy       = pack_halfs(src->scale.x, src->scale.y);
+		dst->scale_z_opacity = pack_halfs(src->scale.z, src->opacity);
+
+		// SH DC: half precision
+		dst->sh_dc_rg    = pack_halfs(src->sh_dc.x, src->sh_dc.y);
+		dst->sh_dc_b_pad = pack_halfs(src->sh_dc.z, 0.0f);
+
+		// SH rest: 45 floats -> 23 uint32s (45 halfs, padded to 46)
+		float sh_flat[46];
+		for (int32_t j = 0; j < 15; j++) {
+			sh_flat[j * 3 + 0] = src->sh_rest[j].x;
+			sh_flat[j * 3 + 1] = src->sh_rest[j].y;
+			sh_flat[j * 3 + 2] = src->sh_rest[j].z;
+		}
+		sh_flat[45] = 0.0f;  // Padding
+
+		for (int32_t j = 0; j < 23; j++) {
+			dst->sh_rest[j] = pack_halfs(sh_flat[j * 2], sh_flat[j * 2 + 1]);
+		}
+	}
+
+	free(splats_unpacked);
 
 	// Set camera target to center of bounding box
 	scene->cam_target = (float3){0,0,0};/* (float3){
@@ -271,47 +390,52 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 	                  skr_buffer_type_storage, skr_use_compute_read, &scene->splat_buffer);
 	skr_buffer_set_name(&scene->splat_buffer, "gaussian_splat_data");
 
-	// Create sort buffers (primary A buffers)
-	uint32_t* indices = malloc(vertex_count * sizeof(uint32_t));
-	float*    depths  = malloc(vertex_count * sizeof(float));
-	for (uint32_t i = 0; i < (uint32_t)vertex_count; i++) {
-		indices[i] = i;
-		depths[i]  = 0.0f;
-	}
+	// Calculate thread blocks for radix sort
+	scene->thread_blocks = (vertex_count + RADIX_PART_SIZE - 1) / RADIX_PART_SIZE;
+	if (scene->thread_blocks < 1) scene->thread_blocks = 1;
 
-	skr_buffer_create(indices, vertex_count, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_index_buffer);
-	skr_buffer_set_name(&scene->sort_index_buffer, "gaussian_sort_indices_a");
+	// Create radix sort buffers
+	uint32_t* zeros = calloc(vertex_count, sizeof(uint32_t));
 
-	skr_buffer_create(depths, vertex_count, sizeof(float),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_depth_buffer);
-	skr_buffer_set_name(&scene->sort_depth_buffer, "gaussian_sort_depths_a");
+	// Keys A/B (uint representation of depths)
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
+	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_keys_a);
+	skr_buffer_set_name(&scene->sort_keys_a, "radix_keys_a");
 
-	// Create ping-pong B buffers for radix sort
-	skr_buffer_create(indices, vertex_count, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_index_buffer_b);
-	skr_buffer_set_name(&scene->sort_index_buffer_b, "gaussian_sort_indices_b");
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
+	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_keys_b);
+	skr_buffer_set_name(&scene->sort_keys_b, "radix_keys_b");
 
-	skr_buffer_create(depths, vertex_count, sizeof(float),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_depth_buffer_b);
-	skr_buffer_set_name(&scene->sort_depth_buffer_b, "gaussian_sort_depths_b");
+	// Payloads A/B (splat indices)
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
+	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_payload_a);
+	skr_buffer_set_name(&scene->sort_payload_a, "radix_payload_a");
 
-	// Create histogram buffer for radix sort (65536 bins for high precision)
-	uint32_t* histogram = calloc(65536, sizeof(uint32_t));
-	skr_buffer_create(histogram, 65536, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->histogram_buffer);
-	skr_buffer_set_name(&scene->histogram_buffer, "gaussian_radix_histogram");
-	free(histogram);
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
+	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_payload_b);
+	skr_buffer_set_name(&scene->sort_payload_b, "radix_payload_b");
 
-	// Create ranks buffer for stable sort (per-element rank within its bin)
-	uint32_t* ranks = calloc(vertex_count, sizeof(uint32_t));
-	skr_buffer_create(ranks, vertex_count, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->ranks_buffer);
-	skr_buffer_set_name(&scene->ranks_buffer, "gaussian_radix_ranks");
-	free(ranks);
+	// Global histogram (RADIX * 4 = 1024 entries for 4 radix passes)
+	uint32_t* global_hist = calloc(RADIX_BINS * 4, sizeof(uint32_t));
+	skr_buffer_create(global_hist, RADIX_BINS * 4, sizeof(uint32_t),
+	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->global_hist);
+	skr_buffer_set_name(&scene->global_hist, "radix_global_hist");
+	free(global_hist);
 
-	free(indices);
-	free(depths);
+	// Per-partition histograms (RADIX * thread_blocks)
+	uint32_t pass_hist_size = RADIX_BINS * scene->thread_blocks;
+	uint32_t* pass_hist = calloc(pass_hist_size, sizeof(uint32_t));
+	skr_buffer_create(pass_hist, pass_hist_size, sizeof(uint32_t),
+	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->pass_hist);
+	skr_buffer_set_name(&scene->pass_hist, "radix_pass_hist");
+	free(pass_hist);
+
+	// Final sorted indices for rendering
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
+	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_indices);
+	skr_buffer_set_name(&scene->sort_indices, "sort_indices_render");
+
+	free(zeros);
 	free(splats);
 
 	ply_free(&ply);
@@ -332,7 +456,6 @@ static scene_t* _scene_gaussian_splat_create(void) {
 	scene->sh_degree     = 3;
 	scene->max_radius    = 256.0f;  // Cap splat size to prevent massive overdraw
 	scene->enable_sort   = true;
-	scene->use_radix_sort = true;   // Use radix sort by default (faster)
 	scene->time          = 0.0f;
 
 	// Camera defaults (will be updated when PLY loads)
@@ -376,26 +499,62 @@ static scene_t* _scene_gaussian_splat_create(void) {
 		.queue_offset = 100,  // Render after opaque objects
 	}, &scene->render_material);
 
-	// Load bitonic sort compute shader (legacy)
-	scene->sort_shader = su_shader_load("shaders/gaussian_splat_sort.hlsl.sks", "gaussian_sort");
-	if (skr_shader_is_valid(&scene->sort_shader)) {
-		skr_compute_create(&scene->sort_shader, &scene->sort_compute);
-		skr_compute_set_buffer(&scene->sort_compute, "splats", &scene->splat_buffer);
-		skr_compute_set_buffer(&scene->sort_compute, "sort_indices", &scene->sort_index_buffer);
-		skr_compute_set_buffer(&scene->sort_compute, "sort_depths", &scene->sort_depth_buffer);
-	}
+	// Load GPU sort compute shaders (GPUSorting library)
+	scene->sort_init_shader     = su_shader_load("shaders/gpu_sort_init.hlsl.sks", "gpu_sort_init");
+	scene->sort_upsweep_shader  = su_shader_load("shaders/gpu_sort_upsweep.hlsl.sks", "gpu_sort_upsweep");
+	scene->sort_scan_shader     = su_shader_load("shaders/gpu_sort_scan.hlsl.sks", "gpu_sort_scan");
+	scene->sort_downsweep_shader = su_shader_load("shaders/gpu_sort_downsweep.hlsl.sks", "gpu_sort_downsweep");
 
-	// Load radix sort compute shader
-	scene->radix_shader = su_shader_load("shaders/gaussian_splat_radix.hlsl.sks", "gaussian_radix");
-	if (skr_shader_is_valid(&scene->radix_shader)) {
-		skr_compute_create(&scene->radix_shader, &scene->radix_compute);
-		skr_compute_set_buffer(&scene->radix_compute, "splats",      &scene->splat_buffer);
-		skr_compute_set_buffer(&scene->radix_compute, "indices_a",   &scene->sort_index_buffer);
-		skr_compute_set_buffer(&scene->radix_compute, "depths_a",    &scene->sort_depth_buffer);
-		skr_compute_set_buffer(&scene->radix_compute, "indices_b",   &scene->sort_index_buffer_b);
-		skr_compute_set_buffer(&scene->radix_compute, "depths_b",    &scene->sort_depth_buffer_b);
-		skr_compute_set_buffer(&scene->radix_compute, "histogram",   &scene->histogram_buffer);
-		skr_compute_set_buffer(&scene->radix_compute, "ranks",       &scene->ranks_buffer);
+	bool sort_shaders_valid =
+		skr_shader_is_valid(&scene->sort_init_shader) &&
+		skr_shader_is_valid(&scene->sort_upsweep_shader) &&
+		skr_shader_is_valid(&scene->sort_scan_shader) &&
+		skr_shader_is_valid(&scene->sort_downsweep_shader);
+
+	if (sort_shaders_valid) {
+		// Create compute pipelines
+		skr_compute_create(&scene->sort_init_shader, &scene->sort_init);
+		skr_compute_create(&scene->sort_upsweep_shader, &scene->sort_upsweep);
+		skr_compute_create(&scene->sort_scan_shader, &scene->sort_scan);
+		skr_compute_create(&scene->sort_downsweep_shader, &scene->sort_downsweep);
+
+		// Bind all buffers to all shaders (even if not all used, they're declared)
+		// Init kernel buffers
+		skr_compute_set_buffer(&scene->sort_init, "splats",        &scene->splat_buffer);
+		skr_compute_set_buffer(&scene->sort_init, "b_sort",        &scene->sort_keys_a);
+		skr_compute_set_buffer(&scene->sort_init, "b_alt",         &scene->sort_keys_b);
+		skr_compute_set_buffer(&scene->sort_init, "b_sortPayload", &scene->sort_payload_a);
+		skr_compute_set_buffer(&scene->sort_init, "b_altPayload",  &scene->sort_payload_b);
+		skr_compute_set_buffer(&scene->sort_init, "b_globalHist",  &scene->global_hist);
+		skr_compute_set_buffer(&scene->sort_init, "b_passHist",    &scene->pass_hist);
+
+		// Upsweep kernel buffers (b_sort set dynamically for ping-pong)
+		skr_compute_set_buffer(&scene->sort_upsweep, "b_sort",        &scene->sort_keys_a);
+		skr_compute_set_buffer(&scene->sort_upsweep, "b_alt",         &scene->sort_keys_b);
+		skr_compute_set_buffer(&scene->sort_upsweep, "b_sortPayload", &scene->sort_payload_a);
+		skr_compute_set_buffer(&scene->sort_upsweep, "b_altPayload",  &scene->sort_payload_b);
+		skr_compute_set_buffer(&scene->sort_upsweep, "b_passHist",    &scene->pass_hist);
+		skr_compute_set_buffer(&scene->sort_upsweep, "b_globalHist",  &scene->global_hist);
+
+		// Scan kernel buffers
+		skr_compute_set_buffer(&scene->sort_scan, "b_sort",        &scene->sort_keys_a);
+		skr_compute_set_buffer(&scene->sort_scan, "b_alt",         &scene->sort_keys_b);
+		skr_compute_set_buffer(&scene->sort_scan, "b_sortPayload", &scene->sort_payload_a);
+		skr_compute_set_buffer(&scene->sort_scan, "b_altPayload",  &scene->sort_payload_b);
+		skr_compute_set_buffer(&scene->sort_scan, "b_passHist",    &scene->pass_hist);
+		skr_compute_set_buffer(&scene->sort_scan, "b_globalHist",  &scene->global_hist);
+
+		// Downsweep kernel buffers (set dynamically for ping-pong)
+		skr_compute_set_buffer(&scene->sort_downsweep, "b_sort",        &scene->sort_keys_a);
+		skr_compute_set_buffer(&scene->sort_downsweep, "b_alt",         &scene->sort_keys_b);
+		skr_compute_set_buffer(&scene->sort_downsweep, "b_sortPayload", &scene->sort_payload_a);
+		skr_compute_set_buffer(&scene->sort_downsweep, "b_altPayload",  &scene->sort_payload_b);
+		skr_compute_set_buffer(&scene->sort_downsweep, "b_passHist",    &scene->pass_hist);
+		skr_compute_set_buffer(&scene->sort_downsweep, "b_globalHist",  &scene->global_hist);
+
+		su_log(su_log_info, "gaussian_splat: GPU sort shaders loaded successfully");
+	} else {
+		su_log(su_log_warning, "gaussian_splat: Failed to load GPU sort shaders!");
 	}
 
 	su_log(su_log_info, "gaussian_splat: Scene created with %u splats", scene->splat_count);
@@ -405,23 +564,38 @@ static scene_t* _scene_gaussian_splat_create(void) {
 	return (scene_t*)scene;
 }
 
+// Forward declarations
+static void _run_sort_compute(scene_gaussian_splat_t* scene);
+
 static void _scene_gaussian_splat_destroy(scene_t* base) {
 	scene_gaussian_splat_t* scene = (scene_gaussian_splat_t*)base;
 
+	// Splat data
 	skr_buffer_destroy(&scene->splat_buffer);
-	skr_buffer_destroy(&scene->sort_index_buffer);
-	skr_buffer_destroy(&scene->sort_depth_buffer);
-	skr_buffer_destroy(&scene->sort_index_buffer_b);
-	skr_buffer_destroy(&scene->sort_depth_buffer_b);
-	skr_buffer_destroy(&scene->histogram_buffer);
-	skr_buffer_destroy(&scene->ranks_buffer);
+
+	// Radix sort buffers
+	skr_buffer_destroy(&scene->sort_keys_a);
+	skr_buffer_destroy(&scene->sort_keys_b);
+	skr_buffer_destroy(&scene->sort_payload_a);
+	skr_buffer_destroy(&scene->sort_payload_b);
+	skr_buffer_destroy(&scene->global_hist);
+	skr_buffer_destroy(&scene->pass_hist);
+	skr_buffer_destroy(&scene->sort_indices);
+
+	// Rendering
 	skr_mesh_destroy(&scene->quad_mesh);
 	skr_material_destroy(&scene->render_material);
-	skr_compute_destroy(&scene->sort_compute);
-	skr_compute_destroy(&scene->radix_compute);
-	skr_shader_destroy(&scene->sort_shader);
-	skr_shader_destroy(&scene->radix_shader);
 	skr_shader_destroy(&scene->render_shader);
+
+	// GPU Sort compute
+	skr_compute_destroy(&scene->sort_init);
+	skr_compute_destroy(&scene->sort_upsweep);
+	skr_compute_destroy(&scene->sort_scan);
+	skr_compute_destroy(&scene->sort_downsweep);
+	skr_shader_destroy(&scene->sort_init_shader);
+	skr_shader_destroy(&scene->sort_upsweep_shader);
+	skr_shader_destroy(&scene->sort_scan_shader);
+	skr_shader_destroy(&scene->sort_downsweep_shader);
 
 	if (scene->ply_path) free(scene->ply_path);
 
@@ -431,6 +605,9 @@ static void _scene_gaussian_splat_destroy(scene_t* base) {
 static void _scene_gaussian_splat_update(scene_t* base, float delta_time) {
 	scene_gaussian_splat_t* scene = (scene_gaussian_splat_t*)base;
 	scene->time += delta_time;
+
+	// Run compute shader for sorting (must be outside render pass)
+	_run_sort_compute(scene);
 
 	// Camera control (same as scene_text)
 	const float rotate_sensitivity = 0.003f;
@@ -493,154 +670,118 @@ static void _scene_gaussian_splat_update(scene_t* base, float delta_time) {
 	scene->cam_target_vel.z *= damping;
 }
 
-// Check if two matrices are approximately equal
-static bool _mat4_approx_equal(float4x4 a, float4x4 b, float epsilon) {
-	for (int32_t i = 0; i < 16; i++) {
-		float diff = ((float*)&a)[i] - ((float*)&b)[i];
-		if (diff > epsilon || diff < -epsilon) return false;
-	}
-	return true;
+// Check if two float3s are approximately equal
+static bool _float3_approx_equal(float3 a, float3 b, float epsilon) {
+	float dx = a.x - b.x;
+	float dy = a.y - b.y;
+	float dz = a.z - b.z;
+	return (dx > -epsilon && dx < epsilon) &&
+	       (dy > -epsilon && dy < epsilon) &&
+	       (dz > -epsilon && dz < epsilon);
 }
 
-// Run radix/counting sort - O(n) sort using depth quantization
-// ONE pass per frame to avoid parameter buffer race conditions
-// Pass sequence: 5 (init, once) -> 0 (clear) -> 1 (histogram) -> 2 (prefix) -> 3 (scatter) -> 4 (copy) -> repeat from 0
-// Sort is STABLE due to: ranks buffer preserves within-bin ordering from histogram pass
-// Re-sort is SKIPPED when camera stationary to prevent rank shuffling from non-deterministic atomics
-static void _run_radix_sort(scene_gaussian_splat_t* scene, float4x4 view_mat) {
-	if (!skr_compute_is_valid(&scene->radix_compute)) return;
-
-	uint32_t dispatch_count = (scene->splat_count + 255) / 256;
-
-	// Depth range for quantization - use a large range to cover the scene
-	float depth_min   = -500.0f;
-	float depth_range = 1000.0f;
-
-	// Set common parameters
-	skr_compute_set_param(&scene->radix_compute, "view_matrix", sksc_shader_var_float, 16, &view_mat);
-	skr_compute_set_param(&scene->radix_compute, "splat_count", sksc_shader_var_uint,  1, &scene->splat_count);
-	skr_compute_set_param(&scene->radix_compute, "depth_min",   sksc_shader_var_float, 1, &depth_min);
-	skr_compute_set_param(&scene->radix_compute, "depth_range", sksc_shader_var_float, 1, &depth_range);
-
-	// First time: initialize indices to identity (Pass 5)
-	if (!scene->sort_depths_computed) {
-		skr_compute_set_param(&scene->radix_compute, "sort_pass", sksc_shader_var_uint, 1, &(uint32_t){5});
-		skr_compute_execute(&scene->radix_compute, dispatch_count, 1, 1);
-
-		scene->sort_depths_computed = true;
-		scene->radix_pass = 0;
-		scene->needs_resort = true;  // Need initial sort
-		su_log(su_log_info, "gaussian_splat: Radix init (pass 5)");
+// Run GPU radix sort using GPUSorting library (Thomas Smith)
+// 8-bit LSD radix sort with 4 passes (one per byte)
+// Uses wave intrinsics for correct, stable sorting
+static void _run_gpu_sort(scene_gaussian_splat_t* scene, float3 cam_pos) {
+	if (!skr_compute_is_valid(&scene->sort_init) ||
+	    !skr_compute_is_valid(&scene->sort_upsweep) ||
+	    !skr_compute_is_valid(&scene->sort_scan) ||
+	    !skr_compute_is_valid(&scene->sort_downsweep)) {
 		return;
 	}
 
-	// Check if camera moved since last completed sort
-	bool camera_moved = !_mat4_approx_equal(view_mat, scene->last_sorted_view_mat, 0.0001f);
+	// Check if camera moved
+	bool camera_moved = !_float3_approx_equal(cam_pos, scene->last_sorted_cam_pos, 0.0001f);
 	if (camera_moved) {
 		scene->needs_resort = true;
 	}
 
-	// Skip sorting if camera stationary and we've completed at least one sort
-	// This prevents rank shuffling from non-deterministic atomics
+	// Skip if no resort needed and already sorted
 	if (!scene->needs_resort && scene->initial_sort_complete) {
 		return;
 	}
 
-	// Do ONE pass per frame to avoid parameter buffer race
-	uint32_t pass = scene->radix_pass;
-	skr_compute_set_param(&scene->radix_compute, "sort_pass", sksc_shader_var_uint, 1, &pass);
+	uint32_t dispatch_splats = (scene->splat_count + 255) / 256;
 
-	// Dispatch with appropriate thread count for each pass
-	if (pass == 0) {
-		// Clear histogram - need enough threads for 65536 bins
-		skr_compute_execute(&scene->radix_compute, (65536 + 255) / 256, 1, 1);
-	} else if (pass == 2) {
-		// Prefix sum - single workgroup (sequential scan)
-		skr_compute_execute(&scene->radix_compute, 1, 1, 1);
-	} else {
-		// All other passes need threads for all splats
-		skr_compute_execute(&scene->radix_compute, dispatch_count, 1, 1);
-	}
+	// === INIT PHASE ===
+	// Pass 0: Clear global histogram
+	skr_compute_set_param(&scene->sort_init, "e_numKeys",     sksc_shader_var_uint,  1, &scene->splat_count);
+	skr_compute_set_param(&scene->sort_init, "e_threadBlocks", sksc_shader_var_uint, 1, &scene->thread_blocks);
+	skr_compute_set_param(&scene->sort_init, "e_initPass",    sksc_shader_var_uint,  1, &(uint32_t){0});
+	skr_compute_execute(&scene->sort_init, 4, 1, 1);  // 4 workgroups * 256 = 1024 threads
 
-	// Advance to next pass (cycle: 0 -> 1 -> 2 -> 3 -> 4 -> 0)
-	scene->radix_pass = (scene->radix_pass + 1) % 5;
+	// Pass 1: Compute depths and initialize keys/payloads
+	skr_compute_set_param(&scene->sort_init, "e_camPos",   sksc_shader_var_float, 3, &cam_pos);
+	skr_compute_set_param(&scene->sort_init, "e_initPass", sksc_shader_var_uint,  1, &(uint32_t){1});
+	skr_compute_execute(&scene->sort_init, dispatch_splats, 1, 1);
 
-	// Mark sort complete after pass 4 (copy back)
-	if (pass == 4) {
-		scene->initial_sort_complete = true;
-		scene->last_sorted_view_mat = view_mat;
-		scene->needs_resort = false;  // Sort complete, wait for camera movement
-	}
-}
+	// Set common parameters for sorting kernels
+	skr_compute_set_param(&scene->sort_upsweep,   "e_numKeys",      sksc_shader_var_uint, 1, &scene->splat_count);
+	skr_compute_set_param(&scene->sort_upsweep,   "e_threadBlocks", sksc_shader_var_uint, 1, &scene->thread_blocks);
+	skr_compute_set_param(&scene->sort_scan,      "e_numKeys",      sksc_shader_var_uint, 1, &scene->splat_count);
+	skr_compute_set_param(&scene->sort_scan,      "e_threadBlocks", sksc_shader_var_uint, 1, &scene->thread_blocks);
+	skr_compute_set_param(&scene->sort_downsweep, "e_numKeys",      sksc_shader_var_uint, 1, &scene->splat_count);
+	skr_compute_set_param(&scene->sort_downsweep, "e_threadBlocks", sksc_shader_var_uint, 1, &scene->thread_blocks);
 
-// Run bitonic sort compute shader (legacy) - called from render
-// Sort modes:
-//   Pass 0: Initialize indices + compute depths (first time only)
-//   Pass 1: Update depths only (keep sorted indices)
-//   Pass 3: Bitonic sort step (for initial full sort)
-static void _run_bitonic_sort(scene_gaussian_splat_t* scene, float4x4 view_mat) {
-	if (!skr_compute_is_valid(&scene->sort_compute)) return;
+	// === SORT PHASE: 4 radix passes (one per byte) ===
+	// After 4 passes (even number), result is back in original buffers
+	bool is_even = true;
+	for (uint32_t radix_shift = 0; radix_shift < 32; radix_shift += 8) {
+		// Set radix shift for this pass
+		skr_compute_set_param(&scene->sort_upsweep,   "e_radixShift", sksc_shader_var_uint, 1, &radix_shift);
+		skr_compute_set_param(&scene->sort_scan,      "e_radixShift", sksc_shader_var_uint, 1, &radix_shift);
+		skr_compute_set_param(&scene->sort_downsweep, "e_radixShift", sksc_shader_var_uint, 1, &radix_shift);
 
-	uint32_t dispatch_count = (scene->splat_count + 255) / 256;
-
-	// Compute max stage needed for bitonic sort
-	uint32_t n_pow2 = 1;
-	while (n_pow2 < scene->splat_count) n_pow2 *= 2;
-	uint32_t max_stage = 0;
-	while ((1u << max_stage) < n_pow2) max_stage++;
-
-	if (!scene->sort_depths_computed) {
-		// First time: initialize indices and compute depths (Pass 0)
-		skr_compute_set_param(&scene->sort_compute, "view_matrix", sksc_shader_var_float, 16, &view_mat);
-		skr_compute_set_param(&scene->sort_compute, "splat_count", sksc_shader_var_uint, 1, &scene->splat_count);
-		skr_compute_set_param(&scene->sort_compute, "sort_pass",   sksc_shader_var_uint, 1, &(uint32_t){0});
-		skr_compute_execute(&scene->sort_compute, dispatch_count, 1, 1);
-		scene->sort_depths_computed = true;
-		scene->sort_stage = 1;
-		scene->sort_step  = 1;
-	} else if (!scene->initial_sort_complete) {
-		// Initial sort: use bitonic (Pass 3)
-		if (scene->sort_stage > max_stage) {
-			scene->initial_sort_complete = true;
+		// Set buffer bindings for ping-pong
+		if (is_even) {
+			skr_compute_set_buffer(&scene->sort_upsweep,   "b_sort",        &scene->sort_keys_a);
+			skr_compute_set_buffer(&scene->sort_downsweep, "b_sort",        &scene->sort_keys_a);
+			skr_compute_set_buffer(&scene->sort_downsweep, "b_alt",         &scene->sort_keys_b);
+			skr_compute_set_buffer(&scene->sort_downsweep, "b_sortPayload", &scene->sort_payload_a);
+			skr_compute_set_buffer(&scene->sort_downsweep, "b_altPayload",  &scene->sort_payload_b);
 		} else {
-			skr_compute_set_param(&scene->sort_compute, "splat_count", sksc_shader_var_uint, 1, &scene->splat_count);
-			skr_compute_set_param(&scene->sort_compute, "sort_pass",   sksc_shader_var_uint, 1, &(uint32_t){3});
-			skr_compute_set_param(&scene->sort_compute, "sort_stage",  sksc_shader_var_uint, 1, &scene->sort_stage);
-			skr_compute_set_param(&scene->sort_compute, "sort_step",   sksc_shader_var_uint, 1, &scene->sort_step);
-			skr_compute_execute(&scene->sort_compute, dispatch_count, 1, 1);
-
-			if (scene->sort_step > 1) {
-				scene->sort_step--;
-			} else {
-				scene->sort_stage++;
-				scene->sort_step = scene->sort_stage;
-			}
+			skr_compute_set_buffer(&scene->sort_upsweep,   "b_sort",        &scene->sort_keys_b);
+			skr_compute_set_buffer(&scene->sort_downsweep, "b_sort",        &scene->sort_keys_b);
+			skr_compute_set_buffer(&scene->sort_downsweep, "b_alt",         &scene->sort_keys_a);
+			skr_compute_set_buffer(&scene->sort_downsweep, "b_sortPayload", &scene->sort_payload_b);
+			skr_compute_set_buffer(&scene->sort_downsweep, "b_altPayload",  &scene->sort_payload_a);
 		}
-	} else {
-		// Refinement mode: update depths then partial bitonic
-		skr_compute_set_param(&scene->sort_compute, "view_matrix", sksc_shader_var_float, 16, &view_mat);
-		skr_compute_set_param(&scene->sort_compute, "splat_count", sksc_shader_var_uint, 1, &scene->splat_count);
-		skr_compute_set_param(&scene->sort_compute, "sort_pass",   sksc_shader_var_uint, 1, &(uint32_t){1});
-		skr_compute_execute(&scene->sort_compute, dispatch_count, 1, 1);
 
-		const uint32_t refinement_stages = 6;
-		for (uint32_t stage = 1; stage <= refinement_stages && stage <= max_stage; stage++) {
-			for (uint32_t step = stage; step >= 1; step--) {
-				skr_compute_set_param(&scene->sort_compute, "splat_count", sksc_shader_var_uint, 1, &scene->splat_count);
-				skr_compute_set_param(&scene->sort_compute, "sort_pass",   sksc_shader_var_uint, 1, &(uint32_t){3});
-				skr_compute_set_param(&scene->sort_compute, "sort_stage",  sksc_shader_var_uint, 1, &stage);
-				skr_compute_set_param(&scene->sort_compute, "sort_step",   sksc_shader_var_uint, 1, &step);
-				skr_compute_execute(&scene->sort_compute, dispatch_count, 1, 1);
-			}
-		}
+		// Upsweep: build per-partition histograms
+		skr_compute_execute(&scene->sort_upsweep, scene->thread_blocks, 1, 1);
+
+		// Global sum: convert globalHist from counts to exclusive prefix sums
+		// Uses e_radixShift to determine which 256-entry section to process
+		skr_compute_set_param(&scene->sort_init, "e_initPass", sksc_shader_var_uint, 1, &(uint32_t){2});
+		skr_compute_set_param(&scene->sort_init, "e_radixShift", sksc_shader_var_uint, 1, &radix_shift);
+		skr_compute_execute(&scene->sort_init, 1, 1, 1);
+
+		// Scan: exclusive prefix sum over partition histograms (256 workgroups, one per digit)
+		skr_compute_execute(&scene->sort_scan, 256, 1, 1);
+
+		// Downsweep: rank keys and scatter to sorted positions
+		skr_compute_execute(&scene->sort_downsweep, scene->thread_blocks, 1, 1);
+
+		is_even = !is_even;
 	}
+
+	// After 4 passes, sorted payloads are in sort_payload_a
+	// Copy to sort_indices for rendering
+	// (We could optimize this away by having the renderer read from sort_payload_a directly)
+	// For now, we use sort_payload_a as the render buffer
+
+	scene->initial_sort_complete = true;
+	scene->last_sorted_cam_pos = cam_pos;
+	scene->needs_resort = false;
+	scene->sort_buffers_swapped = false;
 }
 
-// Run sort compute shader - called from render to ensure compute and graphics are in same batch
+// Run sort compute shader - called from update to ensure compute runs before render
 static void _run_sort_compute(scene_gaussian_splat_t* scene) {
-	if (!scene->enable_sort || scene->splat_count == 0) return;
+	if (scene->splat_count == 0) return;
 
-	// Compute view matrix from camera for depth calculation
+	// Compute camera position for distance² sorting
 	float cos_pitch = cosf(scene->cam_pitch);
 	float sin_pitch = sinf(scene->cam_pitch);
 	float cos_yaw   = cosf(scene->cam_yaw);
@@ -651,13 +792,8 @@ static void _run_sort_compute(scene_gaussian_splat_t* scene) {
 		scene->cam_target.y + scene->cam_distance * sin_pitch,
 		scene->cam_target.z + scene->cam_distance * cos_pitch * cos_yaw
 	};
-	float4x4 view_mat = float4x4_lookat(cam_pos, scene->cam_target, (float3){0, 1, 0});
 
-	if (scene->use_radix_sort) {
-		_run_radix_sort(scene, view_mat);
-	} else {
-		_run_bitonic_sort(scene, view_mat);
-	}
+	_run_gpu_sort(scene, cam_pos);
 }
 
 static void _scene_gaussian_splat_render(scene_t* base, int32_t width, int32_t height,
@@ -666,9 +802,6 @@ static void _scene_gaussian_splat_render(scene_t* base, int32_t width, int32_t h
 	scene_gaussian_splat_t* scene = (scene_gaussian_splat_t*)base;
 
 	if (scene->splat_count == 0) return;
-
-	// Run compute shader for sorting (in render to ensure same command batch as draw)
-	_run_sort_compute(scene);
 
 	// Set shader parameters
 	float2 screen_size = { (float)width, (float)height };
@@ -680,8 +813,9 @@ static void _scene_gaussian_splat_render(scene_t* base, int32_t width, int32_t h
 	skr_material_set_param(&scene->render_material, "max_radius",    sksc_shader_var_float, 1, &scene->max_radius);
 
 	// Bind buffers
-	skr_material_set_buffer(&scene->render_material, "splats",       &scene->splat_buffer);
-	skr_material_set_buffer(&scene->render_material, "sort_indices", &scene->sort_index_buffer);
+	// After 4 radix passes (even number), sorted indices are in sort_payload_a
+	skr_material_set_buffer(&scene->render_material, "splats", &scene->splat_buffer);
+	skr_material_set_buffer(&scene->render_material, "sort_indices", &scene->sort_payload_a);
 
 	// Render all splats as instanced quads
 	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->render_material, NULL, 0, scene->splat_count);
@@ -712,44 +846,11 @@ static void _scene_gaussian_splat_render_ui(scene_t* base) {
 	igText("Gaussian Splatting");
 	igSeparator();
 
-	igText("Splats: %u", scene->splat_count);
+	igText("Splats: %u (partitions: %u)", scene->splat_count, scene->thread_blocks);
 	igSliderFloat("Splat Scale", &scene->splat_scale, 0.1f, 5.0f, "%.2f", 0);
 	igSliderFloat("Opacity", &scene->opacity_scale, 0.1f, 2.0f, "%.2f", 0);
 	igSliderFloat("Max Radius", &scene->max_radius, 0.0f, 1024.0f, "%.0f px", 0);
 	igSliderInt("SH Degree", &scene->sh_degree, 0, 3, "%d", 0);
-	igCheckbox("Enable Sorting", &scene->enable_sort);
-	if (scene->enable_sort) {
-		igSameLine(0, 10);
-		igCheckbox("Use Radix", &scene->use_radix_sort);
-	}
-	if (scene->enable_sort && scene->splat_count > 0) {
-		if (scene->use_radix_sort) {
-			if (scene->needs_resort || !scene->initial_sort_complete) {
-				const char* pass_names[] = {"Clear", "Histogram", "Prefix", "Scatter", "Copy"};
-				igText("Radix pass %u: %s", scene->radix_pass, pass_names[scene->radix_pass]);
-			} else {
-				igText("Sorted (stable)");
-			}
-		} else if (!scene->initial_sort_complete) {
-			// Show bitonic sort progress
-			uint32_t n_pow2 = 1;
-			while (n_pow2 < scene->splat_count) n_pow2 *= 2;
-			uint32_t max_stage = 0;
-			while ((1u << max_stage) < n_pow2) max_stage++;
-
-			uint32_t total_steps = max_stage * (max_stage + 1) / 2;
-			uint32_t completed_steps = 0;
-			for (uint32_t s = 1; s < scene->sort_stage; s++) completed_steps += s;
-			completed_steps += (scene->sort_stage - scene->sort_step);
-
-			float progress = (float)completed_steps / (float)total_steps;
-			igProgressBar(progress, (ImVec2){-1, 0}, NULL);
-			igSameLine(0, 5);
-			igText("Bitonic %u/%u", scene->sort_stage, max_stage);
-		} else {
-			igText("Bitonic refinement");
-		}
-	}
 
 	igSeparator();
 	igText("PLY: %s", scene->ply_path ? scene->ply_path : "(none)");
@@ -759,36 +860,57 @@ static void _scene_gaussian_splat_render_ui(scene_t* base) {
 			if (path) {
 				// Destroy old buffers
 				skr_buffer_destroy(&scene->splat_buffer);
-				skr_buffer_destroy(&scene->sort_index_buffer);
-				skr_buffer_destroy(&scene->sort_depth_buffer);
-				skr_buffer_destroy(&scene->sort_index_buffer_b);
-				skr_buffer_destroy(&scene->sort_depth_buffer_b);
-				skr_buffer_destroy(&scene->histogram_buffer);
-				skr_buffer_destroy(&scene->ranks_buffer);
+				skr_buffer_destroy(&scene->sort_keys_a);
+				skr_buffer_destroy(&scene->sort_keys_b);
+				skr_buffer_destroy(&scene->sort_payload_a);
+				skr_buffer_destroy(&scene->sort_payload_b);
+				skr_buffer_destroy(&scene->global_hist);
+				skr_buffer_destroy(&scene->pass_hist);
+				skr_buffer_destroy(&scene->sort_indices);
+
 				scene->splat_count = 0;
-				scene->sort_depths_computed = false;
+				scene->sort_initialized = false;
 				scene->initial_sort_complete = false;
-				scene->radix_pass = 0;
+				scene->needs_resort = true;
 
 				// Load new file
 				if (_load_splat_ply(scene, path)) {
 					if (scene->ply_path) free(scene->ply_path);
 					scene->ply_path = path;
 
-					// Update compute bindings
-					if (skr_compute_is_valid(&scene->sort_compute)) {
-						skr_compute_set_buffer(&scene->sort_compute, "splats", &scene->splat_buffer);
-						skr_compute_set_buffer(&scene->sort_compute, "sort_indices", &scene->sort_index_buffer);
-						skr_compute_set_buffer(&scene->sort_compute, "sort_depths", &scene->sort_depth_buffer);
+					// Update compute bindings for all 4 sort kernels (bind all buffers to all)
+					if (skr_compute_is_valid(&scene->sort_init)) {
+						skr_compute_set_buffer(&scene->sort_init, "splats",        &scene->splat_buffer);
+						skr_compute_set_buffer(&scene->sort_init, "b_sort",        &scene->sort_keys_a);
+						skr_compute_set_buffer(&scene->sort_init, "b_alt",         &scene->sort_keys_b);
+						skr_compute_set_buffer(&scene->sort_init, "b_sortPayload", &scene->sort_payload_a);
+						skr_compute_set_buffer(&scene->sort_init, "b_altPayload",  &scene->sort_payload_b);
+						skr_compute_set_buffer(&scene->sort_init, "b_globalHist",  &scene->global_hist);
+						skr_compute_set_buffer(&scene->sort_init, "b_passHist",    &scene->pass_hist);
 					}
-					if (skr_compute_is_valid(&scene->radix_compute)) {
-						skr_compute_set_buffer(&scene->radix_compute, "splats",    &scene->splat_buffer);
-						skr_compute_set_buffer(&scene->radix_compute, "indices_a", &scene->sort_index_buffer);
-						skr_compute_set_buffer(&scene->radix_compute, "depths_a",  &scene->sort_depth_buffer);
-						skr_compute_set_buffer(&scene->radix_compute, "indices_b", &scene->sort_index_buffer_b);
-						skr_compute_set_buffer(&scene->radix_compute, "depths_b",  &scene->sort_depth_buffer_b);
-						skr_compute_set_buffer(&scene->radix_compute, "histogram", &scene->histogram_buffer);
-						skr_compute_set_buffer(&scene->radix_compute, "ranks",     &scene->ranks_buffer);
+					if (skr_compute_is_valid(&scene->sort_upsweep)) {
+						skr_compute_set_buffer(&scene->sort_upsweep, "b_sort",        &scene->sort_keys_a);
+						skr_compute_set_buffer(&scene->sort_upsweep, "b_alt",         &scene->sort_keys_b);
+						skr_compute_set_buffer(&scene->sort_upsweep, "b_sortPayload", &scene->sort_payload_a);
+						skr_compute_set_buffer(&scene->sort_upsweep, "b_altPayload",  &scene->sort_payload_b);
+						skr_compute_set_buffer(&scene->sort_upsweep, "b_passHist",    &scene->pass_hist);
+						skr_compute_set_buffer(&scene->sort_upsweep, "b_globalHist",  &scene->global_hist);
+					}
+					if (skr_compute_is_valid(&scene->sort_scan)) {
+						skr_compute_set_buffer(&scene->sort_scan, "b_sort",        &scene->sort_keys_a);
+						skr_compute_set_buffer(&scene->sort_scan, "b_alt",         &scene->sort_keys_b);
+						skr_compute_set_buffer(&scene->sort_scan, "b_sortPayload", &scene->sort_payload_a);
+						skr_compute_set_buffer(&scene->sort_scan, "b_altPayload",  &scene->sort_payload_b);
+						skr_compute_set_buffer(&scene->sort_scan, "b_passHist",    &scene->pass_hist);
+						skr_compute_set_buffer(&scene->sort_scan, "b_globalHist",  &scene->global_hist);
+					}
+					if (skr_compute_is_valid(&scene->sort_downsweep)) {
+						skr_compute_set_buffer(&scene->sort_downsweep, "b_sort",        &scene->sort_keys_a);
+						skr_compute_set_buffer(&scene->sort_downsweep, "b_alt",         &scene->sort_keys_b);
+						skr_compute_set_buffer(&scene->sort_downsweep, "b_sortPayload", &scene->sort_payload_a);
+						skr_compute_set_buffer(&scene->sort_downsweep, "b_altPayload",  &scene->sort_payload_b);
+						skr_compute_set_buffer(&scene->sort_downsweep, "b_passHist",    &scene->pass_hist);
+						skr_compute_set_buffer(&scene->sort_downsweep, "b_globalHist",  &scene->global_hist);
 					}
 				} else {
 					free(path);
