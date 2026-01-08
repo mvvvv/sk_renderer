@@ -181,7 +181,8 @@ app_t* app_create(int32_t start_scene) {
 	app->scene_types[11] = &scene_tex_copy_vtable;
 	app->scene_types[12] = &scene_lifetime_stress_vtable;
 	app->scene_types[13] = &scene_gaussian_splat_vtable;
-	app->scene_count = 14;
+	app->scene_types[14] = &scene_bc1_vtable;
+	app->scene_count = 15;
 #ifdef SKR_HAS_VIDEO
 	app->scene_types[app->scene_count++] = &scene_video_vtable;
 #endif

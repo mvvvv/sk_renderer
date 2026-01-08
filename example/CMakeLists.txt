@@ -130,6 +130,7 @@ target_sources(sk_renderer_test PRIVATE
 	scene_tex_copy.c
 	scene_lifetime_stress.c
 	scene_gaussian_splat.c
+	scene_bc1.c
 	bloom.c
 	text/text.c
 	tools/scene_util.c

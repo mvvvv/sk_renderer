@@ -53,6 +53,7 @@ extern const scene_vtable_t scene_text_vtable;
 extern const scene_vtable_t scene_tex_copy_vtable;
 extern const scene_vtable_t scene_lifetime_stress_vtable;
 extern const scene_vtable_t scene_gaussian_splat_vtable;
+extern const scene_vtable_t scene_bc1_vtable;
 #ifdef SKR_HAS_VIDEO
 extern const scene_vtable_t scene_video_vtable;
 #endif
