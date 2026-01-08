@@ -255,8 +255,7 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 	// Single ply_convert call for all properties
 	void*   out_data  = NULL;
 	int32_t out_count = 0;
-	ply_convert(&ply, PLY_ELEMENT_VERTICES, ply_map, 14 + 45,
-	            sizeof(gaussian_splat_unpacked_t), &out_data, &out_count);
+	ply_convert(&ply, PLY_ELEMENT_VERTICES, ply_map, 14 + 45, sizeof(gaussian_splat_unpacked_t), &out_data, &out_count);
 
 	if (out_data && out_count > 0) {
 		memcpy(splats_unpacked, out_data, (size_t)out_count * sizeof(gaussian_splat_unpacked_t));
@@ -311,7 +310,7 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 
 	for (int32_t i = 0; i < vertex_count; i++) {
 		gaussian_splat_unpacked_t* src = &splats_unpacked[i];
-		gaussian_splat_t* dst = &splats[i];
+		gaussian_splat_t*          dst = &splats         [i];
 
 		// Position: full precision
 		dst->pos_x = src->position.x;
@@ -322,7 +321,7 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 		dst->rot_packed = pack_quat_smallest3(src->rotation);
 
 		// Scale + opacity: half precision
-		dst->scale_xy       = pack_halfs(src->scale.x, src->scale.y);
+		dst->scale_xy        = pack_halfs(src->scale.x, src->scale.y);
 		dst->scale_z_opacity = pack_halfs(src->scale.z, src->opacity);
 
 		// SH DC: preprocess like Aras does (color = f_dc * SH_C0 + 0.5)
@@ -379,8 +378,7 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 	// Create GPU buffers
 	scene->splat_count = vertex_count;
 
-	skr_buffer_create(splats, vertex_count, sizeof(gaussian_splat_t),
-	                  skr_buffer_type_storage, skr_use_compute_read, &scene->splat_buffer);
+	skr_buffer_create(splats, vertex_count, sizeof(gaussian_splat_t), skr_buffer_type_storage, skr_use_compute_read, &scene->splat_buffer);
 	skr_buffer_set_name(&scene->splat_buffer, "gaussian_splat_data");
 
 	// Calculate thread blocks for radix sort
@@ -391,41 +389,34 @@ static bool _load_splat_ply(scene_gaussian_splat_t* scene, const char* filename)
 	uint32_t* zeros = calloc(vertex_count, sizeof(uint32_t));
 
 	// Keys A/B (uint representation of depths)
-	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_keys_a);
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t), skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_keys_a);
 	skr_buffer_set_name(&scene->sort_keys_a, "radix_keys_a");
 
-	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_keys_b);
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t), skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_keys_b);
 	skr_buffer_set_name(&scene->sort_keys_b, "radix_keys_b");
 
 	// Payloads A/B (splat indices)
-	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_payload_a);
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t), skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_payload_a);
 	skr_buffer_set_name(&scene->sort_payload_a, "radix_payload_a");
 
-	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_payload_b);
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t), skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_payload_b);
 	skr_buffer_set_name(&scene->sort_payload_b, "radix_payload_b");
 
 	// Global histogram (RADIX * 4 = 1024 entries for 4 radix passes)
 	uint32_t* global_hist = calloc(RADIX_BINS * 4, sizeof(uint32_t));
-	skr_buffer_create(global_hist, RADIX_BINS * 4, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->global_hist);
+	skr_buffer_create(global_hist, RADIX_BINS * 4, sizeof(uint32_t), skr_buffer_type_storage, skr_use_compute_readwrite, &scene->global_hist);
 	skr_buffer_set_name(&scene->global_hist, "radix_global_hist");
 	free(global_hist);
 
 	// Per-partition histograms (RADIX * thread_blocks)
-	uint32_t pass_hist_size = RADIX_BINS * scene->thread_blocks;
-	uint32_t* pass_hist = calloc(pass_hist_size, sizeof(uint32_t));
-	skr_buffer_create(pass_hist, pass_hist_size, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->pass_hist);
+	uint32_t  pass_hist_size = RADIX_BINS * scene->thread_blocks;
+	uint32_t* pass_hist      = calloc(pass_hist_size, sizeof(uint32_t));
+	skr_buffer_create(pass_hist, pass_hist_size, sizeof(uint32_t), skr_buffer_type_storage, skr_use_compute_readwrite, &scene->pass_hist);
 	skr_buffer_set_name(&scene->pass_hist, "radix_pass_hist");
 	free(pass_hist);
 
 	// Final sorted indices for rendering
-	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t),
-	                  skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_indices);
+	skr_buffer_create(zeros, vertex_count, sizeof(uint32_t), skr_buffer_type_storage, skr_use_compute_readwrite, &scene->sort_indices);
 	skr_buffer_set_name(&scene->sort_indices, "sort_indices_render");
 
 	free(zeros);
@@ -503,9 +494,9 @@ static scene_t* _scene_gaussian_splat_create(void) {
 	}, &scene->render_material);
 
 	// Load GPU sort compute shaders (GPUSorting library)
-	scene->sort_init_shader     = su_shader_load("shaders/gpu_sort_init.hlsl.sks", "gpu_sort_init");
-	scene->sort_upsweep_shader  = su_shader_load("shaders/gpu_sort_upsweep.hlsl.sks", "gpu_sort_upsweep");
-	scene->sort_scan_shader     = su_shader_load("shaders/gpu_sort_scan.hlsl.sks", "gpu_sort_scan");
+	scene->sort_init_shader      = su_shader_load("shaders/gpu_sort_init.hlsl.sks",      "gpu_sort_init");
+	scene->sort_upsweep_shader   = su_shader_load("shaders/gpu_sort_upsweep.hlsl.sks",   "gpu_sort_upsweep");
+	scene->sort_scan_shader      = su_shader_load("shaders/gpu_sort_scan.hlsl.sks",      "gpu_sort_scan");
 	scene->sort_downsweep_shader = su_shader_load("shaders/gpu_sort_downsweep.hlsl.sks", "gpu_sort_downsweep");
 
 	bool sort_shaders_valid =
@@ -586,9 +577,9 @@ static void _scene_gaussian_splat_destroy(scene_t* base) {
 	skr_buffer_destroy(&scene->sort_indices);
 
 	// Rendering
-	skr_mesh_destroy(&scene->quad_mesh);
+	skr_mesh_destroy    (&scene->quad_mesh);
 	skr_material_destroy(&scene->render_material);
-	skr_shader_destroy(&scene->render_shader);
+	skr_shader_destroy  (&scene->render_shader);
 
 	// GPU Sort compute
 	skr_compute_destroy(&scene->sort_init);
@@ -800,7 +791,7 @@ static void _run_gpu_sort(scene_gaussian_splat_t* scene, float3 cam_pos) {
 
 		// Global sum: convert globalHist from counts to exclusive prefix sums
 		// Uses e_radixShift to determine which 256-entry section to process
-		skr_compute_set_param(&scene->sort_init, "e_initPass", sksc_shader_var_uint, 1, &(uint32_t){2});
+		skr_compute_set_param(&scene->sort_init, "e_initPass",   sksc_shader_var_uint, 1, &(uint32_t){2});
 		skr_compute_set_param(&scene->sort_init, "e_radixShift", sksc_shader_var_uint, 1, &radix_shift);
 		skr_compute_execute(&scene->sort_init, 1, 1, 1);
 
@@ -819,9 +810,9 @@ static void _run_gpu_sort(scene_gaussian_splat_t* scene, float3 cam_pos) {
 	// For now, we use sort_payload_a as the render buffer
 
 	scene->initial_sort_complete = true;
-	scene->last_sorted_cam_pos = cam_pos;
-	scene->needs_resort = false;
-	scene->sort_buffers_swapped = false;
+	scene->last_sorted_cam_pos   = cam_pos;
+	scene->needs_resort          = false;
+	scene->sort_buffers_swapped  = false;
 }
 
 // Run sort compute shader - called from update to ensure compute runs before render
@@ -894,10 +885,10 @@ static void _scene_gaussian_splat_render_ui(scene_t* base) {
 	igSeparator();
 
 	igText("Splats: %u (partitions: %u)", scene->splat_count, scene->thread_blocks);
-	igSliderFloat("Splat Scale", &scene->splat_scale, 0.1f, 5.0f, "%.2f", 0);
-	igSliderFloat("Opacity", &scene->opacity_scale, 0.1f, 2.0f, "%.2f", 0);
-	igSliderFloat("Max Radius", &scene->max_radius, 0.0f, 1024.0f, "%.0f px", 0);
-	igSliderInt("SH Degree", &scene->sh_degree, 0, 3, "%d", 0);
+	igSliderFloat("Splat Scale", &scene->splat_scale,   0.1f, 5.0f,    "%.2f",    0);
+	igSliderFloat("Opacity",     &scene->opacity_scale, 0.1f, 2.0f,    "%.2f",    0);
+	igSliderFloat("Max Radius",  &scene->max_radius,    0.0f, 1024.0f, "%.0f px", 0);
+	igSliderInt  ("SH Degree",   &scene->sh_degree,     0,    3,       "%d",      0);
 
 	igSeparator();
 	igText("PLY: %s", scene->ply_path ? scene->ply_path : "(none)");
