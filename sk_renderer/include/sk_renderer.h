@@ -488,6 +488,7 @@ SKR_API void              skr_future_wait                  (const skr_future_t* 
 
 SKR_API void              skr_cmd_begin                    (void);
 SKR_API skr_future_t      skr_cmd_end                      (void);
+SKR_API skr_future_t      skr_cmd_flush                    (void);
 
 SKR_API void              skr_callback_log                 (void (*callback)(skr_log_ level, const char* text));
 SKR_API void              skr_log                          (skr_log_ level, const char* text, ...);

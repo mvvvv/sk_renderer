@@ -532,3 +532,48 @@ skr_future_t skr_cmd_end() {
 
 	return future;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+skr_future_t skr_cmd_flush() {
+	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
+	assert(pool);
+
+	// Nothing to flush if not recording
+	if (pool->active_cmd == NULL || pool->ref_count == 0) {
+		return (skr_future_t){ .slot = NULL, .generation = 0 };
+	}
+
+	// Save ref_count - we need to restore this level after starting new batch
+	int32_t saved_ref_count = pool->ref_count;
+
+	// End recording
+	vkEndCommandBuffer(pool->active_cmd->cmd);
+
+	// Submit with no semaphores (mid-frame, not tied to surface)
+	mtx_lock(_skr_vk.graphics_queue_mutex);
+	vkQueueSubmit(_skr_vk.graphics_queue, 1, &(VkSubmitInfo){
+		.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.commandBufferCount = 1,
+		.pCommandBuffers    = &pool->active_cmd->cmd,
+	}, pool->active_cmd->fence);
+	mtx_unlock(_skr_vk.graphics_queue_mutex);
+
+	// Create future before clearing active_cmd
+	skr_future_t result = {
+		.slot       = pool->active_cmd,
+		.generation = pool->active_cmd->generation,
+	};
+
+	// Mark this slot as submitted and clear
+	pool->last_submitted = pool->active_cmd;
+	pool->active_cmd     = NULL;
+	pool->ref_count      = 0;
+
+	// Immediately start a new batch at the same ref level
+	// This ensures outstanding acquires still have a valid command buffer
+	pool->active_cmd = _skr_cmd_ring_begin(pool);
+	pool->ref_count  = saved_ref_count;
+
+	return result;
+}
