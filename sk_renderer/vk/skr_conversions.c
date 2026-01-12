@@ -22,8 +22,10 @@ uint32_t skr_tex_fmt_to_native(skr_tex_fmt_ format) {
 		case skr_tex_fmt_rgba64f:       return VK_FORMAT_R16G16B16A16_SFLOAT;
 		case skr_tex_fmt_rgba128:       return VK_FORMAT_R32G32B32A32_SFLOAT;
 		case skr_tex_fmt_r8:            return VK_FORMAT_R8_UNORM;
-		case skr_tex_fmt_r16u:          return VK_FORMAT_R16_UINT;
-		case skr_tex_fmt_r16s:          return VK_FORMAT_R16_SINT;
+		case skr_tex_fmt_r16un:         return VK_FORMAT_R16_UNORM;
+		case skr_tex_fmt_r16sn:         return VK_FORMAT_R16_SNORM;
+		case skr_tex_fmt_r16ui:         return VK_FORMAT_R16_UINT;
+		case skr_tex_fmt_r16si:         return VK_FORMAT_R16_SINT;
 		case skr_tex_fmt_r16f:          return VK_FORMAT_R16_SFLOAT;
 		case skr_tex_fmt_r32f:          return VK_FORMAT_R32_SFLOAT;
 		case skr_tex_fmt_depth32s8:     return VK_FORMAT_D32_SFLOAT_S8_UINT;
@@ -77,8 +79,10 @@ skr_tex_fmt_ skr_tex_fmt_from_native(uint32_t format) {
 		case VK_FORMAT_R16G16B16A16_SFLOAT:        return skr_tex_fmt_rgba64f;
 		case VK_FORMAT_R32G32B32A32_SFLOAT:        return skr_tex_fmt_rgba128;
 		case VK_FORMAT_R8_UNORM:                   return skr_tex_fmt_r8;
-		case VK_FORMAT_R16_UINT:                   return skr_tex_fmt_r16u;
-		case VK_FORMAT_R16_SINT:                   return skr_tex_fmt_r16s;
+		case VK_FORMAT_R16_UNORM:                  return skr_tex_fmt_r16un;
+		case VK_FORMAT_R16_SNORM:                  return skr_tex_fmt_r16sn;
+		case VK_FORMAT_R16_UINT:                   return skr_tex_fmt_r16ui;
+		case VK_FORMAT_R16_SINT:                   return skr_tex_fmt_r16si;
 		case VK_FORMAT_R16_SFLOAT:                 return skr_tex_fmt_r16f;
 		case VK_FORMAT_R32_SFLOAT:                 return skr_tex_fmt_r32f;
 		case VK_FORMAT_D32_SFLOAT_S8_UINT:         return skr_tex_fmt_depth32s8;
@@ -134,8 +138,10 @@ uint32_t _skr_tex_fmt_to_size(skr_tex_fmt_ format) {
 		case skr_tex_fmt_rgba64f:       return 8;
 		case skr_tex_fmt_rgba128:       return 16;
 		case skr_tex_fmt_r8:            return 1;
-		case skr_tex_fmt_r16u:
-		case skr_tex_fmt_r16s:
+		case skr_tex_fmt_r16un:
+		case skr_tex_fmt_r16sn:
+		case skr_tex_fmt_r16ui:
+		case skr_tex_fmt_r16si:
 		case skr_tex_fmt_r16f:          return 2;
 		case skr_tex_fmt_r32f:          return 4;
 		case skr_tex_fmt_depth32s8:     return 5;

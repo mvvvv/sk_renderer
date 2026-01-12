@@ -75,8 +75,10 @@ static const char* _tex_fmt_name(skr_tex_fmt_ fmt) {
 	case skr_tex_fmt_rgba64f:       return "rgba64f";
 	case skr_tex_fmt_rgba128:       return "rgba128";
 	case skr_tex_fmt_r8:            return "r8";
-	case skr_tex_fmt_r16u:          return "r16u";
-	case skr_tex_fmt_r16s:          return "r16s";
+	case skr_tex_fmt_r16un:         return "r16un";
+	case skr_tex_fmt_r16sn:         return "r16sn";
+	case skr_tex_fmt_r16ui:         return "r16ui";
+	case skr_tex_fmt_r16si:         return "r16si";
 	case skr_tex_fmt_r16f:          return "r16f";
 	case skr_tex_fmt_r32f:          return "r32f";
 	case skr_tex_fmt_r8g8:          return "r8g8";
