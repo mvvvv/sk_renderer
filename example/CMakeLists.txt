@@ -81,9 +81,15 @@ endif()
 ###############################################################################
 
 # Use sk_app's add_skapp() helper for cross-platform builds
+# Use debug manifest on Android for native debugging support
+if(ANDROID AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+	set(SKR_MANIFEST MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidManifest_Debug.xml")
+endif()
+
 add_skapp(sk_renderer_test
 	PACKAGE_NAME net.stereokit.renderer_test
 	APP_NAME "sk_renderer_test"
+	${SKR_MANIFEST}
 )
 
 set_target_properties(sk_renderer_test PROPERTIES
