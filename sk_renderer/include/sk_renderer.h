@@ -153,6 +153,8 @@ typedef enum skr_tex_fmt_ {
 
 	skr_tex_fmt_bc1_rgb_srgb,
 	skr_tex_fmt_bc1_rgb,
+	skr_tex_fmt_bc1_rgba_srgb,
+	skr_tex_fmt_bc1_rgba,
 	skr_tex_fmt_bc3_rgba_srgb,
 	skr_tex_fmt_bc3_rgba,
 	skr_tex_fmt_bc4_r,

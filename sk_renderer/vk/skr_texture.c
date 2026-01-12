@@ -1463,6 +1463,8 @@ void skr_tex_fmt_block_info(skr_tex_fmt_ format, uint32_t* opt_out_block_width, 
 		// BC formats (4x4 blocks)
 		case skr_tex_fmt_bc1_rgb:
 		case skr_tex_fmt_bc1_rgb_srgb:
+		case skr_tex_fmt_bc1_rgba:
+		case skr_tex_fmt_bc1_rgba_srgb:
 		case skr_tex_fmt_bc4_r:
 			block_w = 4; block_h = 4; block_bytes = 8; break;
 		case skr_tex_fmt_bc3_rgba:

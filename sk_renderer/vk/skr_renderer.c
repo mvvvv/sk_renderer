@@ -304,9 +304,15 @@ void skr_renderer_end_pass() {
 
 	// Transition readable depth texture to shader-read layout for next use (e.g., shadow maps)
 	// Automatic system handles this - tracks that depth is currently in DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+	// NOTE: MSAA depth textures don't have SAMPLED_BIT and can't be transitioned to SHADER_READ_ONLY
 	if (_skr_vk.current_depth_texture && (_skr_vk.current_depth_texture->flags & skr_tex_flags_readable)) {
-		_skr_tex_transition_for_shader_read(cmd, _skr_vk.current_depth_texture,
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+		// Only transition to shader-read if not MSAA depth (MSAA depth doesn't have SAMPLED_BIT)
+		bool is_msaa_depth = _skr_vk.current_depth_texture->samples > VK_SAMPLE_COUNT_1_BIT &&
+		                     (_skr_vk.current_depth_texture->aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT);
+		if (!is_msaa_depth) {
+			_skr_tex_transition_for_shader_read(cmd, _skr_vk.current_depth_texture,
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+		}
 	}
 
 	_skr_vk.current_color_texture = NULL;

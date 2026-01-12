@@ -36,6 +36,8 @@ uint32_t skr_tex_fmt_to_native(skr_tex_fmt_ format) {
 		// Compressed formats
 		case skr_tex_fmt_bc1_rgb_srgb:  return VK_FORMAT_BC1_RGB_SRGB_BLOCK;
 		case skr_tex_fmt_bc1_rgb:       return VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+		case skr_tex_fmt_bc1_rgba_srgb: return VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
+		case skr_tex_fmt_bc1_rgba:      return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
 		case skr_tex_fmt_bc3_rgba_srgb: return VK_FORMAT_BC3_SRGB_BLOCK;
 		case skr_tex_fmt_bc3_rgba:      return VK_FORMAT_BC3_UNORM_BLOCK;
 		case skr_tex_fmt_bc4_r:         return VK_FORMAT_BC4_UNORM_BLOCK;
@@ -89,6 +91,8 @@ skr_tex_fmt_ skr_tex_fmt_from_native(uint32_t format) {
 		// Compressed formats
 		case VK_FORMAT_BC1_RGB_SRGB_BLOCK:         return skr_tex_fmt_bc1_rgb_srgb;
 		case VK_FORMAT_BC1_RGB_UNORM_BLOCK:        return skr_tex_fmt_bc1_rgb;
+		case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:        return skr_tex_fmt_bc1_rgba_srgb;
+		case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:       return skr_tex_fmt_bc1_rgba;
 		case VK_FORMAT_BC3_SRGB_BLOCK:             return skr_tex_fmt_bc3_rgba_srgb;
 		case VK_FORMAT_BC3_UNORM_BLOCK:            return skr_tex_fmt_bc3_rgba;
 		case VK_FORMAT_BC4_UNORM_BLOCK:            return skr_tex_fmt_bc4_r;

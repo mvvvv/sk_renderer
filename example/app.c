@@ -181,7 +181,7 @@ app_t* app_create(int32_t start_scene) {
 	app->scene_types[11] = &scene_tex_copy_vtable;
 	app->scene_types[12] = &scene_lifetime_stress_vtable;
 	app->scene_types[13] = &scene_gaussian_splat_vtable;
-	app->scene_types[14] = &scene_bc1_vtable;
+	app->scene_types[14] = &scene_tex_compress_vtable;
 	app->scene_count = 15;
 #ifdef SKR_HAS_VIDEO
 	app->scene_types[app->scene_count++] = &scene_video_vtable;
@@ -192,7 +192,7 @@ app_t* app_create(int32_t start_scene) {
 
 	// Start with the requested scene (default to 0 if out of range or -1)
 	app->scene_index = -1;
-	int32_t initial_scene = (start_scene >= 0 && start_scene < app->scene_count) ? start_scene : 13;
+	int32_t initial_scene = (start_scene >= 0 && start_scene < app->scene_count) ? start_scene : 0;
 	_switch_scene(app, initial_scene);
 
 	return app;
@@ -435,3 +435,4 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 
 	igEnd();
 }
+

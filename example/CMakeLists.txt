@@ -130,10 +130,11 @@ target_sources(sk_renderer_test PRIVATE
 	scene_tex_copy.c
 	scene_lifetime_stress.c
 	scene_gaussian_splat.c
-	scene_bc1.c
+	scene_tex_compress.c
 	bloom.c
 	text/text.c
 	tools/scene_util.c
+	tools/tex_compress.c
 	imgui_backend/imgui_impl_sk_renderer.cpp
 	${sk_app_SOURCE_DIR}/examples/imgui_example/imgui_impl_sk_app.cpp
 	${cimgui_SOURCE_DIR}/imgui/imgui.cpp
