@@ -123,6 +123,12 @@ void skr_thread_init() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+bool skr_thread_is_initialized() {
+	return _skr_thread_idx >= 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 void skr_thread_shutdown() {
 	if (_skr_thread_idx < 0) {
 		skr_log(skr_log_warning, "Thread not initialized, nothing to shutdown");

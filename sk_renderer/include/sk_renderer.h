@@ -481,6 +481,7 @@ SKR_API bool              skr_init                         (skr_settings_t setti
 SKR_API void              skr_shutdown                     (void);
 SKR_API void              skr_thread_init                  (void);
 SKR_API void              skr_thread_shutdown              (void);
+SKR_API bool              skr_thread_is_initialized        (void);
 
 SKR_API skr_future_t      skr_future_get                   (void);
 SKR_API bool              skr_future_check                 (const skr_future_t* future);
