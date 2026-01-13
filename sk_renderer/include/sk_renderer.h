@@ -405,6 +405,37 @@ typedef struct skr_device_request_t {
 // Returns: Device requirements (physical device, extensions)
 typedef skr_device_request_t (*skr_device_init_callback_t)(void* vk_instance, void* user_data);
 
+// Info provided to instance_create_callback
+// Allows external systems (e.g., OpenXR with XR_KHR_vulkan_enable2) to create
+// the VkInstance on behalf of sk_renderer.
+typedef struct skr_instance_create_info_t {
+	void*        instance_create_info;  // VkInstanceCreateInfo* prepared by sk_renderer
+	void*        get_instance_proc_addr; // PFN_vkGetInstanceProcAddr
+} skr_instance_create_info_t;
+
+// Callback type for instance creation
+// Called instead of vkCreateInstance when provided.
+// create_info: Instance creation info prepared by sk_renderer
+// user_data: User-provided context pointer
+// Returns: Created VkInstance, or NULL on failure
+typedef void* (*skr_instance_create_callback_t)(skr_instance_create_info_t* create_info, void* user_data);
+
+// Info provided to device_create_callback
+// Allows external systems (e.g., OpenXR with XR_KHR_vulkan_enable2) to create
+// the VkDevice on behalf of sk_renderer.
+typedef struct skr_device_create_info_t {
+	void*        vk_physical_device;    // VkPhysicalDevice selected by sk_renderer
+	void*        device_create_info;    // VkDeviceCreateInfo* prepared by sk_renderer
+	void*        get_instance_proc_addr; // PFN_vkGetInstanceProcAddr
+} skr_device_create_info_t;
+
+// Callback type for device creation
+// Called instead of vkCreateDevice when provided.
+// create_info: Device creation info prepared by sk_renderer
+// user_data: User-provided context pointer
+// Returns: Created VkDevice, or NULL on failure
+typedef void* (*skr_device_create_callback_t)(skr_device_create_info_t* create_info, void* user_data);
+
 // Bind slot configuration for shader/renderer coordination.
 // These values must match between skshaderc and sk_renderer.
 // Default values (if all zeros): material=0, system=1, instance=2
@@ -431,11 +462,23 @@ typedef struct skr_settings_t {
 	const char** required_extensions;
 	uint32_t     required_extension_count;
 
+	// Instance creation callback (optional, for OpenXR XR_KHR_vulkan_enable2 etc.)
+	// If provided, called instead of vkCreateInstance to allow external systems
+	// to create the VkInstance (e.g., via xrCreateVulkanInstanceKHR).
+	skr_instance_create_callback_t instance_create_callback;
+	void*                          instance_create_user_data;
+
 	// Device initialization callback (optional, for OpenXR integration etc.)
 	// If provided, called after VkInstance creation to get device requirements.
 	// The callback can query external systems for required physical device and extensions.
 	skr_device_init_callback_t device_init_callback;
 	void*                      device_init_user_data;
+
+	// Device creation callback (optional, for OpenXR XR_KHR_vulkan_enable2 etc.)
+	// If provided, called instead of vkCreateDevice to allow external systems
+	// to create the VkDevice (e.g., via xrCreateVulkanDeviceKHR).
+	skr_device_create_callback_t device_create_callback;
+	void*                        device_create_user_data;
 
 	void*      (*malloc_func) (size_t size);
 	void*      (*calloc_func) (size_t count, size_t size);
@@ -527,7 +570,7 @@ SKR_API skr_err_          skr_tex_create_external          (skr_tex_external_inf
 SKR_API skr_err_          skr_tex_update_external          (      skr_tex_t* ref_tex, skr_tex_external_update_t update);
 SKR_API bool              skr_tex_is_valid                 (const skr_tex_t*     tex);
 SKR_API void              skr_tex_destroy                  (      skr_tex_t* ref_tex);
-SKR_API skr_err_          skr_tex_copy                     (const skr_tex_t*     src, skr_tex_t* dst, uint32_t src_mip, uint32_t src_layer, uint32_t dst_mip, uint32_t dst_layer);
+SKR_API skr_err_          skr_tex_copy                     (const skr_tex_t*     src, skr_tex_t* dst, uint32_t src_mip, uint32_t src_layer, uint32_t dst_mip, uint32_t dst_layer, uint32_t layer_count);
 SKR_API skr_err_          skr_tex_readback                 (const skr_tex_t*     tex, uint32_t mip_level, uint32_t array_layer, skr_tex_readback_t* out_readback);
 SKR_API void              skr_tex_readback_destroy         (      skr_tex_readback_t* ref_readback);
 SKR_API skr_vec3i_t       skr_tex_get_size                 (const skr_tex_t*     tex);

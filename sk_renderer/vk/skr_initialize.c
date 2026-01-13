@@ -280,20 +280,33 @@ bool skr_init(skr_settings_t settings) {
 		.ppEnabledLayerNames     = layers,
 	};
 
-	VkResult result = vkCreateInstance(&instance_info, NULL, &_skr_vk.instance);
-	if (result != VK_SUCCESS) {
-		skr_log(skr_log_critical, "Failed to create Vulkan instance: 0x%X", result);
-		skr_log(skr_log_info,     "  Enabled extensions (%u):", instance_ext_count);
-		for (uint32_t i = 0; i < instance_ext_count; i++)
-			skr_log(skr_log_info, "    - %s", instance_exts[i]);
-		if (layer_count > 0) {
-			skr_log(skr_log_info, "  Enabled layers (%u):", layer_count);
-			for (uint32_t i = 0; i < layer_count; i++) {
-				skr_log(skr_log_info, "    - %s", layers[i]);
-			}
+	// Create VkInstance - either via callback (for OpenXR enable2) or directly
+	if (settings.instance_create_callback) {
+		skr_instance_create_info_t create_info = {
+			.instance_create_info   = &instance_info,
+			.get_instance_proc_addr = vkGetInstanceProcAddr,
+		};
+		_skr_vk.instance = (VkInstance)settings.instance_create_callback(&create_info, settings.instance_create_user_data);
+		if (_skr_vk.instance == VK_NULL_HANDLE) {
+			skr_log(skr_log_critical, "Instance creation callback failed");
+			return false;
 		}
-		skr_log(skr_log_info, "  Tip: If using RenderDoc, ensure it's launched with Vulkan support enabled");
-		return false;
+	} else {
+		VkResult result = vkCreateInstance(&instance_info, NULL, &_skr_vk.instance);
+		if (result != VK_SUCCESS) {
+			skr_log(skr_log_critical, "Failed to create Vulkan instance: 0x%X", result);
+			skr_log(skr_log_info,     "  Enabled extensions (%u):", instance_ext_count);
+			for (uint32_t i = 0; i < instance_ext_count; i++)
+				skr_log(skr_log_info, "    - %s", instance_exts[i]);
+			if (layer_count > 0) {
+				skr_log(skr_log_info, "  Enabled layers (%u):", layer_count);
+				for (uint32_t i = 0; i < layer_count; i++) {
+					skr_log(skr_log_info, "    - %s", layers[i]);
+				}
+			}
+			skr_log(skr_log_info, "  Tip: If using RenderDoc, ensure it's launched with Vulkan support enabled");
+			return false;
+		}
 	}
 
 	volkLoadInstance(_skr_vk.instance);
@@ -581,8 +594,22 @@ bool skr_init(skr_settings_t settings) {
 		.pEnabledFeatures        = &device_features,
 	};
 
-	vr = vkCreateDevice(_skr_vk.physical_device, &device_info, NULL, &_skr_vk.device);
-	SKR_VK_CHECK_RET(vr, "vkCreateDevice", false);
+	// Create VkDevice - either via callback (for OpenXR enable2) or directly
+	if (settings.device_create_callback) {
+		skr_device_create_info_t create_info = {
+			.vk_physical_device     = _skr_vk.physical_device,
+			.device_create_info     = &device_info,
+			.get_instance_proc_addr = vkGetInstanceProcAddr,
+		};
+		_skr_vk.device = (VkDevice)settings.device_create_callback(&create_info, settings.device_create_user_data);
+		if (_skr_vk.device == VK_NULL_HANDLE) {
+			skr_log(skr_log_critical, "Device creation callback failed");
+			return false;
+		}
+	} else {
+		vr = vkCreateDevice(_skr_vk.physical_device, &device_info, NULL, &_skr_vk.device);
+		SKR_VK_CHECK_RET(vr, "vkCreateDevice", false);
+	}
 
 	volkLoadDevice(_skr_vk.device);
 

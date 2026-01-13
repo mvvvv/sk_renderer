@@ -239,6 +239,7 @@ VkDescriptorSetLayout _skr_shader_make_layout               (VkDevice device, bo
 
 // Format helpers
 bool                  _skr_format_has_stencil               (VkFormat format);
+bool                  _skr_format_is_depth                  (VkFormat format);
 
 // Material descriptor caching. Returns -1 on success, or the failing bind index if a resource is missing.
 int32_t               _skr_material_add_writes              (const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);

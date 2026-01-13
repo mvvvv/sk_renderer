@@ -534,7 +534,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	out_tex->samples = (multisample > 1) ? (VkSampleCountFlagBits)multisample : VK_SAMPLE_COUNT_1_BIT;
 
 	// Check if this is a depth format
-	bool is_depth = (format == skr_tex_fmt_depth16 || format == skr_tex_fmt_depth32 || format == skr_tex_fmt_depth32s8 || format == skr_tex_fmt_depth24s8 || format == skr_tex_fmt_depth16s8);
+	bool is_depth = _skr_format_is_depth(vk_format);
 
 	// Determine usage flags
 	// Don't add SAMPLED_BIT for MSAA depth textures - not supported by some drivers (NVIDIA returns size=0)
@@ -1407,12 +1407,7 @@ bool skr_tex_fmt_is_supported(skr_tex_fmt_ format, skr_tex_flags_ flags, int32_t
 	}
 
 	// Check if this is a depth format
-	bool is_depth = (
-		format == skr_tex_fmt_depth16 ||
-		format == skr_tex_fmt_depth32 ||
-		format == skr_tex_fmt_depth32s8 ||
-		format == skr_tex_fmt_depth24s8 ||
-		format == skr_tex_fmt_depth16s8);
+	bool is_depth = _skr_format_is_depth(vk_format);
 
 	// Build usage flags based on tex_flags
 	VkImageUsageFlags usage = 0;
@@ -1580,6 +1575,12 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 	int32_t layer_count = info.array_layers > 1 ? info.array_layers : 1;
 	bool is_array = layer_count > 1;
 
+	// Determine aspect mask based on format
+	VkImageAspectFlags aspect_mask = 0;
+	if (_skr_format_is_depth(vk_format))    { aspect_mask |= VK_IMAGE_ASPECT_DEPTH_BIT;   }
+	if (_skr_format_has_stencil(vk_format)) { aspect_mask |= VK_IMAGE_ASPECT_STENCIL_BIT; }
+	if (aspect_mask == 0)                   { aspect_mask  = VK_IMAGE_ASPECT_COLOR_BIT;   }
+
 	// Store external image reference
 	// Normalize size.z to 1 since external textures don't support 3D
 	out_tex->image       = info.image;
@@ -1590,7 +1591,7 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 	out_tex->samples     = vk_samples;
 	out_tex->mip_levels  = 1;
 	out_tex->layer_count = layer_count;
-	out_tex->aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+	out_tex->aspect_mask = aspect_mask;
 	out_tex->is_external = !info.owns_image;  // If we don't own it, it's external
 
 	// Layout tracking
@@ -1609,7 +1610,7 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 			.viewType = is_array ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D,
 			.format   = vk_format,
 			.subresourceRange = {
-				.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+				.aspectMask     = aspect_mask,
 				.baseMipLevel   = 0,
 				.levelCount     = 1,
 				.baseArrayLayer = 0,
@@ -1692,17 +1693,19 @@ skr_err_ skr_tex_update_external(skr_tex_t* ref_tex, skr_tex_external_update_t u
 
 skr_err_ skr_tex_copy(const skr_tex_t* src, skr_tex_t* dst,
                       uint32_t src_mip, uint32_t src_layer,
-                      uint32_t dst_mip, uint32_t dst_layer) {
+                      uint32_t dst_mip, uint32_t dst_layer,
+                      uint32_t layer_count) {
 	// Validate inputs
 	if (!src || !dst) return skr_err_invalid_parameter;
 	if (src->image == VK_NULL_HANDLE || dst->image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
+	if (layer_count == 0) layer_count = 1;
 
 	// Check mip/layer bounds
-	if (src_mip >= src->mip_levels || src_layer >= src->layer_count) {
+	if (src_mip >= src->mip_levels || src_layer + layer_count > src->layer_count) {
 		skr_log(skr_log_critical, "skr_tex_copy: source mip/layer out of bounds");
 		return skr_err_invalid_parameter;
 	}
-	if (dst_mip >= dst->mip_levels || dst_layer >= dst->layer_count) {
+	if (dst_mip >= dst->mip_levels || dst_layer + layer_count > dst->layer_count) {
 		skr_log(skr_log_critical, "skr_tex_copy: destination mip/layer out of bounds");
 		return skr_err_invalid_parameter;
 	}
@@ -1741,14 +1744,14 @@ skr_err_ skr_tex_copy(const skr_tex_t* src, skr_tex_t* dst,
 				.aspectMask     = src->aspect_mask,
 				.mipLevel       = src_mip,
 				.baseArrayLayer = src_layer,
-				.layerCount     = 1,
+				.layerCount     = layer_count,
 			},
 			.srcOffset = {0, 0, 0},
 			.dstSubresource = {
 				.aspectMask     = dst->aspect_mask,
 				.mipLevel       = dst_mip,
 				.baseArrayLayer = dst_layer,
-				.layerCount     = 1,
+				.layerCount     = layer_count,
 			},
 			.dstOffset = {0, 0, 0},
 			.extent    = {src_width, src_height, 1},
@@ -1765,14 +1768,14 @@ skr_err_ skr_tex_copy(const skr_tex_t* src, skr_tex_t* dst,
 				.aspectMask     = src->aspect_mask,
 				.mipLevel       = src_mip,
 				.baseArrayLayer = src_layer,
-				.layerCount     = 1,
+				.layerCount     = layer_count,
 			},
 			.srcOffset = {0, 0, 0},
 			.dstSubresource = {
 				.aspectMask     = dst->aspect_mask,
 				.mipLevel       = dst_mip,
 				.baseArrayLayer = dst_layer,
-				.layerCount     = 1,
+				.layerCount     = layer_count,
 			},
 			.dstOffset = {0, 0, 0},
 			.extent    = {src_width, src_height, 1},
