@@ -156,7 +156,11 @@ bool skr_init(skr_settings_t settings) {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 	};
 	const char* optional_device_exts[] = {
+#ifndef __ANDROID__
+		// Push descriptors have ~0.7ms overhead per call on Qualcomm Adreno (Quest 2/3),
+		// making the descriptor pool fallback significantly faster on mobile VR.
 		VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+#endif
 		VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME,
 	};
 	const uint32_t required_device_ext_count = sizeof(required_device_exts) / sizeof(required_device_exts[0]);

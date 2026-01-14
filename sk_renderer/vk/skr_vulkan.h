@@ -25,12 +25,22 @@ typedef struct skr_tex_readback_t {
 } skr_tex_readback_t;
 
 typedef struct skr_buffer_t {
-	VkBuffer            buffer;
-	VkDeviceMemory      memory;
+	VkBuffer            buffer;  // Current buffer for binding (= _ring[_ring_index] if ring active)
+	VkDeviceMemory      memory;  // Current memory
+	void*               mapped;  // Current mapped pointer (for dynamic buffers)
 	uint32_t            size;
 	skr_buffer_type_    type;
 	skr_use_            use;
-	void*               mapped; // For dynamic buffers
+
+	// Ring buffer for safe dynamic updates (lazy allocated slots)
+	// Allows updates without stomping data still in use by in-flight frames
+	struct {
+		VkBuffer       buffer;
+		VkDeviceMemory memory;
+		void*          mapped;
+	}                   _ring[SKR_MAX_FRAMES_IN_FLIGHT];
+	uint8_t             _ring_count;  // Slots allocated so far (0 = no ring, use top-level fields)
+	uint8_t             _ring_index;  // Current active slot for reading
 } skr_buffer_t;
 
 typedef struct skr_vert_type_t {

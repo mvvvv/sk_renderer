@@ -160,14 +160,98 @@ bool skr_buffer_is_valid(const skr_buffer_t* buffer) {
 	return buffer && buffer->buffer != VK_NULL_HANDLE;
 }
 
+// Helper to allocate a new ring slot for dynamic buffer updates
+static bool _skr_buffer_alloc_ring_slot(skr_buffer_t* ref_buffer, uint8_t slot_idx) {
+	VkBufferUsageFlags usage = _skr_to_vk_buffer_usage(ref_buffer->type);
+
+	VkResult vr = vkCreateBuffer(_skr_vk.device, &(VkBufferCreateInfo){
+		.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size        = ref_buffer->size,
+		.usage       = usage,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	}, NULL, &ref_buffer->_ring[slot_idx].buffer);
+	if (vr != VK_SUCCESS) {
+		SKR_VK_CHECK_NRET(vr, "vkCreateBuffer (ring slot)");
+		return false;
+	}
+
+	VkMemoryRequirements mem_requirements;
+	vkGetBufferMemoryRequirements(_skr_vk.device, ref_buffer->_ring[slot_idx].buffer, &mem_requirements);
+
+	vr = vkAllocateMemory(_skr_vk.device, &(VkMemoryAllocateInfo){
+		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.allocationSize  = mem_requirements.size,
+		.memoryTypeIndex = _skr_find_memory_type(_skr_vk.physical_device, mem_requirements.memoryTypeBits,
+		                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
+	}, NULL, &ref_buffer->_ring[slot_idx].memory);
+	if (vr != VK_SUCCESS) {
+		SKR_VK_CHECK_NRET(vr, "vkAllocateMemory (ring slot)");
+		vkDestroyBuffer(_skr_vk.device, ref_buffer->_ring[slot_idx].buffer, NULL);
+		ref_buffer->_ring[slot_idx].buffer = VK_NULL_HANDLE;
+		return false;
+	}
+
+	vkBindBufferMemory(_skr_vk.device, ref_buffer->_ring[slot_idx].buffer, ref_buffer->_ring[slot_idx].memory, 0);
+	vkMapMemory(_skr_vk.device, ref_buffer->_ring[slot_idx].memory, 0, ref_buffer->size, 0, &ref_buffer->_ring[slot_idx].mapped);
+
+	return true;
+}
+
 void skr_buffer_set(skr_buffer_t* ref_buffer, const void* data, uint32_t size_bytes) {
 	if (!ref_buffer || !data) return;
 
-	if ((ref_buffer->use & skr_use_dynamic) && ref_buffer->mapped) {
-		memcpy(ref_buffer->mapped, data, size_bytes < ref_buffer->size ? size_bytes : ref_buffer->size);
-	} else {
+	if (!(ref_buffer->use & skr_use_dynamic)) {
 		skr_log(skr_log_critical, "skr_buffer_set only supports dynamic buffers");
+		return;
 	}
+
+	uint32_t copy_size = size_bytes < ref_buffer->size ? size_bytes : ref_buffer->size;
+
+	// First update: initialize ring buffer system
+	if (ref_buffer->_ring_count == 0) {
+		// Migrate existing buffer to ring[0]
+		ref_buffer->_ring[0].buffer = ref_buffer->buffer;
+		ref_buffer->_ring[0].memory = ref_buffer->memory;
+		ref_buffer->_ring[0].mapped = ref_buffer->mapped;
+		ref_buffer->_ring_count     = 1;
+		ref_buffer->_ring_index     = 0;
+
+		// Allocate ring[1] for this write
+		if (!_skr_buffer_alloc_ring_slot(ref_buffer, 1)) {
+			// Fallback: write directly (unsafe but better than crash)
+			memcpy(ref_buffer->mapped, data, copy_size);
+			return;
+		}
+		ref_buffer->_ring_count = 2;
+
+		// Write to ring[1] and make it current
+		memcpy(ref_buffer->_ring[1].mapped, data, copy_size);
+		ref_buffer->_ring_index = 1;
+		ref_buffer->buffer      = ref_buffer->_ring[1].buffer;
+		ref_buffer->memory      = ref_buffer->_ring[1].memory;
+		ref_buffer->mapped      = ref_buffer->_ring[1].mapped;
+		return;
+	}
+
+	// Subsequent updates: advance to next slot in ring
+	uint8_t next_idx = (ref_buffer->_ring_index + 1) % SKR_MAX_FRAMES_IN_FLIGHT;
+
+	// Allocate slot if not yet allocated
+	if (next_idx >= ref_buffer->_ring_count) {
+		if (!_skr_buffer_alloc_ring_slot(ref_buffer, next_idx)) {
+			// Fallback: write to current slot (unsafe but better than crash)
+			memcpy(ref_buffer->mapped, data, copy_size);
+			return;
+		}
+		ref_buffer->_ring_count = next_idx + 1;
+	}
+
+	// Write to the new slot and make it current
+	memcpy(ref_buffer->_ring[next_idx].mapped, data, copy_size);
+	ref_buffer->_ring_index = next_idx;
+	ref_buffer->buffer      = ref_buffer->_ring[next_idx].buffer;
+	ref_buffer->memory      = ref_buffer->_ring[next_idx].memory;
+	ref_buffer->mapped      = ref_buffer->_ring[next_idx].mapped;
 }
 
 void skr_buffer_get(const skr_buffer_t *buffer, void *ref_buffer, uint32_t buffer_size) {
@@ -200,13 +284,23 @@ void skr_buffer_set_name(skr_buffer_t* ref_buffer, const char* name) {
 void skr_buffer_destroy(skr_buffer_t* ref_buffer) {
 	if (!ref_buffer || ref_buffer->buffer == VK_NULL_HANDLE) return;
 
-	if (ref_buffer->mapped) {
-		vkUnmapMemory(_skr_vk.device, ref_buffer->memory);
-		ref_buffer->mapped = NULL;
+	if (ref_buffer->_ring_count > 0) {
+		// Ring buffer mode: destroy all allocated ring slots
+		for (uint8_t i = 0; i < ref_buffer->_ring_count; i++) {
+			if (ref_buffer->_ring[i].mapped) {
+				vkUnmapMemory(_skr_vk.device, ref_buffer->_ring[i].memory);
+			}
+			_skr_cmd_destroy_buffer(NULL, ref_buffer->_ring[i].buffer);
+			_skr_cmd_destroy_memory(NULL, ref_buffer->_ring[i].memory);
+		}
+	} else {
+		// Single buffer mode: destroy top-level fields
+		if (ref_buffer->mapped) {
+			vkUnmapMemory(_skr_vk.device, ref_buffer->memory);
+		}
+		_skr_cmd_destroy_buffer(NULL, ref_buffer->buffer);
+		_skr_cmd_destroy_memory(NULL, ref_buffer->memory);
 	}
-
-	_skr_cmd_destroy_buffer(NULL, ref_buffer->buffer);
-	_skr_cmd_destroy_memory(NULL, ref_buffer->memory);
 
 	*ref_buffer = (skr_buffer_t){};
 }
