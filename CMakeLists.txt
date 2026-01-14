@@ -19,7 +19,7 @@ if(SKR_BUILD_SKSHADERC)
 	if(ANDROID)
 		# For Android builds, use pre-built skshaderc from bin/
 		# (Build the host binary first with a native build)
-		add_subdirectory(${CMAKE_SOURCE_DIR}/bin bin_tools)
+		add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/bin bin_tools)
 	else()
 		# Native builds: build skshaderc from source
 		add_subdirectory(skshaderc)
@@ -71,6 +71,7 @@ FetchContent_MakeAvailable(volk)
 target_link_libraries(sk_renderer PUBLIC volk)
 if(ANDROID)
 	set_target_properties(volk PROPERTIES POSITION_INDEPENDENT_CODE ON)
+	target_link_libraries(sk_renderer PRIVATE log)  # Android logging library
 endif()
 
 # Set symbol visibility to hidden by default, only export what's marked with SKR_API/SKSC_API

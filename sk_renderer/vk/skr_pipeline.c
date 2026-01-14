@@ -102,7 +102,7 @@ static void _skr_pipeline_grow_pipelines_array(VkPipeline** ref_pipelines, int32
 
 void _skr_pipeline_init(void) {
 	_skr_pipeline_cache = (_skr_pipeline_cache_t){};
-	mtx_init(&_skr_pipeline_cache.mutex, mtx_recursive);
+	mtx_init(&_skr_pipeline_cache.mutex, mtx_plain);
 }
 
 void _skr_pipeline_lock(void) {
@@ -266,9 +266,8 @@ static void _skr_pipeline_grow_renderpasses(_skr_pipeline_cache_t* ref_cache, in
 	ref_cache->renderpass_capacity = new_capacity;
 }
 
-int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* key) {
-	mtx_lock(&_skr_pipeline_cache.mutex);
-
+// Unlocked version - caller must hold the mutex via _skr_pipeline_lock()
+int32_t _skr_pipeline_register_renderpass_unlocked(const skr_pipeline_renderpass_key_t* key) {
 	// Find existing or free slot
 	int32_t free_slot = -1;
 	for (int32_t i = 0; i < _skr_pipeline_cache.renderpass_capacity; i++) {
@@ -276,7 +275,6 @@ int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* k
 			// Check if this render pass already exists
 			if (memcmp(&_skr_pipeline_cache.renderpasses[i].key, key, sizeof(skr_pipeline_renderpass_key_t)) == 0) {
 				_skr_pipeline_cache.renderpasses[i].ref_count++;
-				mtx_unlock(&_skr_pipeline_cache.mutex);
 				return i;
 			}
 		} else if (free_slot == -1) {
@@ -299,8 +297,14 @@ int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* k
 		_skr_pipeline_cache.renderpass_count = free_slot + 1;
 	}
 
-	mtx_unlock(&_skr_pipeline_cache.mutex);
 	return free_slot;
+}
+
+int32_t _skr_pipeline_register_renderpass(const skr_pipeline_renderpass_key_t* key) {
+	mtx_lock(&_skr_pipeline_cache.mutex);
+	int32_t result = _skr_pipeline_register_renderpass_unlocked(key);
+	mtx_unlock(&_skr_pipeline_cache.mutex);
+	return result;
 }
 
 void _skr_pipeline_unregister_material(int32_t material_idx) {
@@ -389,9 +393,8 @@ static bool _skr_vert_type_equals(const skr_vert_type_t* a, const skr_vert_type_
 	return true;
 }
 
-int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
-	mtx_lock(&_skr_pipeline_cache.mutex);
-
+// Unlocked version - caller must hold the mutex via _skr_pipeline_lock()
+int32_t _skr_pipeline_register_vertformat_unlocked(skr_vert_type_t vert_type) {
 	// Find existing or free slot
 	int32_t free_slot = -1;
 	for (int32_t i = 0; i < _skr_pipeline_cache.vertformat_capacity; i++) {
@@ -399,7 +402,6 @@ int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
 			// Check if this vertex format already exists (deep comparison)
 			if (_skr_vert_type_equals(&_skr_pipeline_cache.vertformats[i].vert_type, &vert_type)) {
 				_skr_pipeline_cache.vertformats[i].ref_count++;
-				mtx_unlock(&_skr_pipeline_cache.mutex);
 				return i;
 			}
 		} else if (free_slot == -1) {
@@ -421,8 +423,14 @@ int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
 		_skr_pipeline_cache.vertformat_count = free_slot + 1;
 	}
 
-	mtx_unlock(&_skr_pipeline_cache.mutex);
 	return free_slot;
+}
+
+int32_t _skr_pipeline_register_vertformat(skr_vert_type_t vert_type) {
+	mtx_lock(&_skr_pipeline_cache.mutex);
+	int32_t result = _skr_pipeline_register_vertformat_unlocked(vert_type);
+	mtx_unlock(&_skr_pipeline_cache.mutex);
+	return result;
 }
 
 void _skr_pipeline_unregister_vertformat(int32_t vertformat_idx) {

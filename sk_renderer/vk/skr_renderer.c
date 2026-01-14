@@ -196,7 +196,7 @@ void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_
 		.depth_store_op  = (depth && (depth->flags & skr_tex_flags_readable)) ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE,
 		.color_load_op   = (clear & skr_clear_color) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
 	};
-	_skr_vk.current_renderpass_idx = _skr_pipeline_register_renderpass(&rp_key);
+	_skr_vk.current_renderpass_idx = _skr_pipeline_register_renderpass_unlocked(&rp_key);
 
 	// Get render pass from pipeline system
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(_skr_vk.current_renderpass_idx);
@@ -406,8 +406,8 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		.depth_store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE,  // No depth in blit
 		.color_load_op  = is_full_blit ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_LOAD,
 	};
-	int32_t renderpass_idx = _skr_pipeline_register_renderpass(&rp_key);
-	int32_t vert_idx       = _skr_pipeline_register_vertformat((skr_vert_type_t){});
+	int32_t renderpass_idx = _skr_pipeline_register_renderpass_unlocked(&rp_key);
+	int32_t vert_idx       = _skr_pipeline_register_vertformat_unlocked((skr_vert_type_t){});
 
 	// Get render pass from pipeline system
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(renderpass_idx);
