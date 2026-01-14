@@ -458,6 +458,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		&write_ct, &buffer_ct, &image_ct);
 	if (fail_idx >= 0) {
 		_skr_bind_pool_unlock();
+		_skr_pipeline_unlock();
 		skr_log(skr_log_critical, "Blit missing binding '%s' in shader '%s'", _skr_material_bind_name(meta, fail_idx), meta->name);
 		return;
 	}
@@ -502,6 +503,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		if (vr != VK_SUCCESS) {
 			SKR_VK_CHECK_NRET(vr, "vkCreateImageView");
 			_skr_cmd_release(ctx.cmd);
+			_skr_pipeline_unlock();
 			return;
 		}
 
@@ -519,6 +521,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 			SKR_VK_CHECK_NRET(vr, "vkCreateFramebuffer");
 			vkDestroyImageView(_skr_vk.device, temp_view, NULL);
 			_skr_cmd_release(ctx.cmd);
+			_skr_pipeline_unlock();
 			return;
 		}
 
@@ -528,6 +531,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		framebuffer = _skr_get_or_create_framebuffer(_skr_vk.device, to, render_pass, to, NULL, NULL, false);
 		if (framebuffer == VK_NULL_HANDLE) {
 			_skr_cmd_release(ctx.cmd);
+			_skr_pipeline_unlock();
 			return;
 		}
 	}

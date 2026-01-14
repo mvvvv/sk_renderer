@@ -964,8 +964,8 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 		.depth_store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE,
 		.color_load_op  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,  // Full blit
 	};
-	int32_t renderpass_idx = _skr_pipeline_register_renderpass(&rp_key);
-	int32_t vert_idx       = _skr_pipeline_register_vertformat((skr_vert_type_t){});
+	int32_t renderpass_idx = _skr_pipeline_register_renderpass_unlocked(&rp_key);
+	int32_t vert_idx       = _skr_pipeline_register_vertformat_unlocked((skr_vert_type_t){});
 
 	// Get cached render pass
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(renderpass_idx);
@@ -1231,11 +1231,12 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 		vkCmdPipelineBarrier( ctx.cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 	}
 
-	skr_buffer_destroy  (&params_buffer);
-	skr_material_destroy(&material);
-
 	_skr_cmd_release(ctx.cmd);
 	_skr_pipeline_unlock();
+
+	// Destroy after unlocking - skr_material_destroy internally locks the pipeline mutex
+	skr_buffer_destroy  (&params_buffer);
+	skr_material_destroy(&material);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
