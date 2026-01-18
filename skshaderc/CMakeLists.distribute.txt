@@ -1,16 +1,8 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(sk_gpu VERSION 1.0
-               DESCRIPTION "sk_gpu.h and the skshaderc compiler"
+project(skshaderc_tools VERSION 1.0
+               DESCRIPTION "Pre-built skshaderc shader compiler"
                LANGUAGES CXX)
-
-set(SKG_HEADER ON CACHE BOOL "Expose sk_gpu's header file as a valid include. On by default, you might not need this if all you're intereste in is skshaderc.")
-
-add_library(sk_gpu INTERFACE)
-
-if (SKG_HEADER)
-    target_include_directories(sk_gpu INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-endif()
 
 # Pick a shader compiler executable that works on our host platform
 if (CMAKE_HOST_APPLE)

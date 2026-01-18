@@ -19,7 +19,7 @@ if(SKR_BUILD_SKSHADERC)
 	if(ANDROID)
 		# For Android builds, use pre-built skshaderc from bin/
 		# (Build the host binary first with a native build)
-		add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/bin bin_tools)
+		add_subdirectory(${CMAKE_SOURCE_DIR}/bin bin_tools)
 	else()
 		# Native builds: build skshaderc from source
 		add_subdirectory(skshaderc)
