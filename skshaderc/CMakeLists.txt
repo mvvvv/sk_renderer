@@ -170,15 +170,19 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Android
 	endif()
 endif()
 
-# Add a custom target to copy the binary to bin/ in the repository root
+# Copy skshaderc binary to bin/ in the repository root.
 # Use CMAKE_SOURCE_DIR so binaries go to the top-level project's bin/,
 # allowing consuming projects to accumulate skshaderc builds.
 if(DEFINED SKSHADERC_INSTALL_SUBDIR)
 	set(SKSHADERC_BIN_DIR "${CMAKE_SOURCE_DIR}/bin/${SKSHADERC_INSTALL_SUBDIR}")
-	add_custom_command(TARGET skshaderc POST_BUILD
+
+	# Use a custom target (not POST_BUILD) so it runs every build, even if
+	# skshaderc itself is up-to-date. This ensures bin/ is repopulated if deleted.
+	add_custom_target(skshaderc_install ALL
 		COMMAND ${CMAKE_COMMAND} -E make_directory "${SKSHADERC_BIN_DIR}"
 		COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:skshaderc> "${SKSHADERC_BIN_DIR}/"
-		COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.distribute.txt" "${CMAKE_SOURCE_DIR}/bin/CMakeLists.txt"
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.distribute.txt" "${CMAKE_SOURCE_DIR}/bin/CMakeLists.txt"
+		DEPENDS skshaderc
 		COMMENT "Installing skshaderc to ${SKSHADERC_BIN_DIR}"
 	)
 	message(STATUS "skshaderc will be copied to: ${SKSHADERC_BIN_DIR}")
