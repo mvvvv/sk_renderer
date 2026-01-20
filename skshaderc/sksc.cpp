@@ -7,6 +7,7 @@
 
 #include "array.h"
 
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,37 +96,85 @@ bool sksc_compile(const char *filename, const char *hlsl_text, sksc_settings_t *
 
 ///////////////////////////////////////////
 
-void sksc_log_shader_info(const sksc_shader_file_t *file) {
+// Helper for building info string
+struct info_builder_t {
+	char  *str;
+	size_t len;
+	size_t cap;
+
+	void append(const char *fmt, ...) {
+		va_list args, args_copy;
+		va_start(args, fmt);
+		va_copy(args_copy, args);
+
+		int needed = vsnprintf(nullptr, 0, fmt, args);
+		va_end(args);
+
+		if (needed < 0) { va_end(args_copy); return; }
+
+		size_t new_len = len + needed + 1; // +1 for newline
+		if (new_len + 1 > cap) {
+			cap = cap == 0 ? 1024 : cap * 2;
+			while (new_len + 1 > cap) cap *= 2;
+			str = (char*)realloc(str, cap);
+		}
+
+		vsnprintf(str + len, cap - len, fmt, args_copy);
+		va_end(args_copy);
+		len += needed;
+		str[len++] = '\n';
+		str[len] = '\0';
+	}
+};
+
+///////////////////////////////////////////
+
+char* sksc_shader_file_info(const sksc_shader_file_t *file) {
+	if (!file || !file->meta) return nullptr;
+
 	const sksc_shader_meta_t *meta = file->meta;
-	
-	sksc_log(sksc_log_level_info, " ________________");
-	// Write out our reflection information
+	info_builder_t info = {};
+
+	info.append(" ________________");
 
 	// A quick summary of performance
-	sksc_log(sksc_log_level_info, "|--Performance--");
+	info.append("|--Performance--");
 	if (meta->ops_vertex.total > 0 || meta->ops_pixel.total > 0)
-	sksc_log(sksc_log_level_info, "| Instructions |  all | tex | flow |");
+		info.append("| Instructions |  all | tex | flow |");
 	if (meta->ops_vertex.total > 0) {
-		sksc_log(sksc_log_level_info, "|       Vertex | %4d | %3d | %4d |",
+		info.append("|       Vertex | %4d | %3d | %4d |",
 			meta->ops_vertex.total,
 			meta->ops_vertex.tex_read,
 			meta->ops_vertex.dynamic_flow);
 	}
 	if (meta->ops_pixel.total > 0) {
-		sksc_log(sksc_log_level_info, "|        Pixel | %4d | %3d | %4d |",
+		info.append("|        Pixel | %4d | %3d | %4d |",
 			meta->ops_pixel.total,
 			meta->ops_pixel.tex_read,
 			meta->ops_pixel.dynamic_flow);
 	}
 
 	// List of all the buffers
-	sksc_log(sksc_log_level_info, "|--Buffer Info--");
+	info.append("|--Buffer Info--");
 	for (size_t i = 0; i < meta->buffer_count; i++) {
 		sksc_shader_buffer_t *buff = &meta->buffers[i];
-		sksc_log(sksc_log_level_info, "|  %s - %u bytes%s", buff->name, buff->size, buff->defaults ? " (has defaults)" : "");
+		info.append("|  %s - %u bytes%s", buff->name, buff->size, buff->defaults ? " (has defaults)" : "");
 		for (size_t v = 0; v < buff->var_count; v++) {
 			sksc_shader_var_t *var = &buff->vars[v];
 			const char *type_str = var->type_name[0] ? var->type_name : "unknown";
+
+			// Compute element size from type_name to get actual array dimension
+			uint32_t element_size = var->type_count;
+			if      (strcmp(type_str, "float4x4") == 0 || strcmp(type_str, "int4x4") == 0 || strcmp(type_str, "uint4x4") == 0) element_size = 16;
+			else if (strcmp(type_str, "float3x3") == 0 || strcmp(type_str, "int3x3") == 0 || strcmp(type_str, "uint3x3") == 0) element_size = 9;
+			else if (strcmp(type_str, "float4")   == 0 || strcmp(type_str, "int4")   == 0 || strcmp(type_str, "uint4")   == 0) element_size = 4;
+			else if (strcmp(type_str, "float3")   == 0 || strcmp(type_str, "int3")   == 0 || strcmp(type_str, "uint3")   == 0) element_size = 3;
+			else if (strcmp(type_str, "float2")   == 0 || strcmp(type_str, "int2")   == 0 || strcmp(type_str, "uint2")   == 0) element_size = 2;
+			else if (strcmp(type_str, "float")    == 0 || strcmp(type_str, "int")    == 0 || strcmp(type_str, "uint")    == 0) element_size = 1;
+			else if (strcmp(type_str, "double")   == 0 || strcmp(type_str, "bool")   == 0) element_size = 1;
+
+			uint32_t array_dim = element_size > 0 ? var->type_count / element_size : 1;
+			if (array_dim == 0) array_dim = 1;
 
 			// Show default value if present
 			char default_str[256] = "";
@@ -149,14 +198,18 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 					}
 				}
 			}
-			sksc_log(sksc_log_level_info, "|    %-15s: +%-4u %5ub - %s[%u]%s", var->name, var->offset, var->size, type_str, var->type_count, default_str);
+			if (array_dim > 1) {
+				info.append("|    %-15s: +%-4u %5ub - %s[%u]%s", var->name, var->offset, var->size, type_str, array_dim, default_str);
+			} else {
+				info.append("|    %-15s: +%-4u %5ub - %s%s", var->name, var->offset, var->size, type_str, default_str);
+			}
 		}
 	}
 
 	// Show the vertex shader's input format
 	if (meta->vertex_input_count > 0) {
-		sksc_log(sksc_log_level_info, "|--Mesh Input--");
-		for (int32_t i=0; i<meta->vertex_input_count; i++) {
+		info.append("|--Mesh Input--");
+		for (int32_t i = 0; i < meta->vertex_input_count; i++) {
 			const char *format;
 			const char *semantic;
 			switch (meta->vertex_inputs[i].format) {
@@ -177,12 +230,11 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 				case skr_semantic_texcoord:     semantic = "TexCoord";     break;
 				default:                        semantic = "NA";           break;
 			}
-			sksc_log(sksc_log_level_info, "|  %s%d : %s%d", format, meta->vertex_inputs[i].count, semantic, meta->vertex_inputs[i].semantic_slot);
+			info.append("|  %s%d : %s%d", format, meta->vertex_inputs[i].count, semantic, meta->vertex_inputs[i].semantic_slot);
 		}
-	} 
+	}
 
-	// Only log buffer binds for the stages of a single language. Doesn't
-	// matter which.
+	// Only log buffer binds for the stages of a single language
 	skr_shader_lang_ stage_lang = file->stage_count > 0 ? file->stages[0].language : skr_shader_lang_hlsl;
 	for (uint32_t s = 0; s < file->stage_count; s++) {
 		const sksc_shader_file_stage_t* stage = &file->stages[s];
@@ -196,11 +248,13 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 		case skr_stage_pixel:   stage_name = "Pixel";   break;
 		case skr_stage_compute: stage_name = "Compute"; break;
 		}
-		sksc_log(sksc_log_level_info, "|--%s Shader--", stage_name);
+		info.append("|--%s Shader--", stage_name);
 		for (uint32_t i = 0; i < meta->buffer_count; i++) {
 			sksc_shader_buffer_t *buff = &meta->buffers[i];
 			if (buff->bind.stage_bits & stage->stage) {
-				sksc_log(sksc_log_level_info, "|  b%u/s%d : %s", buff->bind.slot, buff->space, buff->name);
+				char reg[16];
+				snprintf(reg, sizeof(reg), "b%u/s%d", buff->bind.slot, buff->space);
+				info.append("|  %-7s: %s", reg, buff->name);
 			}
 		}
 		for (uint32_t i = 0; i < meta->resource_count; i++) {
@@ -208,15 +262,37 @@ void sksc_log_shader_info(const sksc_shader_file_t *file) {
 			if (tex->bind.stage_bits & stage->stage) {
 				bool is_storage_buffer = tex->bind.register_type == skr_register_read_buffer || tex->bind.register_type == skr_register_readwrite;
 				char reg_char          = (tex->bind.register_type == skr_register_texture || tex->bind.register_type == skr_register_read_buffer) ? 't' : 'u';
+				char reg[16];
+				snprintf(reg, sizeof(reg), "%c%u", reg_char, tex->bind.slot);
 				if (is_storage_buffer && tex->element_size > 0) {
-					sksc_log(sksc_log_level_info, "|  %c%u : %s (%u bytes/element)", reg_char, tex->bind.slot, tex->name, tex->element_size);
+					info.append("|  %-7s: %-17s %3ub/elem", reg, tex->name, tex->element_size);
 				} else {
-					sksc_log(sksc_log_level_info, "|  %c%u : %s", reg_char, tex->bind.slot, tex->name);
+					info.append("|  %-7s: %s", reg, tex->name);
 				}
 			}
 		}
 	}
-	sksc_log(sksc_log_level_info, "|________________");
+	info.append("|________________");
+
+	return info.str;
+}
+
+///////////////////////////////////////////
+
+void sksc_log_shader_info(const sksc_shader_file_t *file) {
+	char *info = sksc_shader_file_info(file);
+	if (!info) return;
+
+	// Log each line separately
+	char *line = info;
+	while (*line) {
+		char *end = strchr(line, '\n');
+		if (end) *end = '\0';
+		sksc_log(sksc_log_level_info, "%s", line);
+		if (end) line = end + 1;
+		else break;
+	}
+	free(info);
 }
 
 ///////////////////////////////////////////

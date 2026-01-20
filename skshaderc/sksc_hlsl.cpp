@@ -213,6 +213,10 @@ compile_result_ sksc_hlsl_to_spirv(const char *filename, const char *hlsl, const
 	spvOptions.generateDebugInfo                = settings->debug;
 	spvOptions.emitNonSemanticShaderDebugInfo   = settings->debug;
 	spvOptions.emitNonSemanticShaderDebugSource = settings->debug;
+	// Enable glslang's built-in SPIRV optimizer which includes HLSL-specific
+	// legalization passes (FixStorageClass, InterpolateFixup, CFGCleanup, etc.)
+	spvOptions.disableOptimizer                 = settings->debug || settings->optimize == 0;
+	spvOptions.optimizeSize                     = settings->optimize == 1;
 	glslang::GlslangToSpv(*intermediate, spirv, &logger, &spvOptions);
 
 	// Log any SPIR-V generation messages
@@ -306,9 +310,11 @@ compile_result_ sksc_hlsl_to_spirv(const char *filename, const char *hlsl, const
 		i += word_count;
 	}
 
-	// Optimize the SPIRV we just generated
+	// Run additional SPIRV optimization passes after binding remaps.
+	// glslang's optimizer handles HLSL-specific legalization, but we can
+	// squeeze out a bit more with the full performance/size passes.
 	if (settings->debug == false && settings->optimize > 0) {
-		spvtools::Optimizer optimizer(SPV_ENV_UNIVERSAL_1_3);
+		spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_1);
 		optimizer.SetMessageConsumer([](spv_message_level_t, const char*, const spv_position_t&, const char* m) {
 			printf("SPIRV optimization error: %s\n", m);
 		});
@@ -318,6 +324,25 @@ compile_result_ sksc_hlsl_to_spirv(const char *filename, const char *hlsl, const
 		} else {
 			optimizer.RegisterPerformancePasses();
 		}
+
+		// Additional passes not included in the standard bundles
+		optimizer.RegisterPass(spvtools::CreateStrengthReductionPass());
+		optimizer.RegisterPass(spvtools::CreateCodeSinkingPass());
+		optimizer.RegisterPass(spvtools::CreateLoopInvariantCodeMotionPass());
+		optimizer.RegisterPass(spvtools::CreateLoopPeelingPass());
+		optimizer.RegisterPass(spvtools::CreateLoopUnswitchPass());
+		optimizer.RegisterPass(spvtools::CreateLocalRedundancyEliminationPass());
+		optimizer.RegisterPass(spvtools::CreateReduceLoadSizePass());
+		// Cleanup unused/duplicate data
+		optimizer.RegisterPass(spvtools::CreateUnifyConstantPass());
+		optimizer.RegisterPass(spvtools::CreateEliminateDeadConstantPass());
+		optimizer.RegisterPass(spvtools::CreateDeadVariableEliminationPass());
+		optimizer.RegisterPass(spvtools::CreateRemoveDuplicatesPass());
+		optimizer.RegisterPass(spvtools::CreateCFGCleanupPass());
+		// Final cleanup
+		optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
+		optimizer.RegisterPass(spvtools::CreateTrimCapabilitiesPass());
+		optimizer.RegisterPass(spvtools::CreateCompactIdsPass());
 
 		std::vector<uint32_t> spirv_optimized;
 		if (!optimizer.Run(spirv.data(), spirv.size(), &spirv_optimized)) {

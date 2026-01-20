@@ -619,6 +619,56 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 	ref_meta->resources      = resource_list.data;
 	ref_meta->resource_count = (uint32_t)resource_list.count;
 
+	// Count SPIRV instructions for performance metrics
+	// We only count "executable" instructions, skipping metadata like:
+	// - OpNop, OpSource, OpName, OpMemberName, OpString, OpLine (0-8)
+	// - OpExtension, OpExtInstImport, OpMemoryModel, OpEntryPoint, OpExecutionMode, OpCapability (11-17)
+	// - OpType* declarations (19-39)
+	// - OpConstant* definitions (41-52)
+	// - OpDecorate, OpMemberDecorate, OpDecorationGroup, etc. (71-76)
+	// - OpVariable declarations (59)
+	sksc_shader_ops_t ops = {};
+	const uint32_t *spirv      = (const uint32_t *)spirv_stage->code;
+	size_t          spirv_size = spirv_stage->code_size / sizeof(uint32_t);
+	const size_t    SPIRV_HEADER_SIZE = 5;
+
+	for (size_t i = SPIRV_HEADER_SIZE; i < spirv_size; ) {
+		uint32_t word_count = spirv[i] >> 16;
+		uint32_t opcode     = spirv[i] & 0xFFFF;
+
+		if (word_count == 0) break; // Malformed SPIRV
+
+		// Skip metadata/declaration opcodes
+		bool is_metadata =
+			(opcode <= 8)            || // OpNop, OpUndef, OpSource*, OpName, OpMemberName, OpString, OpLine, OpNoLine
+			(opcode >= 11 && opcode <= 17) || // OpExtension, OpExtInstImport, OpMemoryModel, OpEntryPoint, OpExecutionMode, OpCapability, OpExecutionModeId
+			(opcode >= 19 && opcode <= 39)  || // OpType* declarations
+			(opcode >= 41 && opcode <= 52)  || // OpConstant* definitions
+			(opcode == 59)           || // OpVariable
+			(opcode >= 71 && opcode <= 76);    // OpDecorate, OpMemberDecorate, etc.
+
+		if (!is_metadata) {
+			ops.total++;
+
+			// Texture sample/fetch/gather/read operations (opcodes 87-98)
+			if (opcode >= 87 && opcode <= 98) {
+				ops.tex_read++;
+			}
+			// Dynamic control flow: OpBranch(249), OpBranchConditional(250), OpSwitch(251)
+			else if (opcode >= 249 && opcode <= 251) {
+				ops.dynamic_flow++;
+			}
+		}
+
+		i += word_count;
+	}
+
+	if (spirv_stage->stage == skr_stage_vertex) {
+		ref_meta->ops_vertex = ops;
+	} else if (spirv_stage->stage == skr_stage_pixel) {
+		ref_meta->ops_pixel = ops;
+	}
+
 	spvReflectDestroyShaderModule(&module);
 	return true;
 }

@@ -31,6 +31,7 @@
 #include "sksc.h"
 
 #include "miniz.h"
+#include <spirv-tools/libspirv.hpp>
 
 ///////////////////////////////////////////
 
@@ -57,7 +58,7 @@ const int32_t path_size = 2048;
 bool                read_file     (const char *filename, char **out_text, size_t *out_size);
 bool                write_file    (const char *filename, void *file_data, size_t file_size);
 bool                write_file_txt(const char *filename, void *file_data, size_t file_size);
-bool                write_header  (const char *filename, void *file_data, sksc_shader_ops_t *vs_shader_op_info, sksc_shader_ops_t *ps_shader_op_info, size_t file_size, bool zipped);
+bool                write_header  (const char *filename, void *file_data, size_t file_size, bool zipped, const sksc_shader_file_t *shader_file);
 bool                write_skcs    (const char *filename, void *file_data, size_t file_size, const char* original_name, sksc_shader_file_t *file);
 bool                write_stages  (const sksc_shader_file_t *file, const char *folder, bool trailing_slash, const char *name_ext);
 void                compile_file  (const char *filename, compiler_settings_t *settings);
@@ -389,7 +390,7 @@ void compile_file(const char *src_filename, compiler_settings_t *settings) {
 			}
 			if (settings->output_header) {
 				char* abs_file = path_absolute(new_filename_h);
-				bool  success  = write_header(abs_file, sks_data, &file.meta->ops_vertex, &file.meta->ops_pixel, sks_size, settings->output_zipped);
+				bool  success  = write_header(abs_file, sks_data, sks_size, settings->output_zipped, &file);
 
 				if (success) sksc_log(sksc_log_level_info, "Compiled successfully to %s", abs_file);
 				else         sksc_log(sksc_log_level_err,  "Failed to write file! %s", abs_file);
@@ -424,19 +425,22 @@ void compile_file(const char *src_filename, compiler_settings_t *settings) {
 
 bool write_stages(const sksc_shader_file_t *file, const char *folder, bool trailing_slash, const char *name_ext) {
 	bool result = true;
+
+	// Create SPIRV-Tools context for disassembly
+	spvtools::SpirvTools spirv_tools(SPV_ENV_VULKAN_1_1);
+
 	for (uint32_t i = 0; i < file->stage_count; i++) {
 		sksc_shader_file_stage_t *stage = &file->stages[i];
 
 		char        sub_filename[path_size];
 		const char *stage_name = "";
 		const char *lang       = "";
-		bool        text       = false;
 		switch (stage->language) {
-			case skr_shader_lang_glsl:     lang = "glsl";      text = true; break;
-			case skr_shader_lang_glsl_es:  lang = "glsl.es";   text = true; break;
-			case skr_shader_lang_glsl_web: lang = "glsl.web";  text = true; break;
-			case skr_shader_lang_hlsl:     lang = "hlsl.bin";               break;
-			case skr_shader_lang_spirv:    lang = "spirv.bin";              break;
+			case skr_shader_lang_glsl:     lang = "glsl";     break;
+			case skr_shader_lang_glsl_es:  lang = "glsl.es";  break;
+			case skr_shader_lang_glsl_web: lang = "glsl.web"; break;
+			case skr_shader_lang_hlsl:     lang = "hlsl";     break;
+			case skr_shader_lang_spirv:    lang = "spvasm";   break;
 		}
 		switch(stage->stage){
 			case skr_stage_compute: stage_name = "compute"; break;
@@ -444,10 +448,20 @@ bool write_stages(const sksc_shader_file_t *file, const char *folder, bool trail
 			case skr_stage_vertex:  stage_name = "vertex";  break;
 		}
 		snprintf(sub_filename, sizeof(sub_filename), "%s%s%s.%s.%s", folder, trailing_slash ? "":"/", name_ext, stage_name, lang);
-		if (text) {
-			result = write_file_txt(sub_filename, stage->code, stage->code_size-1) && result;
+
+		if (stage->language == skr_shader_lang_spirv) {
+			// Disassemble SPIRV to text
+			std::string disassembly;
+			const uint32_t *spirv_data = (const uint32_t *)stage->code;
+			size_t          spirv_size = stage->code_size / sizeof(uint32_t);
+			if (spirv_tools.Disassemble(spirv_data, spirv_size, &disassembly, SPV_BINARY_TO_TEXT_OPTION_INDENT | SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES)) {
+				result = write_file_txt(sub_filename, (void*)disassembly.c_str(), disassembly.size()) && result;
+			} else {
+				sksc_log(sksc_log_level_err, "Failed to disassemble SPIRV");
+				result = false;
+			}
 		} else {
-			result = write_file    (sub_filename, stage->code, stage->code_size)   && result;
+			result = write_file_txt(sub_filename, stage->code, stage->code_size - 1) && result;
 		}
 	}
 	return result;
@@ -622,7 +636,7 @@ bool write_file_txt(const char *filename, void *file_data, size_t file_size) {
 
 ///////////////////////////////////////////
 
-bool write_header(const char *filename, void *file_data, sksc_shader_ops_t *vs_shader_op_info, sksc_shader_ops_t *ps_shader_op_info, size_t file_size, bool zipped) {
+bool write_header(const char *filename, void *file_data, size_t file_size, bool zipped, const sksc_shader_file_t *shader_file) {
 	char name[path_size];
 	file_name(filename, name, sizeof(name));
 
@@ -637,16 +651,57 @@ bool write_header(const char *filename, void *file_data, sksc_shader_ops_t *vs_s
 		return false;
 	}
 	fprintf(fp, "#pragma once\n\n");
-	if (vs_shader_op_info) fprintf(fp, "// --Vertex shader ops--\n// total  : %d\n// texture: %d\n// flow   : %d\n", vs_shader_op_info->total, vs_shader_op_info->tex_read, vs_shader_op_info->dynamic_flow);
-	if (ps_shader_op_info) fprintf(fp, "// --Pixel shader ops-- \n// total  : %d\n// texture: %d\n// flow   : %d\n", ps_shader_op_info->total, ps_shader_op_info->tex_read, ps_shader_op_info->dynamic_flow);
-	if (ps_shader_op_info || vs_shader_op_info) fprintf(fp, "\n");
+
+	// Write shader info as comments (uses sksc_shader_file_info, independent of logging)
+	char *info = sksc_shader_file_info(shader_file);
+	if (info) {
+		fprintf(fp, "/*\n%s*/\n\n", info);
+		free(info);
+	}
+
+	// Write SPIRV disassembly as comments
+	if (shader_file) {
+		spvtools::SpirvTools spirv_tools(SPV_ENV_VULKAN_1_1);
+		for (uint32_t i = 0; i < shader_file->stage_count; i++) {
+			const sksc_shader_file_stage_t *stage = &shader_file->stages[i];
+			if (stage->language != skr_shader_lang_spirv) continue;
+
+			const char *stage_name = "";
+			switch (stage->stage) {
+				case skr_stage_vertex:  stage_name = "VERTEX";  break;
+				case skr_stage_pixel:   stage_name = "PIXEL";   break;
+				case skr_stage_compute: stage_name = "COMPUTE"; break;
+			}
+
+			std::string disassembly;
+			const uint32_t *spirv_data = (const uint32_t *)stage->code;
+			size_t          spirv_size = stage->code_size / sizeof(uint32_t);
+			if (spirv_tools.Disassemble(spirv_data, spirv_size, &disassembly, SPV_BINARY_TO_TEXT_OPTION_INDENT | SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES)) {
+				fprintf(fp, "/*\n");
+				fprintf(fp, "================================================================================\n");
+				fprintf(fp, " %s SHADER SPIRV\n", stage_name);
+				fprintf(fp, "================================================================================\n");
+				// Write each line with proper formatting
+				const char *line_start = disassembly.c_str();
+				const char *line_end;
+				while ((line_end = strchr(line_start, '\n')) != nullptr) {
+					fprintf(fp, "%.*s\n", (int)(line_end - line_start), line_start);
+					line_start = line_end + 1;
+				}
+				if (*line_start) fprintf(fp, "%s\n", line_start);
+				fprintf(fp, "*/\n\n");
+			}
+		}
+	}
+
+	// Write byte array
 	int32_t ct = fprintf(fp, "const unsigned char sks_%s%s[%zu] = {", name, zipped ? "_zip" : "", file_size);
 	for (size_t i = 0; i < file_size; i++) {
-		unsigned char byte = ((unsigned char *)file_data)[i];  
+		unsigned char byte = ((unsigned char *)file_data)[i];
 		ct += fprintf(fp, "%d,", byte);
-		if (ct > 80) { 
-			fprintf(fp, "\n"); 
-			ct = 0; 
+		if (ct > 80) {
+			fprintf(fp, "\n");
+			ct = 0;
 		}
 	}
 	fprintf(fp, "};\n");

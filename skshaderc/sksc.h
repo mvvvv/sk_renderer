@@ -60,10 +60,11 @@ typedef enum sksc_log_level_ {
 
 ///////////////////////////////////////////
 
-SKSC_API void            sksc_init       (void);
-SKSC_API void            sksc_shutdown   (void);
-SKSC_API bool            sksc_compile    (const char *filename, const char *hlsl_text, sksc_settings_t *settings, sksc_shader_file_t *out_file);
-SKSC_API void            sksc_build_file (const sksc_shader_file_t *file, void **out_data, uint32_t *out_size);
+SKSC_API void            sksc_init            (void);
+SKSC_API void            sksc_shutdown        (void);
+SKSC_API bool            sksc_compile         (const char *filename, const char *hlsl_text, sksc_settings_t *settings, sksc_shader_file_t *out_file);
+SKSC_API void            sksc_build_file      (const sksc_shader_file_t *file, void **out_data, uint32_t *out_size);
+SKSC_API char*           sksc_shader_file_info(const sksc_shader_file_t *file); // Returns malloc'd string, caller must free
 
 SKSC_API void            sksc_log        (sksc_log_level_ level, const char* text, ...);
 SKSC_API void            sksc_log_at     (sksc_log_level_ level, int32_t line, int32_t column, const char *text, ...);
