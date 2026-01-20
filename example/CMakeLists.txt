@@ -137,6 +137,7 @@ target_sources(sk_renderer_test PRIVATE
 	scene_lifetime_stress.c
 	scene_gaussian_splat.c
 	scene_tex_compress.c
+	scene_stars.c
 	bloom.c
 	text/text.c
 	tools/scene_util.c
@@ -198,6 +199,7 @@ skshaderc_compile_assets(sk_renderer_test ${CMAKE_CURRENT_BINARY_DIR}/generated/
 	assets/shaders/gpu_sort_upsweep.hlsl
 	assets/shaders/gpu_sort_scan.hlsl
 	assets/shaders/gpu_sort_downsweep.hlsl
+	assets/shaders/stars.hlsl
 )
 target_skapp_assets(sk_renderer_test
 	${CMAKE_CURRENT_BINARY_DIR}/generated)

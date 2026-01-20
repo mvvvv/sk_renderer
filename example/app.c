@@ -32,7 +32,7 @@ struct app_t {
 	skr_tex_fmt_  depth_format;
 
 	// Scene management
-	const scene_vtable_t* scene_types[16];  // Array of available scenes
+	const scene_vtable_t* scene_types[32];  // Array of available scenes
 	int32_t               scene_count;
 	int32_t               scene_index;
 	scene_t*              scene_current;
@@ -184,7 +184,8 @@ app_t* app_create(int32_t start_scene) {
 	app->scene_types[12] = &scene_lifetime_stress_vtable;
 	app->scene_types[13] = &scene_gaussian_splat_vtable;
 	app->scene_types[14] = &scene_tex_compress_vtable;
-	app->scene_count = 15;
+	app->scene_types[15] = &scene_stars_vtable;
+	app->scene_count = 16;
 #ifdef SKR_HAS_VIDEO
 	app->scene_types[app->scene_count++] = &scene_video_vtable;
 #endif
@@ -328,6 +329,7 @@ void app_render(app_t* app, skr_tex_t* render_target, int32_t width, int32_t hei
 	sys_buffer.projection_inv[0] = float4x4_invert(projection);
 	sys_buffer.cam_pos       [0] = (float4){cam_position.x, cam_position.y, cam_position.z, 0.0f};
 	sys_buffer.cam_dir       [0] = (float4){cam_forward.x,  cam_forward.y,  cam_forward.z,  0.0f};
+	sys_buffer.screen_size       = (float4){(float)width, (float)height, 1.0f / width, 1.0f / height};
 
 	// Let the scene populate the render list (and optionally do its own render passes)
 	scene_render(vtable, app->scene_current, width, height, &app->render_list, &sys_buffer);

@@ -69,6 +69,7 @@ typedef struct {
 	float4   cam_pos       [SU_MAX_VIEWS];  // Camera position (xyz + padding)
 	float4   cam_dir       [SU_MAX_VIEWS];  // Camera forward direction (xyz + padding)
 	float4   cubemap_info;                  // .xy = size, .z = mip count, .w = unused
+	float4   screen_size;                   // .xy = width/height, .zw = 1/width, 1/height
 	float    time;                          // Time in seconds
 	uint32_t view_count;                    // Number of active views (1-6)
 	uint32_t _pad[2];

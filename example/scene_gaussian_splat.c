@@ -841,13 +841,10 @@ static void _scene_gaussian_splat_render(scene_t* base, int32_t width, int32_t h
 
 	if (scene->splat_count == 0) return;
 
-	// Set shader parameters
-	float2 screen_size = { (float)width, (float)height };
 	skr_material_set_param(&scene->render_material, "splat_scale",   sksc_shader_var_float, 1, &scene->splat_scale);
 	skr_material_set_param(&scene->render_material, "opacity_scale", sksc_shader_var_float, 1, &scene->opacity_scale);
 	skr_material_set_param(&scene->render_material, "splat_count",   sksc_shader_var_uint,  1, &scene->splat_count);
 	skr_material_set_param(&scene->render_material, "sh_degree",     sksc_shader_var_float, 1, &(float){(float)scene->sh_degree});
-	skr_material_set_param(&scene->render_material, "screen_size",   sksc_shader_var_float, 2, &screen_size);
 	skr_material_set_param(&scene->render_material, "max_radius",    sksc_shader_var_float, 1, &scene->max_radius);
 
 	// Bind buffers

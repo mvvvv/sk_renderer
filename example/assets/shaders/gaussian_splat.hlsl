@@ -7,7 +7,6 @@ float  splat_scale;      // Global scale multiplier for splats
 float  sh_degree;        // SH degree to use (0-3)
 uint   splat_count;      // Total number of splats
 float  opacity_scale;    // Opacity multiplier
-float2 screen_size;      // Screen resolution in pixels
 float  max_radius;       // Max splat radius in pixels (0 = unlimited)
 
 // Packed Gaussian splat data (124 bytes per splat, 59% smaller than unpacked)
@@ -225,7 +224,7 @@ void compute_cov2d(float3 mean, float3 scale, float4 rotation, uint view_idx,
 
 	// Focal lengths in pixels
 	float2 focal_ndc = float2(projection[view_idx][0][0], projection[view_idx][1][1]);
-	float2 focal = focal_ndc * screen_size * 0.5f;
+	float2 focal = focal_ndc * screen_size.xy * 0.5f;
 
 	// Clamp view-space position to avoid extreme distortion at edges
 	float2 tan_fov = 1.0f / focal_ndc;
@@ -333,7 +332,7 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	                            input.pos.y * minor_axis * minor_len;
 
 	// Convert to clip space offset and add to center
-	float2 quad_offset_ndc = clamp(quad_offset_pixels / (screen_size * 0.5f), -1.0f, 1.0f);
+	float2 quad_offset_ndc = clamp(quad_offset_pixels / (screen_size.xy * 0.5f), -1.0f, 1.0f);
 	float2 screen_center = clip_pos.xy / clip_pos.w;
 
 	output.pos = float4(screen_center + quad_offset_ndc, clip_pos.z / clip_pos.w, 1);

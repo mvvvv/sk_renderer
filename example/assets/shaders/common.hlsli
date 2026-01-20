@@ -14,6 +14,7 @@ cbuffer SystemBuffer : register(b1, space0) {
 	float4   cam_pos       [6];  // Camera position (xyz + padding)
 	float4   cam_dir       [6];  // Camera forward direction (xyz + padding)
 	float4   cubemap_info;       // .xy = size, .z = mip count, .w = unused
+	float4   screen_size;        // .xy = width/height, .zw = 1/width, 1/height
 	float    time;               // Time in seconds
 	uint     view_count;         // Number of active views (1-6)
 	uint2    _pad;
