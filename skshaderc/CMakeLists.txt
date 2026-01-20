@@ -153,19 +153,27 @@ endif()
 # Install skshaderc binary to bin/tools/{platform}/ for distribution
 ###############################################################################
 
-# Determine the platform-specific installation directory
+# Determine the platform-specific installation directory.
+# Fall back to CMAKE_HOST_SYSTEM_PROCESSOR if CMAKE_SYSTEM_PROCESSOR isn't set
+# (happens when CMAKE_SYSTEM_NAME is explicitly set without CMAKE_SYSTEM_PROCESSOR).
+if(CMAKE_SYSTEM_PROCESSOR)
+	set(_SKSHADERC_PROCESSOR ${CMAKE_SYSTEM_PROCESSOR})
+else()
+	set(_SKSHADERC_PROCESSOR ${CMAKE_HOST_SYSTEM_PROCESSOR})
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-	if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
+	if(_SKSHADERC_PROCESSOR MATCHES "AMD64|x86_64")
 		set(SKSHADERC_INSTALL_SUBDIR "tools/win32_x64")
-	elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
+	elseif(_SKSHADERC_PROCESSOR MATCHES "ARM64|aarch64")
 		set(SKSHADERC_INSTALL_SUBDIR "tools/win32_arm64")
 	endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 	set(SKSHADERC_INSTALL_SUBDIR "tools/mac")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
-	if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+	if(_SKSHADERC_PROCESSOR MATCHES "x86_64|AMD64")
 		set(SKSHADERC_INSTALL_SUBDIR "tools/linux_x64")
-	elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+	elseif(_SKSHADERC_PROCESSOR MATCHES "aarch64|arm64|ARM64")
 		set(SKSHADERC_INSTALL_SUBDIR "tools/linux_arm64")
 	endif()
 endif()
