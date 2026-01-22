@@ -78,8 +78,8 @@ endif()
 if(NOT MSVC)
 	target_compile_options    (sk_renderer PRIVATE -fvisibility=hidden)
 endif()
-if (MINGW)
-	# mingw does not support C11 threads, we have a small fallback
+if (MINGW OR APPLE)
+	# MinGW and macOS do not support C11 threads, use pthread fallback
 	target_link_libraries     (sk_renderer PRIVATE pthread)
 	target_include_directories(sk_renderer PRIVATE sk_renderer/threads)
 endif()
