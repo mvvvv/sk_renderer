@@ -104,7 +104,7 @@ if(UNIX AND NOT ANDROID)
 endif()
 
 # Static link MinGW runtime and pthread when cross-compiling to Windows
-if(MINGW)
+if(MINGW OR APPLE)
 	target_link_options       (sk_renderer_test PRIVATE -static-libgcc -static-libstdc++ -static)
 	target_link_libraries     (sk_renderer_test PRIVATE pthread)
 	target_include_directories(sk_renderer_test PRIVATE ${CMAKE_SOURCE_DIR}/sk_renderer/threads)
