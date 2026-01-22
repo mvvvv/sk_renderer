@@ -103,9 +103,15 @@ if(UNIX AND NOT ANDROID)
 	target_link_libraries(sk_renderer_test PRIVATE m)
 endif()
 
-# Static link MinGW runtime and pthread when cross-compiling to Windows
-if(MINGW OR APPLE)
+# Static link MinGW runtime when cross-compiling to Windows
+if(MINGW)
 	target_link_options       (sk_renderer_test PRIVATE -static-libgcc -static-libstdc++ -static)
+	target_link_libraries     (sk_renderer_test PRIVATE pthread)
+	target_include_directories(sk_renderer_test PRIVATE ${CMAKE_SOURCE_DIR}/sk_renderer/threads)
+endif()
+
+# macOS needs pthread fallback for C11 threads (no static linking)
+if(APPLE)
 	target_link_libraries     (sk_renderer_test PRIVATE pthread)
 	target_include_directories(sk_renderer_test PRIVATE ${CMAKE_SOURCE_DIR}/sk_renderer/threads)
 endif()
