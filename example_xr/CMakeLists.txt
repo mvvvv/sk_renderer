@@ -24,6 +24,7 @@ set(BUILD_API_LAYERS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BUILD_CONFORMANCE_TESTS OFF CACHE BOOL "" FORCE)
 set(DYNAMIC_LOADER OFF CACHE BOOL "" FORCE)
+set(METAL_INCOMPATIBLE TRUE CACHE BOOL "" FORCE) # Skip Metal support on macOS - we use Vulkan via MoltenVK
 
 FetchContent_MakeAvailable(openxr_loader)
 
