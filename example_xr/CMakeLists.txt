@@ -21,7 +21,7 @@ FetchContent_Declare(
 )
 
 # Only build the loader, not samples/tests
-set(BUILD_ALL_EXTENSIONS ON CACHE BOOL "" FORCE)
+set(BUILD_ALL_EXTENSIONS OFF CACHE BOOL "" FORCE)  # Only need Vulkan, not Metal/OpenGL
 set(BUILD_LOADER ON CACHE BOOL "" FORCE)
 set(BUILD_API_LAYERS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
