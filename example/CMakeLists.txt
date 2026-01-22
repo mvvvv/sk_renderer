@@ -15,7 +15,7 @@ if(ANDROID)
 endif()
 FetchContent_Declare(sk_app
 	GIT_REPOSITORY https://github.com/StereoKit/sk_app.git
-	GIT_TAG        main
+	GIT_TAG        2ecc009faf07e876f4278d1a9856386d471263f0
 	GIT_SHALLOW    TRUE
 	GIT_PROGRESS   TRUE
 )
@@ -27,7 +27,7 @@ endif()
 # stb for image loading
 FetchContent_Declare(stb
 	GIT_REPOSITORY https://github.com/nothings/stb.git
-	GIT_TAG        master
+	GIT_TAG        f1c79c02822848a9bed4315b12c8c8f3761e1296
 	GIT_SHALLOW    TRUE
 	GIT_PROGRESS   TRUE
 )

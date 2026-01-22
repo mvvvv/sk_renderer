@@ -86,7 +86,7 @@ endif()
 message(STATUS "Fetching Vulkan-Headers...")
 FetchContent_Declare(
 	vulkan_headers
-	URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.336.zip
+	URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/vulkan-sdk-1.4.328.1.zip
 )
 FetchContent_MakeAvailable(vulkan_headers)
 # Set paths for volk and our custom FindVulkan.cmake
@@ -96,7 +96,7 @@ set(Vulkan_INCLUDE_DIR "${vulkan_headers_SOURCE_DIR}/include" CACHE PATH "Vulkan
 message(STATUS "Fetching volk...")
 FetchContent_Declare( volk
 	GIT_REPOSITORY https://github.com/zeux/volk.git
-	GIT_TAG        1.3.270
+	GIT_TAG        1.4.304
 	GIT_SHALLOW    TRUE
 	GIT_PROGRESS   TRUE
 )

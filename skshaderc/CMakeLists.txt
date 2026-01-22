@@ -130,9 +130,12 @@ if(MINGW)
 	target_link_options(skshaderc PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
-set_target_properties(skshaderc PROPERTIES
-	INTERPROCEDURAL_OPTIMIZATION TRUE
-)
+# Enable LTO for native builds, but not MinGW (GCC LTO + static libs = symbol issues)
+if(NOT MINGW)
+	set_target_properties(skshaderc PROPERTIES
+		INTERPROCEDURAL_OPTIMIZATION TRUE
+	)
+endif()
 
 if (NOT MSVC AND NOT APPLE)
 	add_custom_command(TARGET skshaderc POST_BUILD
