@@ -12,6 +12,39 @@ option(SKR_BUILD_XR_EXAMPLE "Build OpenXR example application (Linux/Windows onl
 include(FetchContent)
 
 ###############################################################################
+# MoltenVK for macOS (Vulkan implementation via Metal)
+###############################################################################
+
+if(APPLE)
+    message(STATUS "Fetching MoltenVK...")
+    FetchContent_Declare(moltenvk
+        URL https://github.com/KhronosGroup/MoltenVK/releases/download/v1.2.11/MoltenVK-macos.tar
+    )
+    FetchContent_MakeAvailable(moltenvk)
+
+    # Create IMPORTED SHARED library for MoltenVK
+    add_library(MoltenVK SHARED IMPORTED GLOBAL)
+    set_target_properties(MoltenVK PROPERTIES
+        IMPORTED_LOCATION "${moltenvk_SOURCE_DIR}/MoltenVK/dylib/macOS/libMoltenVK.dylib"
+    )
+    message(STATUS "MoltenVK: ${moltenvk_SOURCE_DIR}/MoltenVK/dylib/macOS/libMoltenVK.dylib")
+endif()
+
+# Helper function: copy MoltenVK dylib to an executable's output directory
+# No-op on non-Apple platforms, so downstream can call unconditionally
+# Usage: skr_copy_moltenvk(my_executable_target)
+function(skr_copy_moltenvk target)
+    if(APPLE)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:MoltenVK>"
+                "$<TARGET_FILE_DIR:${target}>"
+            COMMENT "Copying MoltenVK to ${target} output directory"
+        )
+    endif()
+endfunction()
+
+###############################################################################
 # skshaderc shader compiler
 ###############################################################################
 

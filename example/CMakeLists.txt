@@ -111,6 +111,7 @@ if(MINGW)
 endif()
 
 target_link_libraries(sk_renderer_test PRIVATE sk_renderer)
+skr_copy_moltenvk(sk_renderer_test)
 target_include_directories(sk_renderer_test PRIVATE
 	${stb_SOURCE_DIR}
 	${cgltf_SOURCE_DIR}
