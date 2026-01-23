@@ -182,6 +182,7 @@ typedef enum skr_tex_fmt_ {
 } skr_tex_fmt_;
 
 typedef enum skr_tex_flags_ {
+	skr_tex_flags_none      = 0,
 	skr_tex_flags_readable  = 1 << 0,
 	skr_tex_flags_writeable = 1 << 1,
 	skr_tex_flags_dynamic   = 1 << 2,
@@ -549,7 +550,7 @@ SKR_API uint32_t          skr_buffer_get_size              (const skr_buffer_t* 
 SKR_API void              skr_buffer_set_name              (      skr_buffer_t* ref_buffer, const char* name);
 
 SKR_API skr_err_          skr_vert_type_create             (const skr_vert_component_t* items, int32_t item_count, skr_vert_type_t* out_type);
-SKR_API bool              skr_vert_type_is_valid           (const skr_vert_component_t* type);
+SKR_API bool              skr_vert_type_is_valid           (const skr_vert_type_t*     type);
 SKR_API void              skr_vert_type_destroy            (      skr_vert_type_t* ref_type);
 
 SKR_API skr_err_          skr_mesh_create                  (const skr_vert_type_t* vert_type, skr_index_fmt_ ind_type, const void* vert_data, uint32_t vert_count, const void* opt_ind_data, uint32_t ind_count, skr_mesh_t* out_mesh);

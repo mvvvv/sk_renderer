@@ -255,8 +255,8 @@ void skr_renderer_begin_pass(skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_
 	}
 
 	// Determine render area from whichever attachment is available
-	uint32_t render_width  = color ? color->size.x : depth->size.x;
-	uint32_t render_height = color ? color->size.y : depth->size.y;
+	uint32_t render_width  = color ? color->size.x : (depth ? depth->size.x : 0);
+	uint32_t render_height = color ? color->size.y : (depth ? depth->size.y : 0);
 
 	// Begin render pass
 	vkCmdBeginRenderPass(cmd, &(VkRenderPassBeginInfo){
@@ -407,7 +407,7 @@ void skr_renderer_blit(skr_material_t* material, skr_tex_t* to, skr_recti_t boun
 		.color_load_op  = is_full_blit ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_LOAD,
 	};
 	int32_t renderpass_idx = _skr_pipeline_register_renderpass_unlocked(&rp_key);
-	int32_t vert_idx       = _skr_pipeline_register_vertformat_unlocked((skr_vert_type_t){});
+	int32_t vert_idx       = _skr_pipeline_register_vertformat_unlocked((skr_vert_type_t){0});
 
 	// Get render pass from pipeline system
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(renderpass_idx);

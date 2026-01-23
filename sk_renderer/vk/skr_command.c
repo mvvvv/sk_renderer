@@ -54,7 +54,7 @@ void _skr_cmd_shutdown() {
 		if (thread->cmd_pool != VK_NULL_HANDLE)
 			vkDestroyCommandPool(_skr_vk.device, thread->cmd_pool, NULL);
 
-		*thread = (_skr_vk_thread_t){};
+		*thread = (_skr_vk_thread_t){0};
 	}
 	mtx_unlock(&_skr_vk.thread_pool_mutex);
 }
@@ -326,7 +326,7 @@ _skr_cmd_ctx_t _skr_cmd_begin() {
 ///////////////////////////////////////////////////////////////////////////////
 
 bool _skr_cmd_try_get_active(_skr_cmd_ctx_t* out_ctx) {
-	*out_ctx = (_skr_cmd_ctx_t){};
+	*out_ctx = (_skr_cmd_ctx_t){0};
 
 	_skr_vk_thread_t* pool = _skr_cmd_get_thread();
 	assert(pool);

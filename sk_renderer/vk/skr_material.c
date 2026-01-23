@@ -208,7 +208,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 	if (!out_material) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	*out_material = (skr_material_t){};
+	*out_material = (skr_material_t){0};
 
 	if (!info.shader || !skr_shader_is_valid(info.shader)) {
 		skr_log(skr_log_warning, "Cannot create material with invalid shader");
@@ -229,13 +229,11 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 	};
 	out_material->queue_offset = info.queue_offset;
 
-	if (out_material->key.shader->meta) {
-		sksc_shader_meta_reference(out_material->key.shader->meta);
-	}
+	const sksc_shader_meta_t* meta = out_material->key.shader->meta;
+	sksc_shader_meta_reference(out_material->key.shader->meta);
 
 	// Allocate material parameter buffer if shader has $Global buffer
-	const sksc_shader_meta_t* meta = out_material->key.shader->meta;
-	if (meta && meta->global_buffer_id >= 0) {
+	if (meta->global_buffer_id >= 0) {
 		sksc_shader_buffer_t* global_buffer = &meta->buffers[meta->global_buffer_id];
 		out_material->param_buffer_size = global_buffer->size;
 		out_material->param_buffer = _skr_malloc(out_material->param_buffer_size);
@@ -245,7 +243,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 			if (out_material->key.shader->meta) {
 				sksc_shader_meta_release(out_material->key.shader->meta);
 			}
-			*out_material = (skr_material_t){};
+			*out_material = (skr_material_t){0};
 			return skr_err_out_of_memory;
 		}
 
@@ -266,7 +264,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 		if (out_material->key.shader->meta) {
 			sksc_shader_meta_release(out_material->key.shader->meta);
 		}
-		*out_material = (skr_material_t){};
+		*out_material = (skr_material_t){0};
 		return skr_err_out_of_memory;
 	}
 	skr_material_bind_t* binds = _skr_bind_pool_get(out_material->bind_start);
@@ -301,7 +299,7 @@ skr_err_ skr_material_create(skr_material_info_t info, skr_material_t* out_mater
 		if (out_material->key.shader->meta) {
 			sksc_shader_meta_release(out_material->key.shader->meta);
 		}
-		*out_material = (skr_material_t){};
+		*out_material = (skr_material_t){0};
 		return skr_err_device_error;
 	}
 
@@ -339,7 +337,7 @@ void skr_material_destroy(skr_material_t* ref_material) {
 		sksc_shader_meta_release(ref_material->key.shader->meta);
 	}
 
-	*ref_material = (skr_material_t){};
+	*ref_material = (skr_material_t){0};
 	ref_material->pipeline_material_idx = -1;
 	ref_material->bind_start            = -1;
 }

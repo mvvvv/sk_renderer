@@ -1,6 +1,7 @@
 // https://simoncoenen.com/blog/programming/graphics/DxcRevised.html
-
+#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
+#endif
 #define _CRT_INTERNAL_NONSTDC_NAMES 1
 #include <sys/stat.h>
 #include <stdint.h>

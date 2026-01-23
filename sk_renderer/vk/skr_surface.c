@@ -14,6 +14,18 @@
 // Surface
 ///////////////////////////////////////////////////////////////////////////////
 
+static VkSurfaceFormatKHR _skr_find_surface_format(const VkSurfaceFormatKHR* formats, uint32_t format_count, const VkFormat* preferred, uint32_t preferred_count) {
+	for (uint32_t j = 0; j < preferred_count; j++) {
+		for (uint32_t i = 0; i < format_count; i++) {
+			if (formats[i].format     == preferred[j] &&
+			    formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+				return formats[i];
+			}
+		}
+	}
+	return formats[0];
+}
+
 // Helper to create/recreate swapchain and allocate resources
 static bool _skr_surface_create_swapchain(VkDevice device, VkPhysicalDevice phys_device, uint32_t graphics_queue_family, skr_surface_t* ref_surface, VkSwapchainKHR old_swapchain) {
 	// Get surface capabilities
@@ -45,17 +57,7 @@ static bool _skr_surface_create_swapchain(VkDevice device, VkPhysicalDevice phys
 	};
 #endif
 
-	VkSurfaceFormatKHR surface_format = formats[0];  // Fallback to first available
-	for (uint32_t j = 0; j < sizeof(preferred_formats) / sizeof(preferred_formats[0]); j++) {
-		for (uint32_t i = 0; i < format_count; i++) {
-			if (formats[i].format == preferred_formats[j] &&
-			    formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-				surface_format = formats[i];
-				goto format_found;
-			}
-		}
-	}
-format_found:
+	VkSurfaceFormatKHR surface_format = _skr_find_surface_format(formats, format_count, preferred_formats, sizeof(preferred_formats) / sizeof(preferred_formats[0]));
 
 	// Get present modes
 	uint32_t         present_mode_count;
@@ -122,7 +124,6 @@ format_found:
 
 	// Get swapchain images
 	VkImage vk_images[16];
-	uint32_t requested_count = image_count;
 	vkGetSwapchainImagesKHR(device, swapchain, &image_count, NULL);
 	vkGetSwapchainImagesKHR(device, swapchain, &image_count, vk_images);
 
@@ -202,7 +203,7 @@ skr_err_ skr_surface_create(void* vk_surface_khr, skr_surface_t* out_surface) {
 	if (!out_surface) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	*out_surface = (skr_surface_t){};
+	*out_surface = (skr_surface_t){0};
 
 	VkSurfaceKHR vk_surface = (VkSurfaceKHR)vk_surface_khr;
 	if (!vk_surface) return skr_err_invalid_parameter;
@@ -221,7 +222,7 @@ skr_err_ skr_surface_create(void* vk_surface_khr, skr_surface_t* out_surface) {
 	// Create swapchain using helper
 	if (!_skr_surface_create_swapchain(_skr_vk.device, _skr_vk.physical_device, _skr_vk.graphics_queue_family, out_surface, VK_NULL_HANDLE)) {
 		vkDestroySurfaceKHR(_skr_vk.instance, vk_surface, NULL);
-		*out_surface = (skr_surface_t){};
+		*out_surface = (skr_surface_t){0};
 		return skr_err_device_error;
 	}
 

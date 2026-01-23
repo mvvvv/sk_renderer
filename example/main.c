@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
 
 	// Initialize sk_app
 	if (!ska_init()) {
-		fprintf(stderr, "sk_app initialization failed: %s\n", ska_error_get());
+		su_log(su_log_critical, "sk_app initialization failed: %s\n", ska_error_get());
 		return 1;
 	}
 

@@ -22,7 +22,7 @@ skr_err_ skr_vert_type_create(const skr_vert_component_t* items, int32_t item_co
 	if (!out_type) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	*out_type = (skr_vert_type_t){};
+	*out_type = (skr_vert_type_t){0};
 
 	if (!items || item_count == 0) {
 		skr_log(skr_log_warning, "Cannot create vertex type with no components");
@@ -37,7 +37,7 @@ skr_err_ skr_vert_type_create(const skr_vert_component_t* items, int32_t item_co
 	if (!out_type->components || !out_type->attributes) {
 		_skr_free(out_type->components);
 		_skr_free(out_type->attributes);
-		*out_type = (skr_vert_type_t){};
+		*out_type = (skr_vert_type_t){0};
 		return skr_err_out_of_memory;
 	}
 
@@ -57,7 +57,7 @@ skr_err_ skr_vert_type_create(const skr_vert_component_t* items, int32_t item_co
 	if (!out_type->bindings) {
 		_skr_free(out_type->components);
 		_skr_free(out_type->attributes);
-		*out_type = (skr_vert_type_t){};
+		*out_type = (skr_vert_type_t){0};
 		return skr_err_out_of_memory;
 	}
 
@@ -100,9 +100,8 @@ skr_err_ skr_vert_type_create(const skr_vert_component_t* items, int32_t item_co
 	return skr_err_success;
 }
 
-bool skr_vert_type_is_valid(const skr_vert_component_t* type) {
-	const skr_vert_type_t* vert_type = (const skr_vert_type_t*)type;
-	return vert_type && vert_type->attributes != NULL && vert_type->component_count > 0;
+bool skr_vert_type_is_valid(const skr_vert_type_t* type) {
+	return type && type->attributes != NULL && type->component_count > 0;
 }
 
 void skr_vert_type_destroy(skr_vert_type_t* ref_type) {
@@ -116,7 +115,7 @@ void skr_vert_type_destroy(skr_vert_type_t* ref_type) {
 	_skr_free(ref_type->attributes);
 	_skr_free(ref_type->bindings);
 	_skr_free(ref_type->components);
-	*ref_type = (skr_vert_type_t){};
+	*ref_type = (skr_vert_type_t){0};
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -127,7 +126,7 @@ skr_err_ skr_mesh_create(const skr_vert_type_t* vert_type, skr_index_fmt_ ind_ty
 	if (!out_mesh) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	*out_mesh = (skr_mesh_t){};
+	*out_mesh = (skr_mesh_t){0};
 
 	if (!vert_type || vert_count == 0) {
 		return skr_err_invalid_parameter;
@@ -140,7 +139,7 @@ skr_err_ skr_mesh_create(const skr_vert_type_t* vert_type, skr_index_fmt_ ind_ty
 	// Use the set functions to create the buffers
 	skr_err_ err = skr_mesh_set_data(out_mesh, vert_data, vert_count, opt_ind_data, ind_count);
 	if (err != skr_err_success) {
-		*out_mesh = (skr_mesh_t){};
+		*out_mesh = (skr_mesh_t){0};
 		return err;
 	}
 
@@ -169,7 +168,7 @@ void skr_mesh_destroy(skr_mesh_t* ref_mesh) {
 	}
 
 	skr_buffer_destroy(&ref_mesh->index_buffer);
-	*ref_mesh = (skr_mesh_t){};
+	*ref_mesh = (skr_mesh_t){0};
 }
 
 uint32_t skr_mesh_get_vert_count(const skr_mesh_t* mesh) {

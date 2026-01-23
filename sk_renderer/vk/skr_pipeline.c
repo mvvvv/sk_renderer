@@ -101,7 +101,7 @@ static void _skr_pipeline_grow_pipelines_array(VkPipeline** ref_pipelines, int32
 ///////////////////////////////////////////////////////////////////////////////
 
 void _skr_pipeline_init(void) {
-	_skr_pipeline_cache = (_skr_pipeline_cache_t){};
+	_skr_pipeline_cache = (_skr_pipeline_cache_t){0};
 	mtx_init(&_skr_pipeline_cache.mutex, mtx_plain);
 }
 
@@ -165,7 +165,7 @@ void _skr_pipeline_shutdown(void) {
 	}
 
 	mtx_destroy(&_skr_pipeline_cache.mutex);
-	_skr_pipeline_cache = (_skr_pipeline_cache_t){};
+	_skr_pipeline_cache = (_skr_pipeline_cache_t){0};
 }
 
 static void _skr_pipeline_grow_materials(_skr_pipeline_cache_t* ref_cache, int32_t min_capacity) {
@@ -234,7 +234,7 @@ int32_t _skr_pipeline_register_material(const _skr_pipeline_material_key_t* key)
 	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)_skr_pipeline_cache.materials[free_slot].layout, name);
 
 	// Generate debug name based on shader
-	snprintf(name, sizeof(name), "layoutdesc_%s_", key->shader->meta->name[0] ? key->shader->meta->name : "unknown");
+	snprintf(name, sizeof(name), "layoutdesc_%s_", shader_name);
 	_skr_append_material_config(name, sizeof(name), key);
 	_skr_set_debug_name(_skr_vk.device, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, (uint64_t)_skr_pipeline_cache.materials[free_slot].descriptor_layout, name);
 
@@ -499,24 +499,6 @@ VkRenderPass _skr_pipeline_get_renderpass(int32_t renderpass_idx) {
 ///////////////////////////////////////////////////////////////////////////////
 // Internal helpers
 ///////////////////////////////////////////////////////////////////////////////
-
-static const char* _skr_format_to_string(VkFormat format) {
-	switch (format) {
-		case VK_FORMAT_UNDEFINED:           return "none";
-		case VK_FORMAT_B8G8R8A8_SRGB:       return "bgra8_srgb";
-		case VK_FORMAT_B8G8R8A8_UNORM:      return "bgra8";
-		case VK_FORMAT_R8G8B8A8_SRGB:       return "rgba8_srgb";
-		case VK_FORMAT_R8G8B8A8_UNORM:      return "rgba8";
-		case VK_FORMAT_R16G16B16A16_SFLOAT: return "rgba16f";
-		case VK_FORMAT_R32G32B32A32_SFLOAT: return "rgba32f";
-		case VK_FORMAT_D16_UNORM:           return "d16";
-		case VK_FORMAT_D32_SFLOAT:          return "d32";
-		case VK_FORMAT_D24_UNORM_S8_UINT:   return "d24s8";
-		case VK_FORMAT_D16_UNORM_S8_UINT:   return "d16s8";
-		case VK_FORMAT_D32_SFLOAT_S8_UINT:  return "d32s8";
-		default:                            return "unknown";
-	}
-}
 
 static VkRenderPass _skr_pipeline_create_renderpass(const skr_pipeline_renderpass_key_t* key) {
 	VkAttachmentDescription attachments[3];

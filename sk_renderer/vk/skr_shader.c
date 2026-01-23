@@ -33,7 +33,7 @@ void _skr_shader_stage_destroy(skr_shader_stage_t* ref_stage) {
 	if (!ref_stage) return;
 
 	_skr_cmd_destroy_shader_module(NULL, ref_stage->shader);
-	*ref_stage = (skr_shader_stage_t){};
+	*ref_stage = (skr_shader_stage_t){0};
 }
 
 skr_shader_stage_t _skr_shader_file_create_stage(VkDevice device, const sksc_shader_file_t* file, skr_stage_ stage) {
@@ -68,7 +68,7 @@ skr_err_ skr_shader_create(const void* shader_data, uint32_t data_size, skr_shad
 	if (!out_shader) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	*out_shader = (skr_shader_t){};
+	*out_shader = (skr_shader_t){0};
 
 	if (!shader_data || data_size == 0) {
 		return skr_err_invalid_parameter;
@@ -110,9 +110,11 @@ skr_err_ skr_shader_create(const void* shader_data, uint32_t data_size, skr_shad
 
 bool skr_shader_is_valid(const skr_shader_t* shader) {
 	if (!shader) return false;
-	return shader->vertex_stage.shader  != VK_NULL_HANDLE ||
-	       shader->pixel_stage.shader   != VK_NULL_HANDLE ||
-	       shader->compute_stage.shader != VK_NULL_HANDLE;
+	return
+		shader->meta                 == NULL           ||
+		shader->vertex_stage.shader  != VK_NULL_HANDLE ||
+		shader->pixel_stage.shader   != VK_NULL_HANDLE ||
+		shader->compute_stage.shader != VK_NULL_HANDLE;
 }
 
 void skr_shader_destroy(skr_shader_t* ref_shader) {
@@ -127,7 +129,7 @@ void skr_shader_destroy(skr_shader_t* ref_shader) {
 		ref_shader->meta = NULL;
 	}
 
-	*ref_shader = (skr_shader_t){};
+	*ref_shader = (skr_shader_t){0};
 }
 
 skr_bind_t skr_shader_get_bind(const skr_shader_t* shader, const char* bind_name) {

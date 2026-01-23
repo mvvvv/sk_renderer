@@ -14,7 +14,7 @@ skr_err_ skr_compute_create(const skr_shader_t* shader, skr_compute_t* out_compu
 	if (!out_compute) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	*out_compute = (skr_compute_t){};
+	*out_compute = (skr_compute_t){0};
 
 	if (!shader || !skr_shader_is_valid(shader) || shader->compute_stage.shader == VK_NULL_HANDLE || !shader->meta) {
 		skr_log(skr_log_critical, "Invalid shader or no compute stage");
@@ -91,7 +91,7 @@ skr_err_ skr_compute_create(const skr_shader_t* shader, skr_compute_t* out_compu
 		if (out_compute->descriptor_layout) {
 			vkDestroyDescriptorSetLayout(_skr_vk.device, out_compute->descriptor_layout, NULL);
 		}
-		*out_compute = (skr_compute_t){};
+		*out_compute = (skr_compute_t){0};
 		return skr_err_device_error;
 	}
 
@@ -114,7 +114,7 @@ skr_err_ skr_compute_create(const skr_shader_t* shader, skr_compute_t* out_compu
 		if (out_compute->descriptor_layout) {
 			vkDestroyDescriptorSetLayout(_skr_vk.device, out_compute->descriptor_layout, NULL);
 		}
-		*out_compute = (skr_compute_t){};
+		*out_compute = (skr_compute_t){0};
 		return skr_err_device_error;
 	}
 
@@ -168,7 +168,7 @@ void skr_compute_destroy(skr_compute_t* ref_compute) {
 	_skr_free(ref_compute->binds);
 	_skr_free(ref_compute->param_buffer);
 
-	*ref_compute = (skr_compute_t){};
+	*ref_compute = (skr_compute_t){0};
 }
 
 void skr_compute_set_buffer(skr_compute_t* ref_compute, const char* name, skr_buffer_t* buffer) {
@@ -374,7 +374,7 @@ void skr_compute_execute(skr_compute_t* ref_compute, uint32_t x, uint32_t y, uin
 		return;
 	}
 
-	//_skr_log_descriptor_writes(writes, buffer_infos, image_infos, write_ct, buffer_ct, image_ct);
+	//_skr_log_descriptor_writes(writes, write_ct, buffer_ct, image_ct);
 
 	_skr_bind_descriptors(cmd, ctx.descriptor_pool, VK_PIPELINE_BIND_POINT_COMPUTE,
 	                      ref_compute->layout, ref_compute->descriptor_layout, writes, write_ct);

@@ -92,6 +92,14 @@ static bool _skr_vk_create_debug_messenger(VkInstance instance, PFN_vkDebugUtils
 // Initialization
 ///////////////////////////////////////////////////////////////////////////////
 
+// Helper to check if an extension is available
+static bool _skr_ext_available(const char* name, const VkExtensionProperties* available, uint32_t count) {
+	for (uint32_t i = 0; i < count; i++) {
+		if (strcmp(name, available[i].extensionName) == 0) return true;
+	}
+	return false;
+}
+
 bool skr_init(skr_settings_t settings) {
 	if (_skr_vk.initialized) {
 		skr_log(skr_log_warning, "sk_renderer already initialized");
@@ -106,7 +114,7 @@ bool skr_init(skr_settings_t settings) {
 		return false;
 	}
 
-	_skr_vk = (_skr_vk_t){};
+	_skr_vk = (_skr_vk_t){0};
 	_skr_vk.validation_enabled        = settings.enable_validation;
 	_skr_vk.current_renderpass_idx    = -1;
 	_skr_vk.main_thread_id            = thrd_current();
@@ -194,22 +202,13 @@ bool skr_init(skr_settings_t settings) {
 	VkExtensionProperties* available_inst_exts = _skr_malloc(available_inst_ext_count * sizeof(VkExtensionProperties));
 	vkEnumerateInstanceExtensionProperties(NULL, &available_inst_ext_count, available_inst_exts);
 
-	// Helper to check if an extension is available
-	#define EXT_AVAILABLE(name, available, count) ({ \
-		bool _found = false; \
-		for (uint32_t _i = 0; _i < (count); _i++) { \
-			if (strcmp((name), (available)[_i].extensionName) == 0) { _found = true; break; } \
-		} \
-		_found; \
-	})
-
 	// Build final instance extension list
 	const char* instance_exts[64];
 	uint32_t    instance_ext_count = 0;
 
 	// Add application-required extensions first
 	for (uint32_t i = 0; i < settings.required_extension_count && instance_ext_count < 64; i++) {
-		if (EXT_AVAILABLE(settings.required_extensions[i], available_inst_exts, available_inst_ext_count)) {
+		if (_skr_ext_available(settings.required_extensions[i], available_inst_exts, available_inst_ext_count)) {
 			instance_exts[instance_ext_count++] = settings.required_extensions[i];
 		} else {
 			skr_log(skr_log_critical, "Required instance extension '%s' not available", settings.required_extensions[i]);
@@ -220,7 +219,7 @@ bool skr_init(skr_settings_t settings) {
 
 	// Add sk_renderer required extensions
 	for (uint32_t i = 0; i < required_instance_ext_count && instance_ext_count < 64; i++) {
-		if (EXT_AVAILABLE(required_instance_exts[i], available_inst_exts, available_inst_ext_count)) {
+		if (_skr_ext_available(required_instance_exts[i], available_inst_exts, available_inst_ext_count)) {
 			instance_exts[instance_ext_count++] = required_instance_exts[i];
 		} else {
 			skr_log(skr_log_critical, "Required instance extension '%s' not available", required_instance_exts[i]);
@@ -235,7 +234,7 @@ bool skr_init(skr_settings_t settings) {
 		if (strcmp(optional_instance_exts[i], VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0 && !_skr_vk.validation_enabled) {
 			continue;
 		}
-		if (EXT_AVAILABLE(optional_instance_exts[i], available_inst_exts, available_inst_ext_count)) {
+		if (_skr_ext_available(optional_instance_exts[i], available_inst_exts, available_inst_ext_count)) {
 			instance_exts[instance_ext_count++] = optional_instance_exts[i];
 		}
 	}
@@ -532,7 +531,7 @@ bool skr_init(skr_settings_t settings) {
 
 	// Add required device extensions
 	for (uint32_t i = 0; i < required_device_ext_count && device_ext_count < 64; i++) {
-		if (EXT_AVAILABLE(required_device_exts[i], available_device_exts, available_device_ext_count)) {
+		if (_skr_ext_available(required_device_exts[i], available_device_exts, available_device_ext_count)) {
 			device_exts[device_ext_count++] = required_device_exts[i];
 		} else {
 			skr_log(skr_log_critical, "Required device extension '%s' not available", required_device_exts[i]);
@@ -543,7 +542,7 @@ bool skr_init(skr_settings_t settings) {
 
 	// Add device extensions from callback (e.g., from OpenXR)
 	for (uint32_t i = 0; i < device_request.required_device_extension_count && device_ext_count < 64; i++) {
-		if (EXT_AVAILABLE(device_request.required_device_extensions[i], available_device_exts, available_device_ext_count)) {
+		if (_skr_ext_available(device_request.required_device_extensions[i], available_device_exts, available_device_ext_count)) {
 			device_exts[device_ext_count++] = device_request.required_device_extensions[i];
 		} else {
 			skr_log(skr_log_critical, "Required device extension '%s' not available", device_request.required_device_extensions[i]);
@@ -556,7 +555,7 @@ bool skr_init(skr_settings_t settings) {
 	_skr_vk.has_push_descriptors = false;
 	bool has_viewport_layer      = false;
 	for (uint32_t i = 0; i < optional_device_ext_count && device_ext_count < 64; i++) {
-		if (EXT_AVAILABLE(optional_device_exts[i], available_device_exts, available_device_ext_count)) {
+		if (_skr_ext_available(optional_device_exts[i], available_device_exts, available_device_ext_count)) {
 			device_exts[device_ext_count++] = optional_device_exts[i];
 			if (strcmp(optional_device_exts[i], VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME            ) == 0) _skr_vk.has_push_descriptors = true;
 			if (strcmp(optional_device_exts[i], VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME) == 0) has_viewport_layer           = true;
@@ -772,7 +771,7 @@ void skr_shutdown(void) {
 	if (_skr_vk.device   != VK_NULL_HANDLE) { vkDestroyDevice  (_skr_vk.device,   NULL); }
 	if (_skr_vk.instance != VK_NULL_HANDLE) { vkDestroyInstance(_skr_vk.instance, NULL); }
 
-	_skr_vk = (_skr_vk_t){};
+	_skr_vk = (_skr_vk_t){0};
 }
 
 VkInstance skr_get_vk_instance(void) {

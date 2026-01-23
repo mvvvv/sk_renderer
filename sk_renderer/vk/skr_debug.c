@@ -131,12 +131,10 @@ static const char* _skr_descriptor_type_name(VkDescriptorType type) {
 }
 
 void _skr_log_descriptor_writes(
-	const VkWriteDescriptorSet*   writes,
-	const VkDescriptorBufferInfo* buffer_infos,
-	const VkDescriptorImageInfo*  image_infos,
-	uint32_t write_ct,
-	uint32_t buffer_ct,
-	uint32_t image_ct)
+	const VkWriteDescriptorSet* writes,
+	uint32_t                    write_ct,
+	uint32_t                    buffer_ct,
+	uint32_t                    image_ct)
 {
 	skr_log(skr_log_info, "=== Descriptor Writes ===");
 	skr_log(skr_log_info, "Total writes: %u | Buffers: %u | Images: %u", write_ct, buffer_ct, image_ct);

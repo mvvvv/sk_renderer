@@ -37,7 +37,7 @@ skr_err_ skr_buffer_create(const void* opt_data, uint32_t size_count, uint32_t s
 	if (!out_buffer) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	*out_buffer = (skr_buffer_t){};
+	*out_buffer = (skr_buffer_t){0};
 
 	// Validate inputs
 	if (size_count == 0 || size_stride == 0) {
@@ -80,7 +80,7 @@ skr_err_ skr_buffer_create(const void* opt_data, uint32_t size_count, uint32_t s
 	if (vr != VK_SUCCESS) {
 		SKR_VK_CHECK_NRET(vr, "vkAllocateMemory");
 		vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
-		*out_buffer = (skr_buffer_t){};
+		*out_buffer = (skr_buffer_t){0};
 		return skr_err_out_of_memory;
 	}
 
@@ -107,7 +107,7 @@ skr_err_ skr_buffer_create(const void* opt_data, uint32_t size_count, uint32_t s
 				SKR_VK_CHECK_NRET(vr, "vkCreateBuffer");
 				vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
 				vkFreeMemory(_skr_vk.device, out_buffer->memory, NULL);
-				*out_buffer = (skr_buffer_t){};
+				*out_buffer = (skr_buffer_t){0};
 				return skr_err_device_error;
 			}
 
@@ -125,7 +125,7 @@ skr_err_ skr_buffer_create(const void* opt_data, uint32_t size_count, uint32_t s
 				vkDestroyBuffer(_skr_vk.device, staging_buffer, NULL);
 				vkDestroyBuffer(_skr_vk.device, out_buffer->buffer, NULL);
 				vkFreeMemory(_skr_vk.device, out_buffer->memory, NULL);
-				*out_buffer = (skr_buffer_t){};
+				*out_buffer = (skr_buffer_t){0};
 				return skr_err_out_of_memory;
 			}
 			vkBindBufferMemory(_skr_vk.device, staging_buffer, staging_memory, 0);
@@ -302,7 +302,7 @@ void skr_buffer_destroy(skr_buffer_t* ref_buffer) {
 		_skr_cmd_destroy_memory(NULL, ref_buffer->memory);
 	}
 
-	*ref_buffer = (skr_buffer_t){};
+	*ref_buffer = (skr_buffer_t){0};
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -331,7 +331,7 @@ void _skr_bump_alloc_destroy(skr_bump_alloc_t* ref_alloc) {
 	}
 	_skr_free(ref_alloc->overflow);
 
-	*ref_alloc = (skr_bump_alloc_t){};
+	*ref_alloc = (skr_bump_alloc_t){0};
 }
 
 void _skr_bump_alloc_reset(skr_bump_alloc_t* ref_alloc) {
@@ -406,7 +406,7 @@ skr_bump_result_t _skr_bump_alloc_write(skr_bump_alloc_t* ref_alloc, const void*
 
 	// Create overflow buffer for this allocation
 	skr_buffer_t* overflow = &ref_alloc->overflow[ref_alloc->overflow_count];
-	*overflow = (skr_buffer_t){};
+	*overflow = (skr_buffer_t){0};
 
 	skr_buffer_create(data, size, 1, ref_alloc->buffer_type, skr_use_dynamic, overflow);
 	ref_alloc->overflow_count++;

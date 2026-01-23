@@ -488,7 +488,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	if (!out_tex) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	*out_tex = (skr_tex_t){};
+	*out_tex = (skr_tex_t){0};
 
 	// Validate parameters
 	if (size.x <= 0 || size.y <= 0 || size.z <= 0) {
@@ -673,7 +673,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		skr_log(skr_log_critical, "Failed to allocate texture memory - Format: %d, Size: %dx%dx%d, Mips: %d, Layers: %d, Samples: %d, Usage: 0x%x, Flags: 0x%x",
 			format, size.x, size.y, size.z, out_tex->mip_levels, out_tex->layer_count, out_tex->samples, usage, out_tex->flags);
 		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
-		*out_tex = (skr_tex_t){};
+		*out_tex = (skr_tex_t){0};
 		return skr_err_out_of_memory;
 	}
 
@@ -694,7 +694,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		if (upload_err != skr_err_success) {
 			vkFreeMemory  (_skr_vk.device, out_tex->memory, NULL);
 			vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
-			*out_tex = (skr_tex_t){};
+			*out_tex = (skr_tex_t){0};
 			return upload_err;
 		}
 	} else if (!is_msaa_attachment && !(out_tex->flags & skr_tex_flags_writeable)) {
@@ -734,7 +734,7 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 		skr_log(skr_log_critical, "vkCreateImageView failed");
 		vkFreeMemory  (_skr_vk.device, out_tex->memory, NULL);
 		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
-		*out_tex = (skr_tex_t){};
+		*out_tex = (skr_tex_t){0};
 		return skr_err_device_error;
 	}
 
@@ -757,7 +757,7 @@ void skr_tex_destroy(skr_tex_t* ref_tex) {
 		_skr_cmd_destroy_image (NULL, ref_tex->image);
 		_skr_cmd_destroy_memory(NULL, ref_tex->memory);
 	}
-	*ref_tex = (skr_tex_t){};
+	*ref_tex = (skr_tex_t){0};
 }
 
 bool skr_tex_is_valid(const skr_tex_t* tex) {
@@ -965,7 +965,7 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 		.color_load_op  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,  // Full blit
 	};
 	int32_t renderpass_idx = _skr_pipeline_register_renderpass_unlocked(&rp_key);
-	int32_t vert_idx       = _skr_pipeline_register_vertformat_unlocked((skr_vert_type_t){});
+	int32_t vert_idx       = _skr_pipeline_register_vertformat_unlocked((skr_vert_type_t){0});
 
 	// Get cached render pass
 	VkRenderPass render_pass = _skr_pipeline_get_renderpass(renderpass_idx);
@@ -1549,10 +1549,10 @@ uint64_t skr_tex_calc_mip_size(skr_tex_fmt_ format, skr_vec3i_t base_size, uint3
 ///////////////////////////////////////////////////////////////////////////////
 
 skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_tex) {
-	if (!out_tex) return skr_err_invalid_parameter;
+	if (out_tex    == NULL)           return skr_err_invalid_parameter;
 	if (info.image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
 
-	*out_tex = (skr_tex_t){};
+	*out_tex = (skr_tex_t){0};
 
 	VkFormat vk_format = skr_tex_fmt_to_native(info.format);
 	if (vk_format == VK_FORMAT_UNDEFINED) {
@@ -1574,11 +1574,11 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 
 	// Handle array layers
 	int32_t layer_count = info.array_layers > 1 ? info.array_layers : 1;
-	bool is_array = layer_count > 1;
+	bool    is_array    = layer_count > 1;
 
 	// Determine aspect mask based on format
 	VkImageAspectFlags aspect_mask = 0;
-	if (_skr_format_is_depth(vk_format))    { aspect_mask |= VK_IMAGE_ASPECT_DEPTH_BIT;   }
+	if (_skr_format_is_depth   (vk_format)) { aspect_mask |= VK_IMAGE_ASPECT_DEPTH_BIT;   }
 	if (_skr_format_has_stencil(vk_format)) { aspect_mask |= VK_IMAGE_ASPECT_STENCIL_BIT; }
 	if (aspect_mask == 0)                   { aspect_mask  = VK_IMAGE_ASPECT_COLOR_BIT;   }
 
@@ -1588,7 +1588,7 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 	out_tex->memory      = info.memory;  // May be VK_NULL_HANDLE for truly external memory
 	out_tex->size        = (skr_vec3i_t){ info.size.x, info.size.y, 1 };
 	out_tex->format      = info.format;
-	out_tex->flags       = is_array ? skr_tex_flags_array : 0;
+	out_tex->flags       = is_array ? skr_tex_flags_array : skr_tex_flags_none;
 	out_tex->samples     = vk_samples;
 	out_tex->mip_levels  = 1;
 	out_tex->layer_count = layer_count;
@@ -1622,7 +1622,7 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 		VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &out_tex->view);
 		if (vr != VK_SUCCESS) {
 			skr_log(skr_log_critical, "skr_tex_create_external: vkCreateImageView failed");
-			*out_tex = (skr_tex_t){};
+			*out_tex = (skr_tex_t){0};
 			return skr_err_device_error;
 		}
 	}

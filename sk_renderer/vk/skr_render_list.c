@@ -17,7 +17,7 @@ skr_err_ skr_render_list_create(skr_render_list_t* out_list) {
 	if (!out_list) return skr_err_invalid_parameter;
 
 	// Zero out immediately
-	*out_list = (skr_render_list_t){};
+	*out_list = (skr_render_list_t){0};
 
 	out_list->capacity                       = 16;
 	out_list->items                          = _skr_malloc(sizeof(skr_render_item_t) * out_list->capacity);
@@ -34,7 +34,7 @@ skr_err_ skr_render_list_create(skr_render_list_t* out_list) {
 		_skr_free(out_list->instance_data);
 		_skr_free(out_list->instance_data_sorted);
 		_skr_free(out_list->material_data);
-		*out_list = (skr_render_list_t){};
+		*out_list = (skr_render_list_t){0};
 		return skr_err_out_of_memory;
 	}
 
@@ -48,7 +48,7 @@ void skr_render_list_destroy(skr_render_list_t* ref_list) {
 	_skr_free(ref_list->instance_data_sorted);
 	_skr_free(ref_list->material_data);
 	_skr_free(ref_list->items);
-	*ref_list = (skr_render_list_t){};
+	*ref_list = (skr_render_list_t){0};
 }
 
 void skr_render_list_clear(skr_render_list_t* ref_list) {
