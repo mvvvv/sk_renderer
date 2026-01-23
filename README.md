@@ -1,21 +1,43 @@
 # sk_renderer
 
-A cross-platform MIT licensed forward renderer written in modern C with a Vulkan backend! Desgined for use in StereoKit.
+A Vulkan 1.1 renderer targeting Android/Linux/Windows/MacOS! Written with C11, and desgined for use in StereoKit (and elsewhere). Core goal is performance and compatability on XR standalone headsets.
 
-## Overview
+It uses a mid-high level API, with an opinionated instanced rendering system, allowing for easy use and internal implementation flexibility. This renderer uses HLSL for shaders, and uses its own skshaderc tool to compile HLSL to a custom format containing optimized SPIRV with metadata.
 
-sk_renderer provides a clean, immediate-mode rendering API designed for VR applications. It abstracts Vulkan complexity while maintaining high performance, targeting Android VR headsets (Vulkan 1.1), Linux, Windows, and macOS via MoltenVK.
+The full API for sk_renderer [can be found in `sk_renderer.h`](sk_renderer/include/sk_renderer.h).
 
-**Key Features:**
+## Examples and tools
 
-- Immediate-mode API with no scene graph overhead
-- Triple-buffered rendering with async resource uploads
-- PBR materials, compute shaders, shadow mapping, and post-processing
-- Optimized for mobile VR with MSAA and low CPU overhead
+For usage, please see the [example project](/example/) for example implementations of various features. For usage with OpenXR, see the [example_xr project](/example_xr/).
+- [Basic mesh drawing.](/example/scene_meshes.c)
+- [PBR via GLTF.](/example/scene_gltf.c)
+- [Gaussian splat rendering.](/example/scene_gaussian_splat.c)
+- [Curve based text rendering.](/example/scene_text.c)
+- [Basic shadow mapping.](/example/scene_shadows.c)
+- [Compute shaders.](/example/scene_reaction_diffusion.c)
+- [Texture compression.](/example/scene_tex_compress.c)
+- ... and more
+
+Along with the core sk_renderer, the example projects include a number of useful high-level tools. Many of these are completely standalone, or may be adaptable to other contexts.
+- [scene_util.h/c](/example/tools/scene_util.h) - Utilities for kickstarting projects.
+  - GLTF Loader
+  - STB image loading
+  - Mesh generation
+  - Texture generation
+  - Default system info and vertex types
+- [hdr_load.h](/example/tools/hdr_load.h) - Fast load .hdr to rg11b10 or rgb9e5 formats.
+- [micro_ply.h](/example/tools/micro_ply.h) - Gaussian Splat friendly .ply loader.
+- [float_math.h](/example/tools/float_math.h) - SIMD optimized vector math.
+- [tex_compress.h/c](/example/tools/tex_compress.h) - Fast convert images to BC1/ETC2 format.
+- [text.h/c](/example/text/text.h) - Vector text rendering.
+
+## Dear ImGui
+
+sk_renderer has a [Dear ImGui rendering backend](/example/imgui_backend/) with prebuilt shaders that pairs quite well with [sk_app](https://github.com/StereoKit/sk_app), another similar tool that has a [Dear ImGui platform backend](https://github.com/StereoKit/sk_app/tree/main/examples/imgui_example). These make for a great combo for building portable Dear ImGui applications that work on all major operating systems.
 
 ## Building
 
-**Prerequisites:** CMake 3.10+, Vulkan SDK
+**Prerequisites:** CMake 3.10+
 
 From the repository root:
 
@@ -39,12 +61,5 @@ cmake --build build-androidx86 -j8 --target run_apk
 # For Windows .exe from linux with mingw-w64
 cmake -B build-mingw -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-toolchain.cmake -DCMAKE_BUILD_TYPE=Release
 cmake --build build-mingw -j8
-cd build-mingw/ && WINEPATH=./_deps/sdl2-build/ wine example/sk_renderer_test.exe ; cd -
+cd build-mingw/ && wine example/sk_renderer_test.exe ; cd -
 ```
-
-This builds and runs the example application with multiple demo scenes. Use arrow keys to switch between scenes.
-
-## Documentation
-
-- [sk_renderer/include/sk_renderer.h](sk_renderer/include/sk_renderer.h) - Public API header
-- [example/](example/) - Reference implementation
