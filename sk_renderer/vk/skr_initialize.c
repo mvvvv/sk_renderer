@@ -153,8 +153,7 @@ bool skr_init(skr_settings_t settings) {
 		VK_KHR_SURFACE_EXTENSION_NAME,
 	};
 	const char* optional_instance_exts[] = {
-		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-		"VK_EXT_present_mode_fifo_latest_ready",
+		VK_EXT_DEBUG_UTILS_EXTENSION_NAME
 	};
 	const uint32_t required_instance_ext_count = sizeof(required_instance_exts) / sizeof(required_instance_exts[0]);
 	const uint32_t optional_instance_ext_count = sizeof(optional_instance_exts) / sizeof(optional_instance_exts[0]);
@@ -428,8 +427,10 @@ bool skr_init(skr_settings_t settings) {
 	// Print selected device if we didn't find discrete GPU
 	skr_log(skr_log_info, "Using GPU: %s", device_props.deviceName);
 
-	// Store timestamp period for GPU timing
-	_skr_vk.timestamp_period = device_props.limits.timestampPeriod;
+	// Store device limits
+	_skr_vk.timestamp_period      = device_props.limits.timestampPeriod;
+	_skr_vk.min_ubo_offset_align  = (uint32_t)device_props.limits.minUniformBufferOffsetAlignment;
+	_skr_vk.min_ssbo_offset_align = (uint32_t)device_props.limits.minStorageBufferOffsetAlignment;
 
 	// Find queue families
 	uint32_t queue_family_count = 0;

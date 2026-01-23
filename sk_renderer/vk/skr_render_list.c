@@ -117,10 +117,14 @@ void skr_render_list_add_indexed(skr_render_list_t* ref_list, skr_mesh_t* mesh, 
 	item->bind_count             = (uint8_t)material->bind_count;
 
 	// Copy material param_buffer data (so material can be destroyed after add)
-	item->param_data_offset = ref_list->material_data_used;
+	// Align offset for uniform buffer access (minUniformBufferOffsetAlignment)
+	uint32_t ubo_align          = _skr_vk.min_ubo_offset_align;
+	uint32_t aligned_mat_offset = (ref_list->material_data_used + ubo_align - 1) & ~(ubo_align - 1);
+	item->param_data_offset     = aligned_mat_offset;
 	if (material->param_buffer && material->param_buffer_size > 0) {
+		uint32_t needed = aligned_mat_offset + material->param_buffer_size;
 		// Resize material data if needed
-		while (ref_list->material_data_used + material->param_buffer_size > ref_list->material_data_capacity) {
+		while (needed > ref_list->material_data_capacity) {
 			uint32_t new_capacity = ref_list->material_data_capacity * 2;
 			uint8_t* new_data     = _skr_realloc(ref_list->material_data, new_capacity);
 			if (!new_data) {
@@ -130,24 +134,28 @@ void skr_render_list_add_indexed(skr_render_list_t* ref_list, skr_mesh_t* mesh, 
 			ref_list->material_data          = new_data;
 			ref_list->material_data_capacity = new_capacity;
 		}
-		memcpy(&ref_list->material_data[ref_list->material_data_used], material->param_buffer, material->param_buffer_size);
-		ref_list->material_data_used += material->param_buffer_size;
+		memcpy(&ref_list->material_data[aligned_mat_offset], material->param_buffer, material->param_buffer_size);
+		ref_list->material_data_used = aligned_mat_offset + material->param_buffer_size;
 	}
 
 	// Render item data
-	item->sort_key           = _skr_render_sort_key(material, item->vertex_buffers[0]);
-	item->instance_offset    = ref_list->instance_data_used;
-	item->instance_data_size = (uint16_t)single_instance_data_size;
-	item->instance_count     = instance_count;
-	item->first_index        = first_index;
-	item->index_count        = index_count;
-	item->vertex_offset      = vertex_offset;
+	// Align instance offset for storage buffer access (minStorageBufferOffsetAlignment)
+	uint32_t ssbo_align          = _skr_vk.min_ssbo_offset_align;
+	uint32_t aligned_inst_offset = (ref_list->instance_data_used + ssbo_align - 1) & ~(ssbo_align - 1);
+	item->sort_key               = _skr_render_sort_key(material, item->vertex_buffers[0]);
+	item->instance_offset        = aligned_inst_offset;
+	item->instance_data_size     = (uint16_t)single_instance_data_size;
+	item->instance_count         = instance_count;
+	item->first_index            = first_index;
+	item->index_count            = index_count;
+	item->vertex_offset          = vertex_offset;
 
 	// Copy instance data if provided
 	uint32_t total_size = single_instance_data_size * instance_count;
 	if (opt_instance_data && total_size > 0) {
+		uint32_t needed = aligned_inst_offset + total_size;
 		// Resize instance data if needed
-		while (ref_list->instance_data_used + total_size > ref_list->instance_data_capacity) {
+		while (needed > ref_list->instance_data_capacity) {
 			uint32_t new_capacity = ref_list->instance_data_capacity * 2;
 			uint8_t* new_data     = _skr_realloc(ref_list->instance_data, new_capacity);
 			if (!new_data) {
@@ -157,8 +165,8 @@ void skr_render_list_add_indexed(skr_render_list_t* ref_list, skr_mesh_t* mesh, 
 			ref_list->instance_data          = new_data;
 			ref_list->instance_data_capacity = new_capacity;
 		}
-		memcpy(&ref_list->instance_data[ref_list->instance_data_used], opt_instance_data, total_size);
-		ref_list->instance_data_used += total_size;
+		memcpy(&ref_list->instance_data[aligned_inst_offset], opt_instance_data, total_size);
+		ref_list->instance_data_used = aligned_inst_offset + total_size;
 	}
 
 	// Mark list as needing sort

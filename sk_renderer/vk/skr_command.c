@@ -230,8 +230,8 @@ static _skr_cmd_ring_slot_t *_skr_cmd_ring_begin(_skr_vk_thread_t* ref_pool) {
 			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 		}, NULL, &slot->fence);
 		slot->destroy_list = _skr_destroy_list_create();
-		_skr_bump_alloc_init(&slot->const_bump,   skr_buffer_type_constant, 256);  // 256-byte alignment for UBOs
-		_skr_bump_alloc_init(&slot->storage_bump, skr_buffer_type_storage,  16);   // 16-byte alignment for storage
+		_skr_bump_alloc_init(&slot->const_bump,   skr_buffer_type_constant, _skr_vk.min_ubo_offset_align);
+		_skr_bump_alloc_init(&slot->storage_bump, skr_buffer_type_storage,  _skr_vk.min_ssbo_offset_align);
 
 		// Create descriptor pool for non-push-descriptor fallback
 		if (!_skr_vk.has_push_descriptors) {

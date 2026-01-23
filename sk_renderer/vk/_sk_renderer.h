@@ -188,7 +188,9 @@ typedef struct {
 
 	// GPU timing (single query pool, 2 queries per frame)
 	VkQueryPool              timestamp_pool;
-	float                    timestamp_period;  // ns per tick
+	float                    timestamp_period;       // ns per tick
+	uint32_t                 min_ubo_offset_align;   // minUniformBufferOffsetAlignment
+	uint32_t                 min_ssbo_offset_align;  // minStorageBufferOffsetAlignment
 	uint64_t                 frame_timestamps[SKR_MAX_FRAMES_IN_FLIGHT][2];  // [frame][start/end]
 	bool                     timestamps_valid[SKR_MAX_FRAMES_IN_FLIGHT];
 

@@ -1004,12 +1004,17 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 
 	// Pre-populate parameter buffers for all mip levels
 	// Use material API to set values (handles different $Global layouts per shader)
-	int32_t      num_mips      = mip_levels - 1;
-	uint8_t*     all_params    = NULL;
-	skr_buffer_t params_buffer = {0};
+	int32_t      num_mips       = mip_levels - 1;
+	uint8_t*     all_params     = NULL;
+	skr_buffer_t params_buffer  = {0};
+	uint32_t     aligned_stride = 0;
 
 	if (material.param_buffer_size > 0) {
-		all_params = _skr_calloc(num_mips, material.param_buffer_size);
+		// Align stride to minUniformBufferOffsetAlignment for descriptor offsets
+		uint32_t align = _skr_vk.min_ubo_offset_align;
+		aligned_stride = (material.param_buffer_size + align - 1) & ~(align - 1);
+
+		all_params = _skr_calloc(num_mips, aligned_stride);
 
 		for (int32_t mip = 1; mip < mip_levels; mip++) {
 			skr_vec3i_t dst_dims = skr_tex_calc_mip_dimensions(ref_tex->size, mip);
@@ -1025,13 +1030,13 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 			skr_material_set_param(&material, "mip_max", sksc_shader_var_uint, 1, &mip_levels);
 
 			// Copy material's parameter buffer for this mip (preserves other values)
-			memcpy(all_params + (mip - 1) * material.param_buffer_size,
+			memcpy(all_params + (mip - 1) * aligned_stride,
 			       material.param_buffer,
 			       material.param_buffer_size);
 		}
 
 		// Create GPU buffer with all mip parameters
-		skr_buffer_create(all_params, num_mips, material.param_buffer_size, skr_buffer_type_constant, skr_use_static, &params_buffer);
+		skr_buffer_create(all_params, num_mips, aligned_stride, skr_buffer_type_constant, skr_use_static, &params_buffer);
 		_skr_free(all_params);
 	}
 
@@ -1160,7 +1165,7 @@ static void _skr_tex_generate_mips_render(VkDevice device, skr_tex_t* ref_tex, i
 		if (skr_buffer_is_valid(&params_buffer)) {
 			buffer_infos[buffer_ct] = (VkDescriptorBufferInfo){
 				.buffer = params_buffer.buffer,
-				.offset = (mip - 1) * material.param_buffer_size,  // Offset for this mip
+				.offset = (mip - 1) * aligned_stride,
 				.range  = material.param_buffer_size,
 			};
 			writes[write_ct++] = (VkWriteDescriptorSet){
