@@ -166,8 +166,6 @@ void skr_thread_shutdown() {
 	if (thread->cmd_pool != VK_NULL_HANDLE)
 		vkDestroyCommandPool(_skr_vk.device, thread->cmd_pool, NULL);
 
-	skr_log(skr_log_info, "Thread #%d shutdown, marking as non-alive for reuse", _skr_thread_idx);
-
 	// Mark as non-alive for reuse (don't zero out the whole struct)
 	thread->alive           = false;
 	thread->cmd_pool        = VK_NULL_HANDLE;
