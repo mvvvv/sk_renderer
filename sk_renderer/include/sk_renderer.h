@@ -340,37 +340,11 @@ typedef struct skr_blend_state_t {
 } skr_blend_state_t;
 
 // Common blend state presets
-static const skr_blend_state_t skr_blend_off = {
-	.color_op         = skr_blend_op_add,
-	.alpha_op         = skr_blend_op_add,
-};
-
-static const skr_blend_state_t skr_blend_alpha = {
-	.src_color_factor = skr_blend_src_alpha,
-	.dst_color_factor = skr_blend_one_minus_src_alpha,
-	.color_op         = skr_blend_op_add,
-	.src_alpha_factor = skr_blend_one,
-	.dst_alpha_factor = skr_blend_one_minus_src_alpha,
-	.alpha_op         = skr_blend_op_add,
-};
-
-static const skr_blend_state_t skr_blend_additive = {
-	.src_color_factor = skr_blend_src_alpha,
-	.dst_color_factor = skr_blend_one,
-	.color_op         = skr_blend_op_add,
-	.src_alpha_factor = skr_blend_one,
-	.dst_alpha_factor = skr_blend_one,
-	.alpha_op         = skr_blend_op_add,
-};
-
-static const skr_blend_state_t skr_blend_premultiplied = {
-	.src_color_factor = skr_blend_one,
-	.dst_color_factor = skr_blend_one_minus_src_alpha,
-	.color_op         = skr_blend_op_add,
-	.src_alpha_factor = skr_blend_one,
-	.dst_alpha_factor = skr_blend_one_minus_src_alpha,
-	.alpha_op         = skr_blend_op_add,
-};
+// Fields: src_color_factor, dst_color_factor, color_op, src_alpha_factor, dst_alpha_factor, alpha_op
+static const skr_blend_state_t skr_blend_off          = { skr_blend_zero,      skr_blend_zero,                skr_blend_op_add, skr_blend_zero, skr_blend_zero,                skr_blend_op_add };
+static const skr_blend_state_t skr_blend_alpha        = { skr_blend_src_alpha, skr_blend_one_minus_src_alpha, skr_blend_op_add, skr_blend_one,  skr_blend_one_minus_src_alpha, skr_blend_op_add };
+static const skr_blend_state_t skr_blend_additive     = { skr_blend_src_alpha, skr_blend_one,                 skr_blend_op_add, skr_blend_one,  skr_blend_one,                 skr_blend_op_add };
+static const skr_blend_state_t skr_blend_premultiplied= { skr_blend_one,       skr_blend_one_minus_src_alpha, skr_blend_op_add, skr_blend_one,  skr_blend_one_minus_src_alpha, skr_blend_op_add };
 
 typedef struct skr_stencil_state_t {
 	skr_compare_    compare;

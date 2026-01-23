@@ -394,5 +394,5 @@ void sksc_build_file(const sksc_shader_file_t *file, void **out_data, uint32_t *
 	}
 
 	*out_data = data.data.data;
-	*out_size = data.data.count;
+	*out_size = (uint32_t)data.data.count;
 }
