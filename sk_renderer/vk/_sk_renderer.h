@@ -192,6 +192,12 @@ typedef struct {
 	uint64_t                 frame_timestamps[SKR_MAX_FRAMES_IN_FLIGHT][2];  // [frame][start/end]
 	bool                     timestamps_valid[SKR_MAX_FRAMES_IN_FLIGHT];
 
+	// CPU timing (wall-clock time for frame work, excluding vsync)
+	uint64_t                 cpu_frame_start_ns  [SKR_MAX_FRAMES_IN_FLIGHT];
+	uint64_t                 cpu_frame_end_ns    [SKR_MAX_FRAMES_IN_FLIGHT];
+	uint64_t                 cpu_frame_wait_ns   [SKR_MAX_FRAMES_IN_FLIGHT];  // Accumulated wait time to subtract
+	bool                     cpu_timestamps_valid[SKR_MAX_FRAMES_IN_FLIGHT];
+
 	// Current render pass (for pipeline lookup)
 	int32_t                  current_renderpass_idx;
 	skr_tex_t*               current_color_texture;  // Track color texture for layout transitions
@@ -240,6 +246,9 @@ VkDescriptorSetLayout _skr_shader_make_layout               (VkDevice device, bo
 // Format helpers
 bool                  _skr_format_has_stencil               (VkFormat format);
 bool                  _skr_format_is_depth                  (VkFormat format);
+
+// Timing helpers
+uint64_t              _skr_time_get_ns                      (void);
 
 // Material descriptor caching. Returns -1 on success, or the failing bind index if a resource is missing.
 int32_t               _skr_material_add_writes              (const skr_material_bind_t* binds, uint32_t bind_ct, const int32_t* ignore_slots, int32_t ignore_ct, VkWriteDescriptorSet* ref_writes, uint32_t write_max, VkDescriptorBufferInfo* ref_buffer_infos, uint32_t buffer_max, VkDescriptorImageInfo* ref_image_infos, uint32_t image_max, uint32_t* ref_write_ct, uint32_t* ref_buffer_ct, uint32_t* ref_image_ct);

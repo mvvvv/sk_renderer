@@ -11,6 +11,12 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // Constants
@@ -25,6 +31,22 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Helpers
 ///////////////////////////////////////////////////////////////////////////////
+
+uint64_t _skr_time_get_ns(void) {
+#ifdef _WIN32
+	static LARGE_INTEGER freq = {0};
+	if (freq.QuadPart == 0) {
+		QueryPerformanceFrequency(&freq);
+	}
+	LARGE_INTEGER counter;
+	QueryPerformanceCounter(&counter);
+	return (uint64_t)(counter.QuadPart * 1000000000ULL / freq.QuadPart);
+#else
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+#endif
+}
 
 static VkFramebuffer _skr_get_or_create_framebuffer(VkDevice device, skr_tex_t* cache_target, VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve, bool has_depth) {
 	VkFramebuffer* cached_fb = has_depth
@@ -105,7 +127,12 @@ void skr_renderer_frame_begin() {
 	_skr_vk.in_frame = true;
 
 	// Start a command buffer batch for this frame
+	// NOTE: This may block waiting for an old frame's fence if all ring slots are in use
 	VkCommandBuffer cmd = _skr_cmd_begin().cmd;
+
+	// Record CPU start time AFTER acquiring command buffer (excludes pipeline stall wait)
+	_skr_vk.cpu_frame_start_ns[_skr_vk.flight_idx] = _skr_time_get_ns();
+	_skr_vk.cpu_frame_wait_ns [_skr_vk.flight_idx] = 0;  // Reset wait time accumulator
 
 	// Reset and write start timestamp
 	uint32_t query_start = _skr_vk.flight_idx * SKR_QUERIES_PER_FRAME;
@@ -149,6 +176,9 @@ void skr_renderer_frame_end(skr_surface_t** opt_surfaces, uint32_t count) {
 		count > 0 ? signal_semaphores : NULL, count
 	);
 
+	// Record CPU end time (after submission, before present/vsync)
+	_skr_vk.cpu_frame_end_ns[_skr_vk.flight_idx] = _skr_time_get_ns();
+
 	// Record future in all surfaces for their current frame_idx
 	for (uint32_t i = 0; i < count; i++) {
 		opt_surfaces[i]->frame_future[opt_surfaces[i]->frame_idx] = future;
@@ -165,6 +195,9 @@ void skr_renderer_frame_end(skr_surface_t** opt_surfaces, uint32_t count) {
 			sizeof(uint64_t), VK_QUERY_RESULT_64_BIT
 		);
 		_skr_vk.timestamps_valid[prev_flight] = (result == VK_SUCCESS);
+
+		// CPU timestamps are always valid once we have enough frames
+		_skr_vk.cpu_timestamps_valid[prev_flight] = true;
 	}
 
 	_skr_vk.in_frame = false;
@@ -888,4 +921,30 @@ float skr_renderer_get_gpu_time_ms() {
 	// Convert ticks to milliseconds: (ticks * ns_per_tick) / 1,000,000
 	float time_ns = (float)(end - start) * _skr_vk.timestamp_period;
 	return time_ns / 1000000.0f;
+}
+
+float skr_renderer_get_cpu_time_ms() {
+	// Return CPU timing from most recently completed frame
+	uint32_t read_flight = (_skr_vk.flight_idx + 1) % SKR_MAX_FRAMES_IN_FLIGHT;
+
+	if (!_skr_vk.cpu_timestamps_valid[read_flight]) {
+		return 0.0f;
+	}
+
+	uint64_t start = _skr_vk.cpu_frame_start_ns[read_flight];
+	uint64_t end   = _skr_vk.cpu_frame_end_ns[read_flight];
+	uint64_t wait  = _skr_vk.cpu_frame_wait_ns[read_flight];
+
+	// Guard against invalid data (end should be > start)
+	if (end <= start) {
+		return 0.0f;
+	}
+
+	uint64_t total = end - start;
+
+	// Guard against wait time exceeding total (shouldn't happen)
+	if (wait > total) wait = 0;
+
+	// Convert nanoseconds to milliseconds, subtracting wait time
+	return (float)(total - wait) / 1000000.0f;
 }

@@ -58,6 +58,7 @@ struct app_t {
 	#define FRAME_HISTORY_SIZE 512
 	float   frame_time_history[512];
 	float   gpu_time_history[512];
+	float   cpu_time_history[512];
 	int32_t history_index;
 };
 
@@ -134,9 +135,11 @@ static void _switch_scene(app_t* app, int32_t new_index) {
 
 	// Create new scene
 	app->scene_index   = new_index;
+	uint64_t start_ns  = ska_time_get_elapsed_ns();
 	app->scene_current = scene_create(app->scene_types[new_index]);
+	uint64_t elapsed_ns = ska_time_get_elapsed_ns() - start_ns;
 
-	su_log(su_log_info, "Switched to scene: %s", scene_get_name(app->scene_types[new_index]));
+	su_log(su_log_info, "Switched to scene: %s (%.2f ms)", scene_get_name(app->scene_types[new_index]), (double)elapsed_ns / 1000000.0);
 }
 
 app_t* app_create(int32_t start_scene) {
@@ -396,6 +399,7 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 	igText("MSAA: %dx", app->msaa);
 
 	float gpu_ms   = skr_renderer_get_gpu_time_ms();
+	float cpu_ms   = skr_renderer_get_cpu_time_ms();
 	float frame_ms = app->frame_time_ms;
 
 	// Track GPU performance stats
@@ -409,30 +413,37 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 	// Store history in circular buffer
 	app->frame_time_history[app->history_index] = frame_ms;
 	app->gpu_time_history  [app->history_index] = gpu_ms > 0.0f ? gpu_ms : app->gpu_time_history[(app->history_index + FRAME_HISTORY_SIZE - 1) % FRAME_HISTORY_SIZE];
+	app->cpu_time_history  [app->history_index] = cpu_ms > 0.0f ? cpu_ms : app->cpu_time_history[(app->history_index + FRAME_HISTORY_SIZE - 1) % FRAME_HISTORY_SIZE];
 	app->history_index = (app->history_index + 1) % FRAME_HISTORY_SIZE;
 
 	igText("Frame Time: %.2f ms (%.1f FPS)", frame_ms, 1000.0f / frame_ms);
-	igText("GPU Time: %.2f ms (%.1f FPS)", gpu_ms, 1000.0f / gpu_ms);
+	igText("CPU Time: %.2f ms", cpu_ms);
+	igText("GPU Time: %.2f ms", gpu_ms);
 
-	// Frame time graph (4ms to 18ms range)
-	const float cpu_graph_min = 6.0f;
-	const float cpu_graph_max = 10.0f;
-
-	const float gpu_graph_min = 0.0f;
-	const float gpu_graph_max = 3.0f;
+	// Graph display ranges
+	const float frame_graph_min = 6.0f;
+	const float frame_graph_max = 10.0f;
+	const float cpu_graph_min   = 0.0f;
+	const float cpu_graph_max   = 3.0f;
+	const float gpu_graph_min   = 0.0f;
+	const float gpu_graph_max   = 3.0f;
 
 	// Get available width for full-width plots
 	ImVec2 content_region;
 	igGetContentRegionAvail(&content_region);
 	float plot_width = content_region.x;
 
-	char frame_overlay[32], gpu_overlay[32];
+	char frame_overlay[32], cpu_overlay[32], gpu_overlay[32];
 	snprintf(frame_overlay, sizeof(frame_overlay), "Frame: %.1f ms", frame_ms);
+	snprintf(cpu_overlay,   sizeof(cpu_overlay),   "CPU: %.1f ms",   cpu_ms > 0.0f ? cpu_ms : 0.0f);
 	snprintf(gpu_overlay,   sizeof(gpu_overlay),   "GPU: %.1f ms",   gpu_ms > 0.0f ? gpu_ms : 0.0f);
 
 	// Plot frame time - using values_offset for circular buffer
 	igPlotLines_FloatPtr("##frame_graph", app->frame_time_history, FRAME_HISTORY_SIZE,
-		app->history_index, frame_overlay, cpu_graph_min, cpu_graph_max, (ImVec2){plot_width, 60}, sizeof(float));
+		app->history_index, frame_overlay, frame_graph_min, frame_graph_max, (ImVec2){plot_width, 60}, sizeof(float));
+
+	igPlotLines_FloatPtr("##cpu_graph", app->cpu_time_history, FRAME_HISTORY_SIZE,
+		app->history_index, cpu_overlay, cpu_graph_min, cpu_graph_max, (ImVec2){plot_width, 60}, sizeof(float));
 
 	igPlotLines_FloatPtr("##gpu_graph", app->gpu_time_history, FRAME_HISTORY_SIZE,
 		app->history_index, gpu_overlay, gpu_graph_min, gpu_graph_max, (ImVec2){plot_width, 60}, sizeof(float));

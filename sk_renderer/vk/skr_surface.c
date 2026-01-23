@@ -287,6 +287,10 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* ref_surface, skr_tex_t** out_te
 
 	*out_tex = NULL;
 
+	// Track wait time for CPU timing (excluded from CPU busy time)
+	// Both skr_future_wait and vkAcquireNextImageKHR can block
+	uint64_t wait_start = _skr_time_get_ns();
+
 	// Wait on the future from N-frames-ago to ensure this frame slot is available
 	skr_future_wait(&ref_surface->frame_future[ref_surface->frame_idx]);
 
@@ -297,6 +301,11 @@ skr_acquire_ skr_surface_next_tex(skr_surface_t* ref_surface, skr_tex_t** out_te
 		ref_surface->semaphore_acquire[ref_surface->frame_idx],
 		VK_NULL_HANDLE, &ref_surface->current_image
 	);
+
+	uint64_t wait_end = _skr_time_get_ns();
+	if (_skr_vk.in_frame) {
+		_skr_vk.cpu_frame_wait_ns[_skr_vk.flight_idx] += (wait_end - wait_start);
+	}
 
 	// Handle surface lost - cannot recover here, caller must recreate surface
 	if (result == VK_ERROR_SURFACE_LOST_KHR) {
