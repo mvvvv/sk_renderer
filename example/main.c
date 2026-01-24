@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
 	const bool enable_bloom      = true && enable_offscreen;
 
 	// Initialize sk_app
-	if (!ska_init()) {
+	if (!ska_init(NULL)) {
 		su_log(su_log_critical, "sk_app initialization failed: %s\n", ska_error_get());
 		return 1;
 	}

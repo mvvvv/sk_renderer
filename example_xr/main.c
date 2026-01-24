@@ -803,7 +803,7 @@ int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
 
-	ska_init();
+	ska_init(NULL);
 
 	ska_log(ska_log_info, "sk_renderer OpenXR Example");
 	ska_log(ska_log_info, "==========================");

@@ -15,7 +15,7 @@ if(ANDROID)
 endif()
 FetchContent_Declare(sk_app
 	GIT_REPOSITORY https://github.com/StereoKit/sk_app.git
-	GIT_TAG        2ecc009faf07e876f4278d1a9856386d471263f0
+	GIT_TAG        7a88ddc8875fda40652e38fae1f68c107aae8b41
 	GIT_SHALLOW    TRUE
 	GIT_PROGRESS   TRUE
 )

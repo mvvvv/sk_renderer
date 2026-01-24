@@ -74,11 +74,6 @@ static void _load_skybox(scene_gltf_t* scene, const char* path) {
 		return;
 	}
 
-	// For HDR (rgb9e5), use same format for cubemap to preserve HDR values
-	skr_tex_fmt_ cubemap_format = (equirect_format == skr_tex_fmt_rgb9e5)
-		? skr_tex_fmt_rgb9e5
-		: skr_tex_fmt_rgba32_srgb;
-
 	// Create equirectangular texture
 	skr_tex_create(
 		equirect_format,
@@ -95,7 +90,7 @@ static void _load_skybox(scene_gltf_t* scene, const char* path) {
 	// Create empty cubemap texture (matches source format for HDR preservation)
 	const int32_t cube_size = equirect_height / 2;
 	skr_tex_create(
-		cubemap_format,
+		equirect_format,
 		skr_tex_flags_readable | skr_tex_flags_writeable | skr_tex_flags_cubemap | skr_tex_flags_gen_mips,
 		su_sampler_linear_clamp,
 		(skr_vec3i_t){cube_size, cube_size, 6},

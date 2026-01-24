@@ -521,56 +521,18 @@ void* su_image_load(const char* filename, int32_t* opt_out_width, int32_t* opt_o
 	return pixels;
 }
 
-// Convert RGB floats to RGB9E5 shared exponent format
-// Format: 9 bits each for R,G,B mantissa, 5 bits shared exponent
-static uint32_t _float3_to_rgb9e5(float r, float g, float b) {
-	// Clamp to valid range [0, MAX_RGB9E5]
-	const float MAX_RGB9E5 = 65408.0f;  // (2^9 - 1) / 512 * 2^15
-	r = fmaxf(0.0f, fminf(r, MAX_RGB9E5));
-	g = fmaxf(0.0f, fminf(g, MAX_RGB9E5));
-	b = fmaxf(0.0f, fminf(b, MAX_RGB9E5));
-
-	// Find the maximum component to determine shared exponent
-	float max_val = fmaxf(fmaxf(r, g), b);
-
-	int32_t exp_shared;
-	if (max_val < 1e-10f) {
-		exp_shared = 0;
-	} else {
-		// Calculate exponent: floor(log2(max)) + 1 + bias(15)
-		exp_shared = (int32_t)floorf(log2f(max_val)) + 1 + 15;
-		exp_shared = exp_shared < 0 ? 0 : (exp_shared > 31 ? 31 : exp_shared);
-	}
-
-	// Calculate the divisor for this exponent
-	float divisor = exp2f((float)(exp_shared - 15 - 9));
-
-	// Convert to 9-bit mantissas
-	uint32_t r_m = (uint32_t)(r / divisor + 0.5f);
-	uint32_t g_m = (uint32_t)(g / divisor + 0.5f);
-	uint32_t b_m = (uint32_t)(b / divisor + 0.5f);
-
-	// Clamp mantissas to 9 bits
-	r_m = r_m > 511 ? 511 : r_m;
-	g_m = g_m > 511 ? 511 : g_m;
-	b_m = b_m > 511 ? 511 : b_m;
-
-	// Pack: R[8:0] | G[17:9] | B[26:18] | E[31:27]
-	return r_m | (g_m << 9) | (b_m << 18) | ((uint32_t)exp_shared << 27);
-}
-
 void* su_image_load_from_memory(const void* data, size_t size, int32_t* opt_out_width, int32_t* opt_out_height, skr_tex_fmt_* opt_out_format, int32_t force_channels) {
 	int   width, height, channels;
 	void* pixels = NULL;
 
 	hdr_header_t hdr_header = hdr_parse_header(data, (int32_t)size);
 	if (hdr_header.valid) {
-		hdr_image_t img = hdr_decode_pixels(data, (int32_t)size, &hdr_header);
+		hdr_image_t img = hdr_decode_pixels_rg11b10(data, (int32_t)size, &hdr_header);
 		if (img.pixels) {
 			width  = img.width;
 			height = img.height;
 			pixels = img.pixels;
-			if (opt_out_format) *opt_out_format = skr_tex_fmt_rgb9e5;
+			if (opt_out_format) *opt_out_format = skr_tex_fmt_rg11b10;
 		}
 	} else {
 		pixels = stbi_load_from_memory((const unsigned char*)data, (int)size, &width, &height, &channels, force_channels);
