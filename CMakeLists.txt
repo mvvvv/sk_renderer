@@ -49,14 +49,11 @@ endfunction()
 ###############################################################################
 
 if(SKR_BUILD_SKSHADERC)
-	if(ANDROID)
-		# For Android builds, use pre-built skshaderc from bin/
-		# (Build the host binary first with a native build)
-		add_subdirectory(${CMAKE_SOURCE_DIR}/bin bin_tools)
-	else()
-		# Native builds: build skshaderc from source
-		add_subdirectory(skshaderc)
-	endif()
+	# skshaderc handles cross-compilation internally:
+	# - Native builds: builds skshaderc from source and uses it for shaders
+	# - Cross-compiling: builds skshaderc for target, but uses pre-built host
+	#   binary from bin/tools/ for shader compilation
+	add_subdirectory(skshaderc)
 endif()
 
 ###############################################################################
@@ -77,7 +74,9 @@ set_target_properties(sk_renderer PROPERTIES
 
 # If we are building skshaderc, then sk_renderer should make skshaderc build
 # first. This allows consuming projects to use skshaderc's compile functions.
-if(NOT ANDROID AND SKR_BUILD_SKSHADERC)
+# (Note: when cross-compiling, shaders are compiled using the host binary,
+# but we still build skshaderc for the target platform)
+if(SKR_BUILD_SKSHADERC)
 	add_dependencies(sk_renderer skshaderc)
 endif()
 

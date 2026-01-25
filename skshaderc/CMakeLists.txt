@@ -21,12 +21,119 @@
 # skshaderc_compile_assets(PROJECT_SHADERS_HLSL "-t xge")
 #
 # If you wish to design your own shader compiling function,
-# this file also exports SKSHADERC_EXE_PATH, which is a 
+# this file also exports SKSHADERC_EXE_PATH, which is a
 # generator for the path to the skshaderc compiler executable
 # file.
 
 cmake_minimum_required(VERSION 3.10)
 project(skshaderc VERSION 1.0 DESCRIPTION "Shader compiler for sk_renderer")
+
+###############################################################################
+# Cross-compilation detection
+# When cross-compiling, we use a pre-built host binary to compile shaders,
+# while still building skshaderc for the target platform.
+###############################################################################
+
+# Normalize host system name (CMake uses "Darwin" for macOS)
+string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" _HOST_SYSTEM_LOWER)
+string(TOLOWER "${CMAKE_SYSTEM_NAME}" _TARGET_SYSTEM_LOWER)
+
+# Normalize processor names for comparison
+string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" _HOST_PROCESSOR_LOWER)
+if(CMAKE_SYSTEM_PROCESSOR)
+	string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _TARGET_PROCESSOR_LOWER)
+else()
+	set(_TARGET_PROCESSOR_LOWER "${_HOST_PROCESSOR_LOWER}")
+endif()
+
+# Normalize x86_64 variants
+if(_HOST_PROCESSOR_LOWER MATCHES "amd64")
+	set(_HOST_PROCESSOR_LOWER "x86_64")
+endif()
+if(_TARGET_PROCESSOR_LOWER MATCHES "amd64")
+	set(_TARGET_PROCESSOR_LOWER "x86_64")
+endif()
+
+# Normalize ARM64 variants
+if(_HOST_PROCESSOR_LOWER MATCHES "arm64")
+	set(_HOST_PROCESSOR_LOWER "aarch64")
+endif()
+if(_TARGET_PROCESSOR_LOWER MATCHES "arm64")
+	set(_TARGET_PROCESSOR_LOWER "aarch64")
+endif()
+
+# Detect cross-compilation: system or processor differs from host
+set(SKSHADERC_CROSS_COMPILING FALSE)
+if(NOT _HOST_SYSTEM_LOWER STREQUAL _TARGET_SYSTEM_LOWER)
+	set(SKSHADERC_CROSS_COMPILING TRUE)
+elseif(NOT _HOST_PROCESSOR_LOWER STREQUAL _TARGET_PROCESSOR_LOWER)
+	set(SKSHADERC_CROSS_COMPILING TRUE)
+endif()
+
+# Special case: cross-compiling to Windows from Unix can use Wine to run the
+# built .exe, so we don't need a pre-built host binary for this scenario.
+set(SKSHADERC_USE_WINE FALSE)
+if(CMAKE_HOST_UNIX AND CMAKE_SYSTEM_NAME MATCHES "Windows")
+	set(SKSHADERC_USE_WINE TRUE)
+	set(SKSHADERC_CROSS_COMPILING FALSE)  # Treat as "native" since Wine runs the .exe
+	set(WINE "wine" CACHE INTERNAL "")
+	message(STATUS "Cross-compiling to Windows: will use Wine to run skshaderc.exe")
+endif()
+
+# Find pre-built host binary path (only needed for true cross-compilation)
+set(SKSHADERC_HOST_BIN_DIR "${CMAKE_SOURCE_DIR}/bin/tools")
+if(CMAKE_HOST_APPLE)
+	set(SKSHADERC_HOST_BIN "${SKSHADERC_HOST_BIN_DIR}/mac/skshaderc")
+elseif(CMAKE_HOST_WIN32)
+	if(_HOST_PROCESSOR_LOWER STREQUAL "x86_64")
+		set(SKSHADERC_HOST_BIN "${SKSHADERC_HOST_BIN_DIR}/win32_x64/skshaderc.exe")
+	elseif(_HOST_PROCESSOR_LOWER STREQUAL "aarch64")
+		set(SKSHADERC_HOST_BIN "${SKSHADERC_HOST_BIN_DIR}/win32_arm64/skshaderc.exe")
+	endif()
+elseif(CMAKE_HOST_UNIX)
+	if(_HOST_PROCESSOR_LOWER STREQUAL "x86_64")
+		set(SKSHADERC_HOST_BIN "${SKSHADERC_HOST_BIN_DIR}/linux_x64/skshaderc")
+	elseif(_HOST_PROCESSOR_LOWER STREQUAL "aarch64")
+		set(SKSHADERC_HOST_BIN "${SKSHADERC_HOST_BIN_DIR}/linux_arm64/skshaderc")
+	endif()
+endif()
+
+# Check if host binary exists when cross-compiling (not needed for Wine case)
+if(SKSHADERC_CROSS_COMPILING)
+	if(NOT DEFINED SKSHADERC_HOST_BIN)
+		message(FATAL_ERROR
+			"Cross-compiling detected (${CMAKE_HOST_SYSTEM_NAME}/${CMAKE_HOST_SYSTEM_PROCESSOR} -> ${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR})\n"
+			"but no host binary path is configured for: ${CMAKE_HOST_SYSTEM_NAME} ${CMAKE_HOST_SYSTEM_PROCESSOR}\n"
+			"Supported host platforms: Windows (x64, ARM64), Linux (x64, ARM64), macOS")
+	endif()
+	if(NOT EXISTS "${SKSHADERC_HOST_BIN}")
+		message(FATAL_ERROR
+			"Cross-compiling detected (${CMAKE_HOST_SYSTEM_NAME}/${CMAKE_HOST_SYSTEM_PROCESSOR} -> ${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR})\n"
+			"but host skshaderc binary not found at: ${SKSHADERC_HOST_BIN}\n"
+			"\n"
+			"To fix this, first build skshaderc natively for your host system:\n"
+			"  cmake -B build-host -S . && cmake --build build-host --target skshaderc\n"
+			"\n"
+			"This will install the host binary to bin/tools/ for cross-compilation use.")
+	else()
+		message(STATUS "Cross-compiling: using host skshaderc from ${SKSHADERC_HOST_BIN}")
+		# Ensure executable permission on Unix hosts
+		if(CMAKE_HOST_UNIX)
+			file(CHMOD "${SKSHADERC_HOST_BIN}" PERMISSIONS
+				OWNER_EXECUTE OWNER_WRITE OWNER_READ
+				GROUP_EXECUTE GROUP_READ
+				WORLD_EXECUTE WORLD_READ)
+		endif()
+	endif()
+elseif(NOT SKSHADERC_USE_WINE)
+	message(STATUS "Native build: building skshaderc from source")
+endif()
+
+###############################################################################
+# Build skshaderc from source (only when not cross-compiling)
+# When cross-compiling, we still build skshaderc for the target platform,
+# but shader compilation uses the pre-built host binary.
+###############################################################################
 
 include(FetchContent)
 set(VULKAN_VERSION vulkan-sdk-1.4.328.1) # Most of our dependencies here use the same version tag!
@@ -145,12 +252,15 @@ if (NOT MSVC AND NOT APPLE)
 	)
 endif()
 
-set(SKSHADERC_EXE_PATH $<TARGET_FILE:skshaderc> CACHE INTERNAL "Path to skshaderc executable")
-
-# Detect cross-compilation to Windows from Unix - use Wine to run skshaderc.exe
-if(CMAKE_HOST_UNIX AND CMAKE_SYSTEM_NAME MATCHES "Windows")
-	set(WINE "wine" CACHE INTERNAL "")
+# Set SKSHADERC_EXE_PATH based on build mode:
+# - Native builds (including Wine): use the skshaderc we just built
+# - Cross-compiling: use the pre-built host binary for shader compilation
+if(SKSHADERC_CROSS_COMPILING)
+	set(SKSHADERC_EXE_PATH "${SKSHADERC_HOST_BIN}" CACHE INTERNAL "Path to skshaderc executable (host binary for cross-compilation)")
+else()
+	set(SKSHADERC_EXE_PATH $<TARGET_FILE:skshaderc> CACHE INTERNAL "Path to skshaderc executable")
 endif()
+# Note: WINE variable is set earlier when detecting Windows-on-Unix cross-compilation
 
 ###############################################################################
 # Install skshaderc binary to bin/tools/{platform}/ for distribution
