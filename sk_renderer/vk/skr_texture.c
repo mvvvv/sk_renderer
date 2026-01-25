@@ -530,8 +530,12 @@ skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampl
 	// Normalize mip count (default to 1 if not specified or zero)
 	out_tex->mip_levels = mip_count <= 0 ? 1 : mip_count;
 
-	// Normalize sample count
-	out_tex->samples = (multisample > 1) ? (VkSampleCountFlagBits)multisample : VK_SAMPLE_COUNT_1_BIT;
+	// Normalize sample count with automatic capping to device limits
+	int32_t clamped = multisample < 1 ? 1 : (multisample > _skr_vk.max_msaa_samples ? _skr_vk.max_msaa_samples : multisample);
+	if (clamped != multisample) {
+		skr_log(skr_log_warning, "Requested MSAA %dx capped to %dx (device limit)", multisample, clamped);
+	}
+	out_tex->samples = (VkSampleCountFlagBits)clamped;
 
 	// Check if this is a depth format
 	bool is_depth = _skr_format_is_depth(vk_format);

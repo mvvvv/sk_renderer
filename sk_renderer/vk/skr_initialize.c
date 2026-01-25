@@ -432,6 +432,19 @@ bool skr_init(skr_settings_t settings) {
 	_skr_vk.min_ubo_offset_align  = (uint32_t)device_props.limits.minUniformBufferOffsetAlignment;
 	_skr_vk.min_ssbo_offset_align = (uint32_t)device_props.limits.minStorageBufferOffsetAlignment;
 
+	// Calculate maximum supported MSAA sample count (intersection of color + depth)
+	VkSampleCountFlags supported_samples =
+		device_props.limits.framebufferColorSampleCounts &
+		device_props.limits.framebufferDepthSampleCounts;
+
+	_skr_vk.max_msaa_samples = 1;
+	if      (supported_samples & VK_SAMPLE_COUNT_64_BIT) _skr_vk.max_msaa_samples = 64;
+	else if (supported_samples & VK_SAMPLE_COUNT_32_BIT) _skr_vk.max_msaa_samples = 32;
+	else if (supported_samples & VK_SAMPLE_COUNT_16_BIT) _skr_vk.max_msaa_samples = 16;
+	else if (supported_samples & VK_SAMPLE_COUNT_8_BIT)  _skr_vk.max_msaa_samples = 8;
+	else if (supported_samples & VK_SAMPLE_COUNT_4_BIT)  _skr_vk.max_msaa_samples = 4;
+	else if (supported_samples & VK_SAMPLE_COUNT_2_BIT)  _skr_vk.max_msaa_samples = 2;
+
 	// Find queue families
 	uint32_t queue_family_count = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(_skr_vk.physical_device, &queue_family_count, NULL);
@@ -805,5 +818,9 @@ void skr_get_vk_device_uuid(uint8_t out_uuid[VK_UUID_SIZE]) {
 	};
 	vkGetPhysicalDeviceProperties2(_skr_vk.physical_device, &props2);
 	memcpy(out_uuid, id_props.deviceUUID, VK_UUID_SIZE);
+}
+
+int32_t skr_get_max_msaa_samples(void) {
+	return _skr_vk.max_msaa_samples;
 }
 

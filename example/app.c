@@ -146,9 +146,12 @@ app_t* app_create(int32_t start_scene) {
 	app_t* app = calloc(1, sizeof(app_t));
 	if (!app) return NULL;
 
-	app->msaa            = 4;
+	int32_t max_msaa     = skr_get_max_msaa_samples();
+	app->msaa            = 4 < max_msaa ? 4 : max_msaa;
 	app->gpu_time_min_ms = 1e10f;
 	app->offscreen_format = skr_tex_fmt_rgba32_srgb;//skr_tex_fmt_bgra32_srgb;
+
+	skr_log(skr_log_info, "Max MSAA samples: %d", max_msaa);
 
 	// Choose depth format (prefer smaller/faster formats with stencil for stencil masking demo)
 	if (skr_tex_fmt_is_supported(skr_tex_fmt_depth16s8, skr_tex_flags_writeable, app->msaa)) {

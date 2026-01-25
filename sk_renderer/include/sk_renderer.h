@@ -559,6 +559,7 @@ SKR_API skr_err_          skr_tex_set_data                 (      skr_tex_t* ref
 SKR_API void              skr_tex_generate_mips            (      skr_tex_t* ref_tex, const skr_shader_t* opt_compute_shader);
 SKR_API void              skr_tex_set_name                 (      skr_tex_t* ref_tex, const char* name);
 SKR_API bool              skr_tex_fmt_is_supported         (skr_tex_fmt_ format, skr_tex_flags_ flags, int32_t multisample);
+SKR_API int32_t           skr_get_max_msaa_samples         (void);
 SKR_API void              skr_tex_fmt_block_info           (skr_tex_fmt_ format, uint32_t* opt_out_block_width, uint32_t* opt_out_block_height, uint32_t* opt_out_bytes_per_block);
 SKR_API uint32_t          skr_tex_fmt_to_native            (skr_tex_fmt_ format);
 SKR_API skr_tex_fmt_      skr_tex_fmt_from_native          (uint32_t native_format);

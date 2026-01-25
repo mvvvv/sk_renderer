@@ -191,6 +191,7 @@ typedef struct {
 	float                    timestamp_period;       // ns per tick
 	uint32_t                 min_ubo_offset_align;   // minUniformBufferOffsetAlignment
 	uint32_t                 min_ssbo_offset_align;  // minStorageBufferOffsetAlignment
+	int32_t                  max_msaa_samples;       // Maximum supported MSAA sample count
 	uint64_t                 frame_timestamps[SKR_MAX_FRAMES_IN_FLIGHT][2];  // [frame][start/end]
 	bool                     timestamps_valid[SKR_MAX_FRAMES_IN_FLIGHT];
 
