@@ -116,10 +116,24 @@ elseif(NOT SKSHADERC_USE_WINE)
 endif()
 
 ###############################################################################
-# Build skshaderc from source (only when not cross-compiling)
-# When cross-compiling, we still build skshaderc for the target platform,
-# but shader compilation uses the pre-built host binary.
+# Skip building skshaderc binaries for certain platforms
+# Android doesn't need the skshaderc binary - shaders are compiled using the
+# host binary during the build, and the resulting .sks/.h files are used at runtime.
 ###############################################################################
+
+if(ANDROID)
+	set(SKSHADERC_SKIP_BUILD TRUE)
+	message(STATUS "Android target: skipping skshaderc build (using host binary for shader compilation)")
+else()
+	set(SKSHADERC_SKIP_BUILD FALSE)
+endif()
+
+###############################################################################
+# Build skshaderc from source
+# Skipped when SKSHADERC_SKIP_BUILD is set (e.g., Android cross-compilation)
+###############################################################################
+
+if(NOT SKSHADERC_SKIP_BUILD)
 
 include(FetchContent)
 set(VULKAN_VERSION vulkan-sdk-1.4.328.1) # Most of our dependencies here use the same version tag!
@@ -238,6 +252,8 @@ if (NOT MSVC AND NOT APPLE)
 	)
 endif()
 
+endif() # NOT SKSHADERC_SKIP_BUILD
+
 # Set SKSHADERC_EXE_PATH based on build mode:
 # - Native builds (including Wine): use the skshaderc we just built
 # - Cross-compiling: use the pre-built host binary for shader compilation
@@ -250,7 +266,10 @@ endif()
 
 ###############################################################################
 # Install skshaderc binary to bin/tools/{platform}/ for distribution
+# (only when we actually built skshaderc)
 ###############################################################################
+
+if(NOT SKSHADERC_SKIP_BUILD)
 
 # Determine the platform-specific installation directory.
 # Fall back to CMAKE_HOST_SYSTEM_PROCESSOR if CMAKE_SYSTEM_PROCESSOR isn't set
@@ -296,6 +315,8 @@ if(DEFINED SKSHADERC_INSTALL_SUBDIR)
 else()
 	message(WARNING "Unknown platform for skshaderc installation: ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
 endif()
+
+endif() # NOT SKSHADERC_SKIP_BUILD
 
 # functions for compiling shaders easily
 function(SKSHADERC_COMPILE_ASSETS TARGET OUT_PATH COMMAND_STRING OUT_LIST)
