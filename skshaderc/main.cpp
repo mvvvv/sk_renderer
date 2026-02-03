@@ -79,6 +79,7 @@ bool                recurse_mkdir (const char *dirname);
 ///////////////////////////////////////////
 
 int32_t compiled_count = 0;
+int32_t failed_count   = 0;
 
 int main(int argc, const char **argv) {
 	// -f -t s ${workspaceFolder}/example/assets/shaders/*.hlsl
@@ -130,12 +131,16 @@ int main(int argc, const char **argv) {
 	}
 #endif
 	if (settings.shaderc.silent_info == false || compiled_count == 0) {
-		printf("Compiled %d %s\n", compiled_count, compiled_count == 1 ? "shader" : "shaders");
+		printf("Compiled %d %s", compiled_count, compiled_count == 1 ? "shader" : "shaders");
+		if (failed_count > 0) {
+			printf(", %d failed", failed_count);
+		}
+		printf("\n");
 	}
 
 	sksc_shutdown();
 
-	return 0;
+	return failed_count > 0 ? 1 : 0;
 }
 
 ///////////////////////////////////////////
@@ -352,7 +357,7 @@ void compile_file(const char *src_filename, compiler_settings_t *settings) {
 	sksc_shader_file_t file;
 	sksc_log(sksc_log_level_info, "Compiling %s..", src_filename);
 	if (sksc_compile(src_filename, file_text, &settings->shaderc, &file)) {
-		
+
 		// Turn the shader data into a binary file
 		void*    sks_data;
 		uint32_t sks_size;
@@ -414,8 +419,10 @@ void compile_file(const char *src_filename, compiler_settings_t *settings) {
 		free(sks_data);
 
 		sksc_shader_file_destroy(&file);
+	} else {
+		failed_count++;
 	}
-	
+
 	char* abs_src_file = path_absolute(src_filename);
 	sksc_log_print(abs_src_file, &settings->shaderc);
 	sksc_log_clear();
