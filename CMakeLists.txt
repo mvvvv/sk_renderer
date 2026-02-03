@@ -74,9 +74,9 @@ set_target_properties(sk_renderer PROPERTIES
 
 # If we are building skshaderc, then sk_renderer should make skshaderc build
 # first. This allows consuming projects to use skshaderc's compile functions.
-# (Note: when cross-compiling, shaders are compiled using the host binary,
-# but we still build skshaderc for the target platform)
-if(SKR_BUILD_SKSHADERC)
+# (Note: on some platforms like Android, the skshaderc target is skipped since
+# shaders are compiled using the host binary and the target binary is unused)
+if(SKR_BUILD_SKSHADERC AND TARGET skshaderc)
 	add_dependencies(sk_renderer skshaderc)
 endif()
 
