@@ -1647,23 +1647,14 @@ skr_err_ skr_tex_update_external(skr_tex_t* ref_tex, skr_tex_external_update_t u
 	if (!ref_tex) return skr_err_invalid_parameter;
 	if (update.image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
 
-	// Destroy old view if we created it (not provided externally)
-	// We always recreate the view for simplicity
-	if (ref_tex->view != VK_NULL_HANDLE) {
-		_skr_cmd_destroy_image_view(NULL, ref_tex->view);
-		ref_tex->view = VK_NULL_HANDLE;
-	}
-
-	// Update image reference
-	ref_tex->image = update.image;
-
-	// Create or use provided image view
+	// Create the new view BEFORE swapping, so the texture never has a null view
+	// while the image is valid (prevents races with concurrent readers).
+	VkImageView new_view;
 	if (update.view != VK_NULL_HANDLE) {
-		ref_tex->view = update.view;
+		new_view = update.view;
 	} else {
 		VkFormat vk_format = skr_tex_fmt_to_native(ref_tex->format);
 
-		// Determine view type based on texture flags (match skr_tex_create_external behavior)
 		VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
 		if      (ref_tex->flags & skr_tex_flags_3d)      view_type = VK_IMAGE_VIEW_TYPE_3D;
 		else if (ref_tex->flags & skr_tex_flags_cubemap) view_type = VK_IMAGE_VIEW_TYPE_CUBE;
@@ -1683,11 +1674,20 @@ skr_err_ skr_tex_update_external(skr_tex_t* ref_tex, skr_tex_external_update_t u
 			},
 		};
 
-		VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &ref_tex->view);
+		VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &new_view);
 		if (vr != VK_SUCCESS) {
 			skr_log(skr_log_critical, "skr_tex_update_external: vkCreateImageView failed");
 			return skr_err_device_error;
 		}
+	}
+
+	// Swap: update view and image, then defer-destroy the old view
+	VkImageView old_view = ref_tex->view;
+	ref_tex->view  = new_view;
+	ref_tex->image = update.image;
+
+	if (old_view != VK_NULL_HANDLE) {
+		_skr_cmd_destroy_image_view(NULL, old_view);
 	}
 
 	// Update layout tracking
