@@ -95,23 +95,18 @@ set(SKSHADERC_TARGET_FOLDER "${CMAKE_SOURCE_DIR}/bin/tools/${_TARGET_SYS}_${_TAR
 
 # Check if host binary exists when cross-compiling (not needed for Wine case)
 if(SKSHADERC_CROSS_COMPILING)
-	if(NOT DEFINED SKSHADERC_HOST_BIN)
-		message(FATAL_ERROR
-			"Cross-compiling detected (${CMAKE_HOST_SYSTEM_NAME}/${CMAKE_HOST_SYSTEM_PROCESSOR} -> ${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR})\n"
-			"but no host binary path is configured for: ${CMAKE_HOST_SYSTEM_NAME} ${CMAKE_HOST_SYSTEM_PROCESSOR}\n"
-			"Supported host platforms: Windows (x64, ARM64), Linux (x64, ARM64), macOS")
-	endif()
 	if(NOT EXISTS "${SKSHADERC_HOST_BIN}")
 		message(FATAL_ERROR
-			"Cross-compiling detected (${CMAKE_HOST_SYSTEM_NAME}/${CMAKE_HOST_SYSTEM_PROCESSOR} -> ${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR})\n"
-			"but host skshaderc binary not found at: ${SKSHADERC_HOST_BIN}\n"
-			"\n"
-			"To fix this, first build skshaderc natively for your host system:\n"
-			"  cmake -B build-host -S . && cmake --build build-host --target skshaderc\n"
-			"\n"
-			"This will install the host binary to bin/tools/ for cross-compilation use.")
+			"Cross-compiling (${_HOST_SYS}_${_HOST_ARCH} -> ${_TARGET_SYS}_${_TARGET_ARCH}) requires "
+			"a host compatible skshaderc binary!\n"
+			""
+			"To fix, build first for the host platform, ${_HOST_SYS}_${_HOST_ARCH}:\n"
+			""
+			"    cmake -B build-${_HOST_SYS} . && cmake --build build-${_HOST_SYS}.\n"
+			""
+			"This will install the binary to ${SKSHADERC_HOST_BIN}.")
 	else()
-		message(STATUS "Cross-compiling: using host skshaderc from ${SKSHADERC_HOST_BIN}")
+		message(STATUS "Cross-compiling (${_HOST_SYS}_${_HOST_ARCH} -> ${_TARGET_SYS}_${_TARGET_ARCH}) using host skshaderc from ${SKSHADERC_HOST_BIN}")
 		# Ensure executable permission on Unix hosts
 		if(CMAKE_HOST_UNIX)
 			file(CHMOD "${SKSHADERC_HOST_BIN}" PERMISSIONS
@@ -123,10 +118,6 @@ if(SKSHADERC_CROSS_COMPILING)
 elseif(NOT SKSHADERC_USE_WINE)
 	message(STATUS "Native build: building skshaderc from source")
 endif()
-
-message(STATUS "Cross-compiling info: host=${CMAKE_HOST_SYSTEM_NAME}_${CMAKE_HOST_SYSTEM_PROCESSOR} target=${CMAKE_SYSTEM_NAME}_${CMAKE_SYSTEM_PROCESSOR}")
-message(STATUS "Cross-compiling info: filtered host=${_HOST_SYS}_${_HOST_ARCH} target=${_TARGET_SYS}_${_TARGET_ARCH}")
-message(STATUS "Cross-compiling info: isCross=${SKSHADERC_CROSS_COMPILING} wine=${WINE}")
 
 ###############################################################################
 # Skip building skshaderc binaries for certain platforms
