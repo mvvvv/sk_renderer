@@ -62,6 +62,25 @@ int main(int argc, char* argv[]) {
 	// Set working directory to executable's path for asset loading
 	ska_set_cwd(NULL);
 
+	// Load saved window geometry (kvpstore so the window starts in the right
+	// place instead of centering first and jumping after ImGui loads its ini)
+	ska_kvpstore_set_app_name("sk_renderer_test");
+	int32_t win_x = SKA_WINDOWPOS_CENTERED;
+	int32_t win_y = SKA_WINDOWPOS_CENTERED;
+	int32_t win_w = 2560;
+	int32_t win_h = 1440;
+
+	skr_recti_t saved_geom = {0};
+	size_t geom_size = 0;
+	if (ska_kvpstore_load("window_geometry", &saved_geom, sizeof(saved_geom), &geom_size)
+		&& geom_size == sizeof(saved_geom)
+		&& saved_geom.w > 0 && saved_geom.h > 0) {
+		win_x = saved_geom.x;
+		win_y = saved_geom.y;
+		win_w = saved_geom.w;
+		win_h = saved_geom.h;
+	}
+
 	// Create window
 	ska_window_t* window = NULL;
 #ifdef __ANDROID__
@@ -71,8 +90,8 @@ int main(int argc, char* argv[]) {
 		ska_window_fullscreen);
 #else
 	window = ska_window_create("sk_renderer_test",
-		SKA_WINDOWPOS_CENTERED, SKA_WINDOWPOS_CENTERED,
-		2560, 1440,
+		win_x, win_y,
+		win_w, win_h,
 		ska_window_resizable);
 #endif
 	if (!window) {
@@ -315,6 +334,14 @@ int main(int argc, char* argv[]) {
 	ImGui_ImplSkRenderer_Shutdown();
 	ImGui_ImplSkApp_Shutdown();
 	igDestroyContext(NULL);
+
+	// Save window geometry for next session
+	{
+		skr_recti_t geom;
+		ska_window_get_frame_position(window, &geom.x, &geom.y);
+		ska_window_get_frame_size    (window, &geom.w, &geom.h);
+		ska_kvpstore_save("window_geometry", &geom, sizeof(geom));
+	}
 
 	// Cleanup
 	app_destroy(app);
