@@ -169,16 +169,29 @@ bool skr_init(skr_settings_t settings) {
 		VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 #endif
 		VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME,
+		// External memory extensions for GL interop and Android Hardware Buffer
+		VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+#ifdef VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME
+		VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+#endif
+#ifdef VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME
+		VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+#endif
+		// DMA-BUF import extensions
+		VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME,
+		VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME,
+		VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME,
 	};
 	const uint32_t required_device_ext_count = sizeof(required_device_exts) / sizeof(required_device_exts[0]);
 	const uint32_t optional_device_ext_count = sizeof(optional_device_exts) / sizeof(optional_device_exts[0]);
 
 	// Video decode extensions (all required together for video support)
 	const char* video_device_exts[] = {
-		"VK_KHR_synchronization2",
-		"VK_KHR_video_queue",
-		"VK_KHR_video_decode_queue",
-		"VK_KHR_video_decode_h264",
+		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+		VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+		VK_KHR_VIDEO_QUEUE_EXTENSION_NAME,
+		VK_KHR_VIDEO_DECODE_QUEUE_EXTENSION_NAME,
+		VK_KHR_VIDEO_DECODE_H264_EXTENSION_NAME,
 	};
 	const uint32_t video_device_ext_count = sizeof(video_device_exts) / sizeof(video_device_exts[0]);
 
@@ -566,13 +579,45 @@ bool skr_init(skr_settings_t settings) {
 	}
 
 	// Add optional device extensions if available
-	_skr_vk.has_push_descriptors = false;
-	bool has_viewport_layer      = false;
+	_skr_vk.has_push_descriptors       = false;
+	_skr_vk.has_external_memory_fd      = false;
+	_skr_vk.has_external_memory_win32   = false;
+	_skr_vk.has_android_hardware_buffer = false;
+	_skr_vk.has_external_memory_dma_buf = false;
+	_skr_vk.has_drm_format_modifier     = false;
+	bool has_viewport_layer             = false;
+	bool has_image_format_list          = false;
 	for (uint32_t i = 0; i < optional_device_ext_count && device_ext_count < 64; i++) {
 		if (_skr_ext_available(optional_device_exts[i], available_device_exts, available_device_ext_count)) {
 			device_exts[device_ext_count++] = optional_device_exts[i];
-			if (strcmp(optional_device_exts[i], VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME            ) == 0) _skr_vk.has_push_descriptors = true;
-			if (strcmp(optional_device_exts[i], VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME) == 0) has_viewport_layer           = true;
+			if (strcmp(optional_device_exts[i], VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME            ) == 0) _skr_vk.has_push_descriptors        = true;
+			if (strcmp(optional_device_exts[i], VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME) == 0) has_viewport_layer                   = true;
+			if (strcmp(optional_device_exts[i], VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME         ) == 0) _skr_vk.has_external_memory_fd       = true;
+#ifdef VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME
+			if (strcmp(optional_device_exts[i], VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME      ) == 0) _skr_vk.has_external_memory_win32    = true;
+#endif
+#ifdef VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME
+			if (strcmp(optional_device_exts[i], VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME) == 0) _skr_vk.has_android_hardware_buffer  = true;
+#endif
+			if (strcmp(optional_device_exts[i], VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME    ) == 0) _skr_vk.has_external_memory_dma_buf  = true;
+			if (strcmp(optional_device_exts[i], VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME   ) == 0) _skr_vk.has_drm_format_modifier      = true;
+			if (strcmp(optional_device_exts[i], VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME           ) == 0) has_image_format_list                 = true;
+		}
+	}
+
+	// Add video decode extensions if all are available (they're all-or-nothing)
+	_skr_vk.has_video_decode = false;
+	if (_skr_vk.video_decode_queue_family != UINT32_MAX) {
+		uint32_t video_found = 0;
+		for (uint32_t v = 0; v < video_device_ext_count; v++) {
+			if (_skr_ext_available(video_device_exts[v], available_device_exts, available_device_ext_count))
+				video_found++;
+		}
+		if (video_found == video_device_ext_count && device_ext_count + video_device_ext_count <= 64) {
+			for (uint32_t v = 0; v < video_device_ext_count; v++)
+				device_exts[device_ext_count++] = video_device_exts[v];
+			_skr_vk.has_video_decode = true;
+			skr_log(skr_log_info, "Vulkan video decode extensions enabled");
 		}
 	}
 
@@ -601,9 +646,27 @@ bool skr_init(skr_settings_t settings) {
 		.depthClamp        = available_features.depthClamp,
 	};
 
+	// YCbCr conversion is Vulkan 1.1 core - always enable for YUV texture support
+	VkPhysicalDeviceSamplerYcbcrConversionFeatures ycbcr_features = {
+		.sType                  = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES,
+		.samplerYcbcrConversion = VK_TRUE,
+	};
+
+	// Chain video decode feature structs if enabled
+	VkPhysicalDeviceTimelineSemaphoreFeatures timeline_features = {
+		.sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES,
+		.pNext            = &ycbcr_features,
+		.timelineSemaphore = VK_TRUE,
+	};
+	VkPhysicalDeviceSynchronization2Features sync2_features = {
+		.sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+		.pNext            = &timeline_features,
+		.synchronization2 = VK_TRUE,
+	};
+
 	VkDeviceCreateInfo device_info = {
 		.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		.pNext                   = NULL,
+		.pNext                   = _skr_vk.has_video_decode ? (void*)&sync2_features : (void*)&ycbcr_features,
 		.queueCreateInfoCount    = queue_info_count,
 		.pQueueCreateInfos       = queue_infos,
 		.enabledExtensionCount   = device_ext_count,
@@ -642,10 +705,8 @@ bool skr_init(skr_settings_t settings) {
 	}
 
 	// Initialize queue mutexes for thread-safe queue submission
-	// We use 3 slots but may only need 1 or 2 if queues are aliased
-	mtx_init(&_skr_vk.queue_mutexes[0], mtx_plain);  // Graphics queue
-	mtx_init(&_skr_vk.queue_mutexes[1], mtx_plain);  // Present queue (may alias graphics)
-	mtx_init(&_skr_vk.queue_mutexes[2], mtx_plain);  // Transfer queue (may alias graphics)
+	// We use 4 slots but may only need 1-3 if queues are aliased
+	for (int32_t i = 0; i < SKR_QUEUE_TYPE_COUNT; i++) mtx_init(&_skr_vk.queue_mutexes[i], mtx_plain);
 
 	// Set up mutex pointers based on queue aliasing
 	_skr_vk.graphics_queue_mutex = &_skr_vk.queue_mutexes[0];
@@ -658,6 +719,17 @@ bool skr_init(skr_settings_t settings) {
 		_skr_vk.transfer_queue_mutex = &_skr_vk.queue_mutexes[2];
 	} else {
 		_skr_vk.transfer_queue_mutex = &_skr_vk.queue_mutexes[0];
+	}
+
+	// Video decode: dedicated mutex if separate family, otherwise alias the matching one
+	if (_skr_vk.video_decode_queue_family == UINT32_MAX) {
+		_skr_vk.video_decode_queue_mutex = NULL;
+	} else if (_skr_vk.video_decode_queue_family == _skr_vk.graphics_queue_family) {
+		_skr_vk.video_decode_queue_mutex = _skr_vk.graphics_queue_mutex;
+	} else if (_skr_vk.video_decode_queue_family == _skr_vk.transfer_queue_family) {
+		_skr_vk.video_decode_queue_mutex = _skr_vk.transfer_queue_mutex;
+	} else {
+		_skr_vk.video_decode_queue_mutex = &_skr_vk.queue_mutexes[3];
 	}
 
 	// Create command pool
@@ -750,6 +822,13 @@ bool skr_init(skr_settings_t settings) {
 	color = 0xFF000000;
 	skr_tex_create( skr_tex_fmt_rgba32_linear, skr_tex_flags_readable, sampler, (skr_vec3i_t){1, 1, 1}, 1, 1, &(skr_tex_data_t){.data = &color, .mip_count = 1, .layer_count = 1}, &_skr_vk.default_tex_black);
 
+	// Populate capability array
+	_skr_vk.capabilities[skr_capability_external_vk]  = true;
+	_skr_vk.capabilities[skr_capability_external_gl]  = _skr_vk.has_external_memory_fd || _skr_vk.has_external_memory_win32;
+	_skr_vk.capabilities[skr_capability_external_ahb] = _skr_vk.has_android_hardware_buffer;
+	_skr_vk.capabilities[skr_capability_external_dma] = _skr_vk.has_external_memory_dma_buf && _skr_vk.has_drm_format_modifier && has_image_format_list;
+	_skr_vk.capabilities[skr_capability_vk_video]    = _skr_vk.has_video_decode;
+
 	_skr_vk.initialized = true;
 	return true;
 }
@@ -777,7 +856,7 @@ void skr_shutdown(void) {
 	if (_skr_vk.pending_transition_types) _skr_free(_skr_vk.pending_transition_types);
 
 	// Destroy queue mutexes
-	for (int32_t i = 0; i < 3; i++) {
+	for (int32_t i = 0; i < SKR_QUEUE_TYPE_COUNT; i++) {
 		mtx_destroy(&_skr_vk.queue_mutexes[i]);
 	}
 
@@ -808,6 +887,30 @@ uint32_t skr_get_vk_graphics_queue_family(void) {
 	return _skr_vk.graphics_queue_family;
 }
 
+uint32_t skr_get_vk_transfer_queue_family(void) {
+	return _skr_vk.transfer_queue_family;
+}
+
+uint32_t skr_get_vk_video_decode_queue_family(void) {
+	return _skr_vk.video_decode_queue_family;
+}
+
+void skr_vk_queue_lock(uint32_t queue_family) {
+	mtx_t *m = NULL;
+	if      (queue_family == _skr_vk.graphics_queue_family)      m = _skr_vk.graphics_queue_mutex;
+	else if (queue_family == _skr_vk.transfer_queue_family)      m = _skr_vk.transfer_queue_mutex;
+	else if (queue_family == _skr_vk.video_decode_queue_family)  m = _skr_vk.video_decode_queue_mutex;
+	if (m) mtx_lock(m);
+}
+
+void skr_vk_queue_unlock(uint32_t queue_family) {
+	mtx_t *m = NULL;
+	if      (queue_family == _skr_vk.graphics_queue_family)      m = _skr_vk.graphics_queue_mutex;
+	else if (queue_family == _skr_vk.transfer_queue_family)      m = _skr_vk.transfer_queue_mutex;
+	else if (queue_family == _skr_vk.video_decode_queue_family)  m = _skr_vk.video_decode_queue_mutex;
+	if (m) mtx_unlock(m);
+}
+
 void skr_get_vk_device_uuid(uint8_t out_uuid[VK_UUID_SIZE]) {
 	VkPhysicalDeviceIDProperties id_props = {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES,
@@ -822,5 +925,11 @@ void skr_get_vk_device_uuid(uint8_t out_uuid[VK_UUID_SIZE]) {
 
 int32_t skr_get_max_msaa_samples(void) {
 	return _skr_vk.max_msaa_samples;
+}
+
+bool skr_is_capable(skr_capability_ capability) {
+	if ((int32_t)capability < 0 || capability >= skr_capability_count_)
+		return false;
+	return _skr_vk.capabilities[capability];
 }
 

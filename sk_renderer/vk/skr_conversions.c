@@ -62,6 +62,10 @@ uint32_t skr_tex_fmt_to_native(skr_tex_fmt_ format) {
 		case skr_tex_fmt_astc4x4_rgba:       return VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
 		case skr_tex_fmt_atc_rgb:            return VK_FORMAT_UNDEFINED; // No Vulkan equivalent
 		case skr_tex_fmt_atc_rgba:           return VK_FORMAT_UNDEFINED; // No Vulkan equivalent
+		// YUV / multi-plane formats
+		case skr_tex_fmt_nv12:               return VK_FORMAT_G8_B8R8_2PLANE_420_UNORM;
+		case skr_tex_fmt_p010:               return VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16;
+		case skr_tex_fmt_yuv420p:            return VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM;
 		default:                             return VK_FORMAT_UNDEFINED;
 	}
 }
@@ -117,6 +121,10 @@ skr_tex_fmt_ skr_tex_fmt_from_native(uint32_t format) {
 		case VK_FORMAT_PVRTC2_4BPP_UNORM_BLOCK_IMG:return skr_tex_fmt_pvrtc2_rgba;
 		case VK_FORMAT_ASTC_4x4_SRGB_BLOCK:        return skr_tex_fmt_astc4x4_rgba_srgb;
 		case VK_FORMAT_ASTC_4x4_UNORM_BLOCK:       return skr_tex_fmt_astc4x4_rgba;
+		// YUV / multi-plane formats
+		case VK_FORMAT_G8_B8R8_2PLANE_420_UNORM:                       return skr_tex_fmt_nv12;
+		case VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16:     return skr_tex_fmt_p010;
+		case VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM:                      return skr_tex_fmt_yuv420p;
 		default:                                   return skr_tex_fmt_none;
 	}
 }
@@ -410,6 +418,12 @@ bool _skr_format_has_stencil(VkFormat format) {
 	return format == VK_FORMAT_D24_UNORM_S8_UINT ||
 	       format == VK_FORMAT_D16_UNORM_S8_UINT ||
 	       format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+}
+
+bool _skr_tex_fmt_is_yuv(skr_tex_fmt_ format) {
+	return format == skr_tex_fmt_nv12    ||
+	       format == skr_tex_fmt_p010    ||
+	       format == skr_tex_fmt_yuv420p;
 }
 
 bool _skr_format_is_depth(VkFormat format) {

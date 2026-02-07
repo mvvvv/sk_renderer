@@ -13,6 +13,13 @@ extern "C" {
 
 typedef struct video_t video_t;
 
+typedef enum video_decode_status_ {
+	video_decode_ok,      // Frame decoded successfully
+	video_decode_eof,     // End of stream
+	video_decode_aborted, // Interrupted by seek/abort
+	video_decode_error,   // Decode error
+} video_decode_status_;
+
 ///////////////////////////////////////////////////////////////////////////////
 // Lifecycle
 ///////////////////////////////////////////////////////////////////////////////
@@ -38,19 +45,28 @@ bool       video_is_hw_accelerated(const video_t* v); // Returns true if using V
 // Decoding
 ///////////////////////////////////////////////////////////////////////////////
 
-bool       video_decode_next_frame(video_t* v); // Returns true if a frame was decoded, false on EOF or error
-bool       video_seek             (video_t* v, double time_seconds); //Seek to a specific time (seconds). Returns true on success.
-skr_tex_t* video_get_tex_y        (video_t* v); // Get the Y (luma) plane texture for the current frame. Format: R8 (single channel, full resolution)
-skr_tex_t* video_get_tex_uv       (video_t* v); // Get the UV (chroma) plane texture for the current frame. Format: RG8 (two channels interleaved, half resolution)
+video_decode_status_ video_decode_next_frame(video_t* v); // Decode the next frame. Returns status indicating success, EOF, abort, or error
+bool                 video_seek             (video_t* v, double time_seconds); // Seek to a specific time (seconds). Returns true on success.
+void                 video_abort_decode     (video_t* v); // Interrupt any blocking I/O in video_decode_next_frame (thread-safe)
+
+///////////////////////////////////////////////////////////////////////////////
+// Rendering
+///////////////////////////////////////////////////////////////////////////////
+
+// Get the video material for rendering. The video module owns the shader,
+// material, and textures internally. The returned material is ready to use
+// with a fullscreen quad - texture bindings and UV crop are updated
+// automatically after each decoded frame. Returns NULL if no frame is ready.
+skr_material_t* video_get_material(video_t* v);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Utility
 ///////////////////////////////////////////////////////////////////////////////
 
-// Extract a thumbnail from the first frame of a video file
-// Returns an RGBA texture (caller owns it and must call skr_tex_destroy)
-// max_size: Maximum dimension (width or height) of the thumbnail
-// Returns invalid texture on failure
+// Extract a thumbnail from the first frame of a video file.
+// Returns an RGBA texture (caller owns it and must call skr_tex_destroy).
+// max_size: Maximum dimension (width or height) of the thumbnail.
+// Returns invalid texture on failure.
 skr_tex_t video_extract_thumbnail(const char* filename, int32_t max_size);
 
 #ifdef __cplusplus

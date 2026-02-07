@@ -15,6 +15,10 @@
 #include <string.h>
 #include <math.h>
 
+#ifdef __ANDROID__
+#include <android/hardware_buffer.h>
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ///////////////////////////////////////////////////////////////////////////////
@@ -123,6 +127,69 @@ static staging_buffer_t _skr_create_staging_buffer(VkDevice device, VkPhysicalDe
 
 	result.valid = true;
 	return result;
+}
+
+// Create VkSamplerYcbcrConversion + immutable sampler for YUV textures.
+// For AHB opaque formats, pass format=VK_FORMAT_UNDEFINED + pNext with VkExternalFormatANDROID.
+// For explicit YUV (NV12, P010, etc.), pass the VkFormat directly with opt_pnext=NULL.
+static skr_err_ _skr_ycbcr_create(
+	VkFormat                        format,
+	const void*                     opt_pnext,
+	VkSamplerYcbcrModelConversion   model,
+	VkSamplerYcbcrRange             range,
+	VkComponentMapping              components,
+	VkChromaLocation                x_chroma_offset,
+	VkChromaLocation                y_chroma_offset,
+	VkSamplerYcbcrConversion*       out_conversion,
+	VkSampler*                      out_sampler)
+{
+	*out_conversion = VK_NULL_HANDLE;
+	*out_sampler    = VK_NULL_HANDLE;
+
+	VkSamplerYcbcrConversionCreateInfo ycbcr_create = {
+		.sType                       = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO,
+		.pNext                       = opt_pnext,
+		.format                      = format,
+		.ycbcrModel                  = model,
+		.ycbcrRange                  = range,
+		.components                  = components,
+		.xChromaOffset               = x_chroma_offset,
+		.yChromaOffset               = y_chroma_offset,
+		.chromaFilter                = VK_FILTER_LINEAR,
+		.forceExplicitReconstruction = VK_FALSE,
+	};
+
+	VkResult vr = vkCreateSamplerYcbcrConversion(_skr_vk.device, &ycbcr_create, NULL, out_conversion);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "_skr_ycbcr_create: vkCreateSamplerYcbcrConversion failed: 0x%X", (uint32_t)vr);
+		return skr_err_device_error;
+	}
+
+	VkSamplerYcbcrConversionInfo ycbcr_info = {
+		.sType      = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
+		.conversion = *out_conversion,
+	};
+
+	VkSamplerCreateInfo sampler_ci = {
+		.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		.pNext        = &ycbcr_info,
+		.magFilter    = VK_FILTER_LINEAR,
+		.minFilter    = VK_FILTER_LINEAR,
+		.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+	};
+
+	vr = vkCreateSampler(_skr_vk.device, &sampler_ci, NULL, out_sampler);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "_skr_ycbcr_create: vkCreateSampler (ycbcr) failed: 0x%X", (uint32_t)vr);
+		vkDestroySamplerYcbcrConversion(_skr_vk.device, *out_conversion, NULL);
+		*out_conversion = VK_NULL_HANDLE;
+		return skr_err_device_error;
+	}
+
+	return skr_err_success;
 }
 
 // Transition image layout with a pipeline barrier (low-level helper)
@@ -484,11 +551,227 @@ static skr_err_ _skr_tex_upload_data(skr_tex_t* ref_tex, const skr_tex_data_t* d
 
 ///////////////////////////////////////////////////////////////////////////////
 
+// Internal: create a YUV multi-plane texture with VkSamplerYcbcrConversion.
+// YUV textures are read-only sampling textures - no render target, no storage, no mipmaps.
+// Data layout for upload: plane 0 (Y) followed by plane 1 (UV for NV12/P010, U for YUV420P),
+// then plane 2 (V for YUV420P). All tightly packed.
+static skr_err_ _skr_tex_create_yuv(skr_tex_fmt_ format, skr_tex_sampler_t sampler, skr_vec3i_t size, const skr_tex_data_t* opt_data, skr_tex_t* out_tex) {
+	VkFormat vk_format = skr_tex_fmt_to_native(format);
+
+	// Validate: YUV textures are 2D only, no mipmaps, no render target, no storage.
+	// YUV 4:2:0 requires even dimensions for correct chroma plane sizing.
+	if (size.x <= 0 || size.y <= 0 || (size.x % 2) != 0 || (size.y % 2) != 0) {
+		skr_log(skr_log_warning, "Invalid YUV texture size (must be positive and even)");
+		return skr_err_invalid_parameter;
+	}
+
+	uint32_t plane_count = (format == skr_tex_fmt_yuv420p) ? 3 : 2;
+
+	// Create image without DISJOINT_BIT - the driver handles multi-plane layout
+	// internally with a single contiguous memory allocation. This avoids the
+	// complexity of per-plane memory management.
+	VkImageCreateInfo image_info = {
+		.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType     = VK_IMAGE_TYPE_2D,
+		.format        = vk_format,
+		.extent        = { .width = size.x, .height = size.y, .depth = 1 },
+		.mipLevels     = 1,
+		.arrayLayers   = 1,
+		.samples       = VK_SAMPLE_COUNT_1_BIT,
+		.tiling        = VK_IMAGE_TILING_OPTIMAL,
+		.usage         = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		.sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	};
+
+	VkResult vr = vkCreateImage(_skr_vk.device, &image_info, NULL, &out_tex->image);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "_skr_tex_create_yuv: vkCreateImage failed: 0x%X", (uint32_t)vr);
+		return skr_err_device_error;
+	}
+
+	// Single allocation for all planes (non-disjoint)
+	if (_skr_allocate_image_memory(_skr_vk.device, _skr_vk.physical_device, out_tex->image, false, &out_tex->memory) == VK_NULL_HANDLE) {
+		skr_log(skr_log_critical, "_skr_tex_create_yuv: failed to allocate texture memory");
+		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_out_of_memory;
+	}
+
+	vkBindImageMemory(_skr_vk.device, out_tex->image, out_tex->memory, 0);
+
+	// Create YCbCr conversion + immutable sampler with sensible defaults:
+	// BT.709 narrow range (standard for video), cosited-even chroma (standard for NV12/P010)
+	VkSamplerYcbcrConversion ycbcr_conversion = VK_NULL_HANDLE;
+	VkSampler                ycbcr_sampler    = VK_NULL_HANDLE;
+
+	skr_err_ err = _skr_ycbcr_create(
+		vk_format,
+		NULL,
+		VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709,
+		VK_SAMPLER_YCBCR_RANGE_ITU_NARROW,
+		(VkComponentMapping){ VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY },
+		VK_CHROMA_LOCATION_COSITED_EVEN,
+		VK_CHROMA_LOCATION_COSITED_EVEN,
+		&ycbcr_conversion,
+		&ycbcr_sampler);
+
+	if (err != skr_err_success) {
+		vkFreeMemory  (_skr_vk.device, out_tex->memory, NULL);
+		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+		*out_tex = (skr_tex_t){0};
+		return err;
+	}
+
+	// Create image view with YCbCr conversion info
+	VkSamplerYcbcrConversionInfo ycbcr_view_info = {
+		.sType      = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
+		.conversion = ycbcr_conversion,
+	};
+
+	VkImageViewCreateInfo view_info = {
+		.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.pNext    = &ycbcr_view_info,
+		.image    = out_tex->image,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format   = vk_format,
+		.subresourceRange = {
+			.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			.baseMipLevel   = 0,
+			.levelCount     = 1,
+			.baseArrayLayer = 0,
+			.layerCount     = 1,
+		},
+	};
+
+	vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &out_tex->view);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "_skr_tex_create_yuv: vkCreateImageView failed: 0x%X", (uint32_t)vr);
+		vkDestroySampler                (_skr_vk.device, ycbcr_sampler,    NULL);
+		vkDestroySamplerYcbcrConversion (_skr_vk.device, ycbcr_conversion, NULL);
+		vkFreeMemory  (_skr_vk.device, out_tex->memory, NULL);
+		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// Fill out texture metadata
+	out_tex->size              = (skr_vec3i_t){ size.x, size.y, 1 };
+	out_tex->format            = format;
+	out_tex->flags             = skr_tex_flags_none;
+	out_tex->samples           = VK_SAMPLE_COUNT_1_BIT;
+	out_tex->mip_levels        = 1;
+	out_tex->layer_count       = 1;
+	out_tex->aspect_mask       = VK_IMAGE_ASPECT_COLOR_BIT;
+	out_tex->current_layout    = VK_IMAGE_LAYOUT_UNDEFINED;
+	out_tex->current_queue_family = _skr_vk.graphics_queue_family;
+	out_tex->first_use         = true;
+	out_tex->ycbcr_conversion  = ycbcr_conversion;
+	out_tex->ycbcr_sampler     = ycbcr_sampler;
+	out_tex->sampler_settings  = sampler;
+	out_tex->sampler           = ycbcr_sampler;
+
+	// Upload data if provided
+	if (opt_data && opt_data->data) {
+		// For YUV textures, use per-plane copy regions
+		// Data layout: plane 0 (Y) followed by plane 1 (UV/U) [followed by plane 2 (V) for 3-plane]
+		uint32_t y_width  = size.x;
+		uint32_t y_height = size.y;
+		uint32_t y_size   = y_width * y_height;
+
+		// Calculate plane sizes based on format
+		uint32_t plane_sizes[3] = {0};
+		uint32_t plane_widths[3]  = {0};
+		uint32_t plane_heights[3] = {0};
+		if (format == skr_tex_fmt_nv12) {
+			plane_sizes[0]   = y_size;                       // Y: full res, 1 byte/pixel
+			plane_sizes[1]   = y_size / 2;                   // UV: half res, 2 bytes/pixel pair
+			plane_widths[0]  = y_width;  plane_heights[0] = y_height;
+			plane_widths[1]  = y_width / 2; plane_heights[1] = y_height / 2;
+		} else if (format == skr_tex_fmt_p010) {
+			plane_sizes[0]   = y_size * 2;                   // Y: full res, 2 bytes/pixel
+			plane_sizes[1]   = y_size;                       // UV: half res, 4 bytes/pixel pair
+			plane_widths[0]  = y_width;  plane_heights[0] = y_height;
+			plane_widths[1]  = y_width / 2; plane_heights[1] = y_height / 2;
+		} else { // yuv420p
+			plane_sizes[0]   = y_size;                       // Y: full res, 1 byte/pixel
+			plane_sizes[1]   = y_size / 4;                   // U: quarter res, 1 byte/pixel
+			plane_sizes[2]   = y_size / 4;                   // V: quarter res, 1 byte/pixel
+			plane_widths[0]  = y_width;     plane_heights[0] = y_height;
+			plane_widths[1]  = y_width / 2; plane_heights[1] = y_height / 2;
+			plane_widths[2]  = y_width / 2; plane_heights[2] = y_height / 2;
+		}
+
+		VkDeviceSize total_size = 0;
+		for (uint32_t p = 0; p < plane_count; p++) total_size += plane_sizes[p];
+
+		staging_buffer_t staging = _skr_create_staging_buffer(_skr_vk.device, _skr_vk.physical_device, total_size);
+		if (!staging.valid) {
+			skr_log(skr_log_critical, "_skr_tex_create_yuv: staging buffer creation failed");
+			// Texture is still valid, just without data
+		} else {
+			memcpy(staging.mapped_data, opt_data->data, total_size);
+
+			_skr_cmd_ctx_t ctx = _skr_cmd_acquire();
+
+			// Transition to transfer dst
+			_skr_transition_image_layout(ctx.cmd, out_tex->image, VK_IMAGE_ASPECT_COLOR_BIT,
+				0, 1, 1,
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0, VK_ACCESS_TRANSFER_WRITE_BIT);
+
+			// Per-plane copy regions
+			VkDeviceSize buffer_offset = 0;
+			for (uint32_t p = 0; p < plane_count; p++) {
+				VkBufferImageCopy region = {
+					.bufferOffset      = buffer_offset,
+					.bufferRowLength   = 0,
+					.bufferImageHeight = 0,
+					.imageSubresource  = {
+						.aspectMask     = (p == 0) ? VK_IMAGE_ASPECT_PLANE_0_BIT :
+						                  (p == 1) ? VK_IMAGE_ASPECT_PLANE_1_BIT :
+						                             VK_IMAGE_ASPECT_PLANE_2_BIT,
+						.mipLevel       = 0,
+						.baseArrayLayer = 0,
+						.layerCount     = 1,
+					},
+					.imageOffset = {0, 0, 0},
+					.imageExtent = { plane_widths[p], plane_heights[p], 1 },
+				};
+				vkCmdCopyBufferToImage(ctx.cmd, staging.buffer, out_tex->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+				buffer_offset += plane_sizes[p];
+			}
+
+			// Transition to shader read
+			_skr_transition_image_layout(ctx.cmd, out_tex->image, VK_IMAGE_ASPECT_COLOR_BIT,
+				0, 1, 1,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+
+			out_tex->current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			out_tex->first_use      = false;
+
+			_skr_cmd_destroy_buffer(ctx.destroy_list, staging.buffer);
+			_skr_cmd_destroy_memory(ctx.destroy_list, staging.memory);
+			_skr_cmd_release(ctx.cmd);
+		}
+	}
+
+	return skr_err_success;
+}
+
 skr_err_ skr_tex_create(skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const skr_tex_data_t* opt_data, skr_tex_t* out_tex) {
 	if (!out_tex) return skr_err_invalid_parameter;
 
 	// Zero out immediately
 	*out_tex = (skr_tex_t){0};
+
+	// YUV formats use a completely separate creation path
+	if (_skr_tex_fmt_is_yuv(format)) {
+		return _skr_tex_create_yuv(format, sampler, size, opt_data, out_tex);
+	}
 
 	// Validate parameters
 	if (size.x <= 0 || size.y <= 0 || size.z <= 0) {
@@ -753,7 +1036,10 @@ void skr_tex_destroy(skr_tex_t* ref_tex) {
 
 	_skr_cmd_destroy_framebuffer(NULL, ref_tex->framebuffer);
 	_skr_cmd_destroy_framebuffer(NULL, ref_tex->framebuffer_depth);
-	_skr_sampler_cache_release(ref_tex->sampler_settings);
+	// Only release from sampler cache if we acquired from it (not YCbCr immutable samplers)
+	if (ref_tex->ycbcr_sampler == VK_NULL_HANDLE) {
+		_skr_sampler_cache_release(ref_tex->sampler_settings);
+	}
 	_skr_cmd_destroy_image_view (NULL, ref_tex->view);
 
 	// Only destroy image/memory if we own them (not external)
@@ -761,6 +1047,22 @@ void skr_tex_destroy(skr_tex_t* ref_tex) {
 		_skr_cmd_destroy_image (NULL, ref_tex->image);
 		_skr_cmd_destroy_memory(NULL, ref_tex->memory);
 	}
+
+	// Deferred destroy YCbCr resources. The destroy list executes in LIFO order,
+	// so push conversion first, then sampler. At execution time this means the
+	// sampler is destroyed before the conversion — which is required by Vulkan
+	// (the sampler references the conversion, so it must be destroyed first).
+	// WARNING: this ordering breaks if the destroy list changes from LIFO.
+	_skr_cmd_destroy_ycbcr_conversion(NULL, ref_tex->ycbcr_conversion);
+	_skr_cmd_destroy_sampler         (NULL, ref_tex->ycbcr_sampler);
+
+#ifdef __ANDROID__
+	// Release AHB reference if we acquired one
+	if (ref_tex->owns_ahb && ref_tex->ahb_handle) {
+		AHardwareBuffer_release((AHardwareBuffer*)ref_tex->ahb_handle);
+	}
+#endif
+
 	*ref_tex = (skr_tex_t){0};
 }
 
@@ -794,6 +1096,9 @@ skr_tex_sampler_t skr_tex_get_sampler(const skr_tex_t* tex) {
 
 void skr_tex_set_sampler(skr_tex_t* ref_tex, skr_tex_sampler_t sampler) {
 	if (!ref_tex || ref_tex->image == VK_NULL_HANDLE) return;
+
+	// YCbCr textures use immutable samplers that can't be changed
+	if (ref_tex->ycbcr_sampler != VK_NULL_HANDLE) return;
 
 	// Release old sampler from cache
 	if (ref_tex->sampler != VK_NULL_HANDLE) {
@@ -1557,7 +1862,7 @@ uint64_t skr_tex_calc_mip_size(skr_tex_fmt_ format, skr_vec3i_t base_size, uint3
 // External texture support (for wrapping VkImages from FFmpeg, etc.)
 ///////////////////////////////////////////////////////////////////////////////
 
-skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_tex) {
+skr_err_ skr_tex_create_external_vk(skr_tex_external_info_t info, skr_tex_t* out_tex) {
 	if (out_tex    == NULL)           return skr_err_invalid_parameter;
 	if (info.image == VK_NULL_HANDLE) return skr_err_invalid_parameter;
 
@@ -1565,7 +1870,7 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 
 	VkFormat vk_format = skr_tex_fmt_to_native(info.format);
 	if (vk_format == VK_FORMAT_UNDEFINED) {
-		skr_log(skr_log_warning, "skr_tex_create_external: unsupported format");
+		skr_log(skr_log_warning, "skr_tex_create_external_vk: unsupported format");
 		return skr_err_unsupported;
 	}
 
@@ -1630,7 +1935,7 @@ skr_err_ skr_tex_create_external(skr_tex_external_info_t info, skr_tex_t* out_te
 
 		VkResult vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &out_tex->view);
 		if (vr != VK_SUCCESS) {
-			skr_log(skr_log_critical, "skr_tex_create_external: vkCreateImageView failed");
+			skr_log(skr_log_critical, "skr_tex_create_external_vk: vkCreateImageView failed");
 			*out_tex = (skr_tex_t){0};
 			return skr_err_device_error;
 		}
@@ -1695,6 +2000,683 @@ skr_err_ skr_tex_update_external(skr_tex_t* ref_tex, skr_tex_external_update_t u
 	ref_tex->first_use      = false;
 
 	return skr_err_success;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Explicit external texture functions
+///////////////////////////////////////////////////////////////////////////////
+
+skr_err_ skr_tex_create_external_gl(skr_tex_external_gl_info_t info, skr_tex_t* out_tex) {
+	if (!out_tex) return skr_err_invalid_parameter;
+
+	if (!_skr_vk.capabilities[skr_capability_external_gl]) {
+		skr_log(skr_log_warning, "skr_tex_create_external_gl: no external memory extension available");
+		return skr_err_unsupported;
+	}
+
+	// Determine which handle type to use based on what the caller provided
+	// and what extensions are available
+	VkExternalMemoryHandleTypeFlagBits handle_type = 0;
+	bool use_fd = false;
+
+	if (info.fd >= 0 && _skr_vk.has_external_memory_fd) {
+		handle_type = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+		use_fd = true;
+	}
+#ifdef _WIN32
+	else if (info.handle != NULL && _skr_vk.has_external_memory_win32) {
+		handle_type = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+	}
+#endif
+	else {
+		skr_log(skr_log_warning, "skr_tex_create_external_gl: no valid handle provided or matching extension unavailable");
+		return skr_err_invalid_parameter;
+	}
+
+	VkFormat vk_format = skr_tex_fmt_to_native(info.format);
+	if (vk_format == VK_FORMAT_UNDEFINED) {
+		skr_log(skr_log_warning, "skr_tex_create_external_gl: unsupported format");
+		return skr_err_unsupported;
+	}
+
+	*out_tex = (skr_tex_t){0};
+
+	// Determine image type and view type from flags
+	VkImageType     image_type = VK_IMAGE_TYPE_2D;
+	VkImageViewType view_type  = VK_IMAGE_VIEW_TYPE_2D;
+	uint32_t layer_count       = info.array_layers > 0 ? info.array_layers : 1;
+	uint32_t depth             = 1;
+
+	if (info.flags & skr_tex_flags_3d) {
+		image_type = VK_IMAGE_TYPE_3D;
+		view_type  = VK_IMAGE_VIEW_TYPE_3D;
+		depth      = info.size.z > 1 ? info.size.z : 1;
+		layer_count = 1;
+	} else if (info.flags & skr_tex_flags_cubemap) {
+		view_type   = VK_IMAGE_VIEW_TYPE_CUBE;
+		layer_count = 6;
+	} else if ((info.flags & skr_tex_flags_array) || layer_count > 1) {
+		view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	}
+
+	uint32_t mip_levels = info.mip_levels > 0 ? info.mip_levels : 1;
+
+	// Create VkImage with external memory info
+	VkExternalMemoryImageCreateInfo external_info = {
+		.sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+		.handleTypes = handle_type,
+	};
+	VkImageCreateInfo image_info = {
+		.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.pNext         = &external_info,
+		.imageType     = image_type,
+		.format        = vk_format,
+		.extent        = { info.size.x, info.size.y, depth },
+		.mipLevels     = mip_levels,
+		.arrayLayers   = layer_count,
+		.samples       = VK_SAMPLE_COUNT_1_BIT,
+		.tiling        = info.linear_tiling ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL,
+		.usage         = info.linear_tiling ? VK_IMAGE_USAGE_SAMPLED_BIT : (VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT),
+		.sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.flags         = (info.flags & skr_tex_flags_cubemap) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
+	};
+
+	VkResult vr = vkCreateImage(_skr_vk.device, &image_info, NULL, &out_tex->image);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_gl: vkCreateImage failed: 0x%X", (uint32_t)vr);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// Query memory requirements
+	VkMemoryRequirements mem_reqs;
+	vkGetImageMemoryRequirements(_skr_vk.device, out_tex->image, &mem_reqs);
+
+	// Find compatible memory type
+	uint32_t memory_type_index = _skr_find_memory_type(
+		_skr_vk.physical_device, mem_reqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	if (memory_type_index == UINT32_MAX) {
+		skr_log(skr_log_critical, "skr_tex_create_external_gl: no compatible memory type");
+		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_unsupported;
+	}
+
+	// Build the pNext chain for memory import. All import structs are declared
+	// at this scope so they remain alive for vkAllocateMemory.
+	// Chain: VkMemoryAllocateInfo -> VkMemoryDedicatedAllocateInfo -> VkImportMemory*InfoKHR
+	VkImportMemoryFdInfoKHR import_fd = {
+		.sType      = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+		.handleType = handle_type,
+		.fd         = info.fd,
+	};
+#ifdef _WIN32
+	VkImportMemoryWin32HandleInfoKHR import_win32 = {
+		.sType      = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR,
+		.handleType = handle_type,
+		.handle     = (HANDLE)info.handle,
+	};
+#endif
+	VkMemoryDedicatedAllocateInfo dedicated_info = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+		.pNext = use_fd ? (void*)&import_fd :
+#ifdef _WIN32
+		         (void*)&import_win32,
+#else
+		         NULL,
+#endif
+		.image = info.dedicated ? out_tex->image : VK_NULL_HANDLE,
+	};
+	VkMemoryAllocateInfo alloc_info = {
+		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext           = &dedicated_info,
+		.allocationSize  = info.allocation_size > 0 ? info.allocation_size : mem_reqs.size,
+		.memoryTypeIndex = memory_type_index,
+	};
+
+	// Note: on success, fd is consumed by vkAllocateMemory and must not be closed.
+	// On Windows, the handle is duplicated internally.
+	vr = vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, &out_tex->memory);
+
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_gl: vkAllocateMemory failed: 0x%X", (uint32_t)vr);
+		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	vr = vkBindImageMemory(_skr_vk.device, out_tex->image, out_tex->memory, info.memory_offset);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_gl: vkBindImageMemory failed: 0x%X", (uint32_t)vr);
+		vkFreeMemory (_skr_vk.device, out_tex->memory, NULL);
+		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// Determine aspect mask
+	VkImageAspectFlags aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+	if (_skr_format_is_depth   (vk_format)) { aspect_mask  = VK_IMAGE_ASPECT_DEPTH_BIT;   }
+	if (_skr_format_has_stencil(vk_format)) { aspect_mask |= VK_IMAGE_ASPECT_STENCIL_BIT; }
+
+	// Create image view
+	VkImageViewCreateInfo view_info = {
+		.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image    = out_tex->image,
+		.viewType = view_type,
+		.format   = vk_format,
+		.subresourceRange = {
+			.aspectMask     = aspect_mask,
+			.baseMipLevel   = 0,
+			.levelCount     = mip_levels,
+			.baseArrayLayer = 0,
+			.layerCount     = layer_count,
+		},
+	};
+
+	vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &out_tex->view);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_gl: vkCreateImageView failed: 0x%X", (uint32_t)vr);
+		vkFreeMemory (_skr_vk.device, out_tex->memory, NULL);
+		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// Populate texture metadata
+	out_tex->size        = (skr_vec3i_t){ info.size.x, info.size.y, (int32_t)depth };
+	out_tex->format      = info.format;
+	out_tex->flags       = info.flags;
+	out_tex->samples     = VK_SAMPLE_COUNT_1_BIT;
+	out_tex->mip_levels  = mip_levels;
+	out_tex->layer_count = layer_count;
+	out_tex->aspect_mask = aspect_mask;
+	out_tex->is_external = false;  // We own the imported memory
+
+	// Layout tracking
+	out_tex->current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
+	out_tex->current_queue_family = _skr_vk.graphics_queue_family;
+	out_tex->first_use            = true;
+	out_tex->is_transient_discard = false;
+
+	// Sampler
+	out_tex->sampler_settings = info.sampler;
+	out_tex->sampler          = _skr_sampler_cache_acquire(info.sampler);
+
+	return skr_err_success;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+skr_err_ skr_tex_create_external_dma(skr_tex_external_dma_info_t info, skr_tex_t* out_tex) {
+	if (!out_tex) return skr_err_invalid_parameter;
+
+	if (!_skr_vk.capabilities[skr_capability_external_dma]) {
+		skr_log(skr_log_warning, "skr_tex_create_external_dma: DMA-BUF extensions not available");
+		return skr_err_unsupported;
+	}
+
+	if (info.fd < 0) {
+		skr_log(skr_log_warning, "skr_tex_create_external_dma: invalid fd");
+		return skr_err_invalid_parameter;
+	}
+
+	VkFormat vk_format = skr_tex_fmt_to_native(info.format);
+	if (vk_format == VK_FORMAT_UNDEFINED) {
+		skr_log(skr_log_warning, "skr_tex_create_external_dma: unsupported format");
+		return skr_err_unsupported;
+	}
+
+	*out_tex = (skr_tex_t){0};
+
+	// Build pNext chain: ImageCreateInfo -> ExternalMemory -> FormatList -> DrmModifierExplicit
+	VkExternalMemoryImageCreateInfo external_info = {
+		.sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+		.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+	};
+
+	// DRM format modifier requires a format list (VK_KHR_image_format_list)
+	VkImageFormatListCreateInfo format_list = {
+		.sType           = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO,
+		.pNext           = &external_info,
+		.viewFormatCount = 1,
+		.pViewFormats    = &vk_format,
+	};
+
+	// Plane layout for the modifier
+	VkSubresourceLayout plane_layout = {
+		.offset   = info.offset,
+		.rowPitch = info.row_pitch,
+		.size     = 0, // Ignored for single-plane
+		.arrayPitch = 0,
+		.depthPitch = 0,
+	};
+
+	VkImageDrmFormatModifierExplicitCreateInfoEXT drm_info = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT,
+		.pNext                       = &format_list,
+		.drmFormatModifier           = info.drm_modifier,
+		.drmFormatModifierPlaneCount = 1,
+		.pPlaneLayouts               = &plane_layout,
+	};
+
+	VkImageCreateInfo image_info = {
+		.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.pNext         = &drm_info,
+		.imageType     = VK_IMAGE_TYPE_2D,
+		.format        = vk_format,
+		.extent        = { info.size.x, info.size.y, 1 },
+		.mipLevels     = 1,
+		.arrayLayers   = 1,
+		.samples       = VK_SAMPLE_COUNT_1_BIT,
+		.tiling        = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+		.usage         = VK_IMAGE_USAGE_SAMPLED_BIT,
+		.sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	};
+
+	VkResult vr = vkCreateImage(_skr_vk.device, &image_info, NULL, &out_tex->image);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_dma: vkCreateImage failed: 0x%X", (uint32_t)vr);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// Query memory requirements
+	VkMemoryRequirements mem_reqs;
+	vkGetImageMemoryRequirements(_skr_vk.device, out_tex->image, &mem_reqs);
+
+	// Find compatible memory type
+	uint32_t memory_type_index = _skr_find_memory_type(
+		_skr_vk.physical_device, mem_reqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	if (memory_type_index == UINT32_MAX) {
+		skr_log(skr_log_critical, "skr_tex_create_external_dma: no compatible memory type");
+		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_unsupported;
+	}
+
+	// Import memory from DMA-BUF fd
+	VkImportMemoryFdInfoKHR import_fd = {
+		.sType      = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+		.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+		.fd         = info.fd,
+	};
+	VkMemoryDedicatedAllocateInfo dedicated_info = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+		.pNext = &import_fd,
+		.image = out_tex->image,
+	};
+	VkMemoryAllocateInfo alloc_info = {
+		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext           = &dedicated_info,
+		.allocationSize  = info.allocation_size > 0 ? info.allocation_size : mem_reqs.size,
+		.memoryTypeIndex = memory_type_index,
+	};
+
+	vr = vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, &out_tex->memory);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_dma: vkAllocateMemory failed: 0x%X", (uint32_t)vr);
+		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+	// Note: on success, the fd is consumed by vkAllocateMemory and must not be closed
+
+	vr = vkBindImageMemory(_skr_vk.device, out_tex->image, out_tex->memory, 0);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_dma: vkBindImageMemory failed: 0x%X", (uint32_t)vr);
+		vkFreeMemory  (_skr_vk.device, out_tex->memory, NULL);
+		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// For YUV formats, create YCbCr conversion + immutable sampler
+	VkSamplerYcbcrConversion ycbcr_conversion = VK_NULL_HANDLE;
+	VkSampler                ycbcr_sampler    = VK_NULL_HANDLE;
+	VkSamplerYcbcrConversionInfo ycbcr_view_info = {
+		.sType      = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
+		.conversion = VK_NULL_HANDLE,
+	};
+
+	bool is_yuv = _skr_tex_fmt_is_yuv(info.format);
+	if (is_yuv) {
+		skr_err_ err = _skr_ycbcr_create(
+			vk_format,
+			NULL,
+			VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709,
+			VK_SAMPLER_YCBCR_RANGE_ITU_NARROW,
+			(VkComponentMapping){ VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY },
+			VK_CHROMA_LOCATION_COSITED_EVEN,
+			VK_CHROMA_LOCATION_COSITED_EVEN,
+			&ycbcr_conversion,
+			&ycbcr_sampler);
+
+		if (err != skr_err_success) {
+			vkFreeMemory  (_skr_vk.device, out_tex->memory, NULL);
+			vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+			*out_tex = (skr_tex_t){0};
+			return err;
+		}
+		ycbcr_view_info.conversion = ycbcr_conversion;
+	}
+
+	// Create image view (with YCbCr conversion in pNext for YUV formats)
+	VkImageViewCreateInfo view_info = {
+		.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.pNext    = is_yuv ? (void*)&ycbcr_view_info : NULL,
+		.image    = out_tex->image,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format   = vk_format,
+		.subresourceRange = {
+			.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			.baseMipLevel   = 0,
+			.levelCount     = 1,
+			.baseArrayLayer = 0,
+			.layerCount     = 1,
+		},
+	};
+
+	vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &out_tex->view);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_dma: vkCreateImageView failed: 0x%X", (uint32_t)vr);
+		if (ycbcr_sampler)    vkDestroySampler                (_skr_vk.device, ycbcr_sampler,    NULL);
+		if (ycbcr_conversion) vkDestroySamplerYcbcrConversion (_skr_vk.device, ycbcr_conversion, NULL);
+		vkFreeMemory  (_skr_vk.device, out_tex->memory, NULL);
+		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// Populate texture metadata
+	out_tex->size        = (skr_vec3i_t){ info.size.x, info.size.y, 1 };
+	out_tex->format      = info.format;
+	out_tex->flags       = 0;
+	out_tex->samples     = VK_SAMPLE_COUNT_1_BIT;
+	out_tex->mip_levels  = 1;
+	out_tex->layer_count = 1;
+	out_tex->aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+	out_tex->is_external = false; // We own the imported memory
+
+	// Layout tracking
+	out_tex->current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
+	out_tex->current_queue_family = _skr_vk.graphics_queue_family;
+	out_tex->first_use            = true;
+	out_tex->is_transient_discard = false;
+
+	// YCbCr tracking
+	out_tex->ycbcr_conversion = ycbcr_conversion;
+	out_tex->ycbcr_sampler    = ycbcr_sampler;
+
+	// Sampler: use immutable YCbCr sampler for YUV, otherwise use sampler cache
+	out_tex->sampler_settings = info.sampler;
+	out_tex->sampler          = ycbcr_sampler != VK_NULL_HANDLE ? ycbcr_sampler : _skr_sampler_cache_acquire(info.sampler);
+
+	return skr_err_success;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+skr_err_ skr_tex_create_external_ahb(skr_tex_external_ahb_info_t info, skr_tex_t* out_tex) {
+#ifndef __ANDROID__
+	(void)info;
+	(void)out_tex;
+	skr_log(skr_log_warning, "skr_tex_create_external_ahb: not available on this platform");
+	return skr_err_unsupported;
+#else
+	if (!out_tex)              return skr_err_invalid_parameter;
+	if (!info.hardware_buffer) return skr_err_invalid_parameter;
+
+	if (!_skr_vk.capabilities[skr_capability_external_ahb]) {
+		skr_log(skr_log_warning, "skr_tex_create_external_ahb: VK_ANDROID_external_memory_android_hardware_buffer not available");
+		return skr_err_unsupported;
+	}
+
+	AHardwareBuffer* ahb = (AHardwareBuffer*)info.hardware_buffer;
+
+	// Get AHardwareBuffer description
+	AHardwareBuffer_Desc ahb_desc;
+	AHardwareBuffer_describe(ahb, &ahb_desc);
+
+	// Query Vulkan format properties from AHB
+	VkAndroidHardwareBufferFormatPropertiesANDROID format_props = {
+		.sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID,
+	};
+	VkAndroidHardwareBufferPropertiesANDROID ahb_props = {
+		.sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
+		.pNext = &format_props,
+	};
+
+	VkResult vr = vkGetAndroidHardwareBufferPropertiesANDROID(_skr_vk.device, ahb, &ahb_props);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_ahb: vkGetAndroidHardwareBufferPropertiesANDROID failed: 0x%X", (uint32_t)vr);
+		return skr_err_device_error;
+	}
+
+	// Determine format: use provided, or auto-detect from AHB
+	VkFormat vk_format = VK_FORMAT_UNDEFINED;
+	if (info.format != skr_tex_fmt_none) {
+		vk_format = skr_tex_fmt_to_native(info.format);
+	}
+	if (vk_format == VK_FORMAT_UNDEFINED) {
+		vk_format = format_props.format;
+	}
+
+	// For YUV/external-format AHBs, format may be UNDEFINED - that's OK if externalFormat is set
+	bool is_external_format = (vk_format == VK_FORMAT_UNDEFINED && format_props.externalFormat != 0);
+	if (vk_format == VK_FORMAT_UNDEFINED && !is_external_format) {
+		skr_log(skr_log_warning, "skr_tex_create_external_ahb: cannot determine format");
+		return skr_err_unsupported;
+	}
+
+	skr_tex_fmt_ skr_format = info.format;
+	if (skr_format == skr_tex_fmt_none && vk_format != VK_FORMAT_UNDEFINED) {
+		skr_format = skr_tex_fmt_from_native(vk_format);
+	}
+
+	*out_tex = (skr_tex_t){0};
+
+	// Build pNext chain for image creation
+	VkExternalFormatANDROID external_format = {
+		.sType          = VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID,
+		.externalFormat = format_props.externalFormat,
+	};
+	VkExternalMemoryImageCreateInfo external_mem_info = {
+		.sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+		.pNext       = is_external_format ? &external_format : NULL,
+		.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID,
+	};
+
+	VkImageCreateInfo image_info = {
+		.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.pNext         = &external_mem_info,
+		.imageType     = VK_IMAGE_TYPE_2D,
+		.format        = is_external_format ? VK_FORMAT_UNDEFINED : vk_format,
+		.extent        = { ahb_desc.width, ahb_desc.height, 1 },
+		.mipLevels     = 1,
+		.arrayLayers   = ahb_desc.layers > 0 ? ahb_desc.layers : 1,
+		.samples       = VK_SAMPLE_COUNT_1_BIT,
+		.tiling        = VK_IMAGE_TILING_OPTIMAL,
+		.usage         = VK_IMAGE_USAGE_SAMPLED_BIT,
+		.sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	};
+
+	vr = vkCreateImage(_skr_vk.device, &image_info, NULL, &out_tex->image);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_ahb: vkCreateImage failed: 0x%X", (uint32_t)vr);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// Import AHB memory (requires dedicated allocation)
+	VkImportAndroidHardwareBufferInfoANDROID import_info = {
+		.sType  = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID,
+		.buffer = ahb,
+	};
+	VkMemoryDedicatedAllocateInfo dedicated_info = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+		.pNext = &import_info,
+		.image = out_tex->image,
+	};
+
+	// Find memory type from AHB-reported bits
+	uint32_t memory_type_index = UINT32_MAX;
+	VkPhysicalDeviceMemoryProperties mem_props;
+	vkGetPhysicalDeviceMemoryProperties(_skr_vk.physical_device, &mem_props);
+	for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++) {
+		if (ahb_props.memoryTypeBits & (1 << i)) {
+			memory_type_index = i;
+			break;
+		}
+	}
+
+	if (memory_type_index == UINT32_MAX) {
+		skr_log(skr_log_critical, "skr_tex_create_external_ahb: no compatible memory type");
+		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_unsupported;
+	}
+
+	VkMemoryAllocateInfo alloc_info = {
+		.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext           = &dedicated_info,
+		.allocationSize  = ahb_props.allocationSize,
+		.memoryTypeIndex = memory_type_index,
+	};
+
+	vr = vkAllocateMemory(_skr_vk.device, &alloc_info, NULL, &out_tex->memory);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_ahb: vkAllocateMemory failed: 0x%X", (uint32_t)vr);
+		vkDestroyImage(_skr_vk.device, out_tex->image, NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	vr = vkBindImageMemory(_skr_vk.device, out_tex->image, out_tex->memory, 0);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_ahb: vkBindImageMemory failed: 0x%X", (uint32_t)vr);
+		vkFreeMemory (_skr_vk.device, out_tex->memory, NULL);
+		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// Acquire AHB reference if we own it
+	if (info.owns_buffer) {
+		AHardwareBuffer_acquire(ahb);
+	}
+
+	// Create YCbCr conversion + immutable sampler for YUV formats. This covers
+	// both opaque external formats (VK_FORMAT_UNDEFINED) and known YUV formats
+	// (NV12, P010, etc.) that the driver may report for AHB video frames.
+	VkSamplerYcbcrConversion ycbcr_conversion = VK_NULL_HANDLE;
+	VkSampler                ycbcr_sampler    = VK_NULL_HANDLE;
+	VkSamplerYcbcrConversionInfo ycbcr_info   = {
+		.sType      = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO,
+		.conversion = VK_NULL_HANDLE,
+	};
+
+	bool needs_ycbcr = is_external_format || _skr_tex_fmt_is_yuv(skr_format);
+	if (needs_ycbcr) {
+		VkExternalFormatANDROID ext_fmt = {
+			.sType          = VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID,
+			.externalFormat = format_props.externalFormat,
+		};
+
+		skr_err_ err = _skr_ycbcr_create(
+			is_external_format ? VK_FORMAT_UNDEFINED : vk_format,
+			is_external_format ? &ext_fmt             : NULL,
+			format_props.suggestedYcbcrModel,
+			format_props.suggestedYcbcrRange,
+			format_props.samplerYcbcrConversionComponents,
+			format_props.suggestedXChromaOffset,
+			format_props.suggestedYChromaOffset,
+			&ycbcr_conversion,
+			&ycbcr_sampler);
+
+		if (err != skr_err_success) {
+			if (info.owns_buffer) AHardwareBuffer_release(ahb);
+			vkFreeMemory (_skr_vk.device, out_tex->memory, NULL);
+			vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+			*out_tex = (skr_tex_t){0};
+			return err;
+		}
+
+		ycbcr_info.conversion = ycbcr_conversion;
+	}
+
+	// Create image view
+	uint32_t layer_count = ahb_desc.layers > 0 ? ahb_desc.layers : 1;
+
+	VkImageViewCreateInfo view_info = {
+		.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image    = out_tex->image,
+		.viewType = layer_count > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D,
+		.format   = is_external_format ? VK_FORMAT_UNDEFINED : vk_format,
+		.subresourceRange = {
+			.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+			.baseMipLevel   = 0,
+			.levelCount     = 1,
+			.baseArrayLayer = 0,
+			.layerCount     = layer_count,
+		},
+	};
+
+	// Attach YCbCr conversion info to the view for any YUV format
+	if (needs_ycbcr) {
+		view_info.pNext = &ycbcr_info;
+	}
+
+	vr = vkCreateImageView(_skr_vk.device, &view_info, NULL, &out_tex->view);
+	if (vr != VK_SUCCESS) {
+		skr_log(skr_log_critical, "skr_tex_create_external_ahb: vkCreateImageView failed: 0x%X", (uint32_t)vr);
+		if (ycbcr_sampler)    vkDestroySampler                (_skr_vk.device, ycbcr_sampler,    NULL);
+		if (ycbcr_conversion) vkDestroySamplerYcbcrConversion (_skr_vk.device, ycbcr_conversion, NULL);
+		if (info.owns_buffer) AHardwareBuffer_release(ahb);
+		vkFreeMemory (_skr_vk.device, out_tex->memory, NULL);
+		vkDestroyImage(_skr_vk.device, out_tex->image,  NULL);
+		*out_tex = (skr_tex_t){0};
+		return skr_err_device_error;
+	}
+
+	// Store metadata
+	out_tex->size        = (skr_vec3i_t){ (int32_t)ahb_desc.width, (int32_t)ahb_desc.height, 1 };
+	out_tex->format      = skr_format;
+	out_tex->flags       = layer_count > 1 ? skr_tex_flags_array : skr_tex_flags_none;
+	out_tex->samples     = VK_SAMPLE_COUNT_1_BIT;
+	out_tex->mip_levels  = 1;
+	out_tex->layer_count = layer_count;
+	out_tex->aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT;
+	out_tex->is_external = false;  // We own the imported memory
+
+	// AHB tracking
+	out_tex->ahb_handle      = info.hardware_buffer;
+	out_tex->owns_ahb        = info.owns_buffer;
+	out_tex->ycbcr_conversion = ycbcr_conversion;
+	out_tex->ycbcr_sampler    = ycbcr_sampler;
+
+	// Layout tracking
+	out_tex->current_layout       = VK_IMAGE_LAYOUT_UNDEFINED;
+	out_tex->current_queue_family = _skr_vk.graphics_queue_family;
+	out_tex->first_use            = true;
+	out_tex->is_transient_discard = false;
+
+	// Sampler: use the YCbCr immutable sampler if created, otherwise use the sampler cache
+	if (ycbcr_sampler != VK_NULL_HANDLE) {
+		out_tex->sampler_settings = info.sampler;
+		out_tex->sampler          = ycbcr_sampler;
+	} else {
+		out_tex->sampler_settings = info.sampler;
+		out_tex->sampler          = _skr_sampler_cache_acquire(info.sampler);
+	}
+
+	return skr_err_success;
+#endif // __ANDROID__
 }
 
 ///////////////////////////////////////////////////////////////////////////////

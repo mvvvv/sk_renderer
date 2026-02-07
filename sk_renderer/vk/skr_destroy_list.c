@@ -37,7 +37,8 @@
 	X(swapchain,            VkSwapchainKHR,          vkDestroySwapchainKHR,          device)   \
 	X(surface,              VkSurfaceKHR,            vkDestroySurfaceKHR,            instance) \
 	X(debug_messenger,      VkDebugUtilsMessengerEXT,vkDestroyDebugUtilsMessengerEXT,instance) \
-	X(memory,               VkDeviceMemory,          vkFreeMemory,                   device)
+	X(memory,               VkDeviceMemory,          vkFreeMemory,                   device)   \
+	X(ycbcr_conversion,     VkSamplerYcbcrConversion,vkDestroySamplerYcbcrConversion,device)
 
 typedef enum {
 	#define MAKE_ENUM(name, type, func, owner) skr_destroy_type_##name,

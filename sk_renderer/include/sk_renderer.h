@@ -179,6 +179,10 @@ typedef enum skr_tex_fmt_ {
 	skr_tex_fmt_astc4x4_rgba,
 	skr_tex_fmt_atc_rgb,
 	skr_tex_fmt_atc_rgba,
+	// YUV / multi-plane formats (require VkSamplerYcbcrConversion, read-only sampling)
+	skr_tex_fmt_nv12,    // 2-plane 4:2:0: Y (8-bit) + interleaved UV (8-bit). Most common HW video decoder output.
+	skr_tex_fmt_p010,    // 2-plane 4:2:0: Y (10-bit) + interleaved UV (10-bit). 10-bit HDR video.
+	skr_tex_fmt_yuv420p, // 3-plane 4:2:0: Y + U + V (all 8-bit). Planar YUV, less common in HW paths.
 } skr_tex_fmt_;
 
 typedef enum skr_tex_flags_ {
@@ -294,6 +298,15 @@ typedef enum skr_log_ {
 	skr_log_warning,
 	skr_log_critical,
 } skr_log_;
+
+typedef enum skr_capability_ {
+	skr_capability_external_vk,           // Same-device VkImage import (always true)
+	skr_capability_external_gl,           // GL interop via external memory FD/Win32
+	skr_capability_external_ahb,          // Android Hardware Buffer
+	skr_capability_external_dma,          // DMA-BUF via VK_EXT_external_memory_dma_buf
+	skr_capability_vk_video,              // Vulkan video decode (VK_KHR_video_decode_queue)
+	skr_capability_count_                 // Must be last - array size
+} skr_capability_;
 
 typedef enum skr_clear_ {
 	skr_clear_none    = 0,
@@ -490,9 +503,13 @@ typedef struct skr_material_info_t {
 SKR_API VkInstance        skr_get_vk_instance              (void);
 SKR_API VkDevice          skr_get_vk_device                (void);
 SKR_API VkPhysicalDevice  skr_get_vk_physical_device       (void);
-SKR_API VkQueue           skr_get_vk_graphics_queue        (void);
-SKR_API uint32_t          skr_get_vk_graphics_queue_family (void);
-SKR_API void              skr_get_vk_device_uuid           (uint8_t out_uuid[VK_UUID_SIZE]);
+SKR_API VkQueue           skr_get_vk_graphics_queue            (void);
+SKR_API uint32_t          skr_get_vk_graphics_queue_family     (void);
+SKR_API uint32_t          skr_get_vk_transfer_queue_family     (void);
+SKR_API uint32_t          skr_get_vk_video_decode_queue_family (void);  // UINT32_MAX if unavailable
+SKR_API void              skr_get_vk_device_uuid               (uint8_t out_uuid[VK_UUID_SIZE]);
+SKR_API void              skr_vk_queue_lock                    (uint32_t queue_family);
+SKR_API void              skr_vk_queue_unlock                  (uint32_t queue_family);
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -502,6 +519,7 @@ SKR_API void              skr_shutdown                     (void);
 SKR_API void              skr_thread_init                  (void);
 SKR_API void              skr_thread_shutdown              (void);
 SKR_API bool              skr_thread_is_initialized        (void);
+SKR_API bool              skr_is_capable                   (skr_capability_ capability);
 
 SKR_API skr_future_t      skr_future_get                   (void);
 SKR_API bool              skr_future_check                 (const skr_future_t* future);
@@ -541,7 +559,10 @@ SKR_API skr_buffer_t*     skr_mesh_get_vertex_buffer       (const skr_mesh_t*   
 
 SKR_API skr_err_          skr_tex_create                   (skr_tex_fmt_ format, skr_tex_flags_ flags, skr_tex_sampler_t sampler, skr_vec3i_t size, int32_t multisample, int32_t mip_count, const skr_tex_data_t* opt_data, skr_tex_t* out_tex);
 SKR_API skr_err_          skr_tex_create_copy              (const skr_tex_t*     src, skr_tex_fmt_ format, skr_tex_flags_ flags, int32_t multisample, skr_tex_t* out_tex);
-SKR_API skr_err_          skr_tex_create_external          (skr_tex_external_info_t info, skr_tex_t* out_tex);
+SKR_API skr_err_          skr_tex_create_external_vk       (skr_tex_external_info_t info, skr_tex_t* out_tex);
+SKR_API skr_err_          skr_tex_create_external_gl       (skr_tex_external_gl_info_t info, skr_tex_t* out_tex);
+SKR_API skr_err_          skr_tex_create_external_ahb      (skr_tex_external_ahb_info_t info, skr_tex_t* out_tex);
+SKR_API skr_err_          skr_tex_create_external_dma      (skr_tex_external_dma_info_t info, skr_tex_t* out_tex);
 SKR_API skr_err_          skr_tex_update_external          (      skr_tex_t* ref_tex, skr_tex_external_update_t update);
 SKR_API bool              skr_tex_is_valid                 (const skr_tex_t*     tex);
 SKR_API void              skr_tex_destroy                  (      skr_tex_t* ref_tex);

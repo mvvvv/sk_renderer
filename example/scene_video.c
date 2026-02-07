@@ -12,8 +12,6 @@
 #include <threads.h>
 #include <stdatomic.h>
 
-#include <vulkan/vulkan.h>
-
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #include <cimgui.h>
 
@@ -43,7 +41,6 @@ typedef struct {
 
 	// Status (written by worker, read by main)
 	atomic_bool  loading;         // Currently loading
-	atomic_bool  seeking;         // Currently seeking
 	atomic_bool  video_ready;     // Video is loaded and ready
 } video_worker_t;
 
@@ -89,22 +86,30 @@ static int _video_worker_thread(void* arg) {
 		}
 
 		// Check for seek command
+		bool did_seek = false;
 		if (atomic_load(&w->cmd_seek)) {
 			atomic_store(&w->cmd_seek, false);
-			atomic_store(&w->seeking, true);
 
 			if (w->video && video_is_valid(w->video)) {
 				double target = w->seek_target;
+
+				// video_seek only touches the demuxer (av_seek_frame) and sets
+				// a deferred flush flag. The actual avcodec_flush_buffers runs
+				// at the start of the NEXT decode, giving FFmpeg's in-flight
+				// GPU work (DPB, reference frames) time to complete.
 				video_seek(w->video, target);
 				w->playback_time = target;
+				did_seek = true;
 			}
-
-			atomic_store(&w->seeking, false);
 		}
 
-		// Decode frames if playing
-		if (atomic_load(&w->playing) && w->video && video_is_valid(w->video) &&
-		    !atomic_load(&w->loading) && !atomic_load(&w->seeking)) {
+		// Decode frames if playing.
+		// Skip decode on seek iterations: the deferred flush inside
+		// video_decode_next_frame resets FFmpeg's exec pool, which is unsafe
+		// if prior decode GPU work is still in-flight. The 1ms sleep between
+		// iterations gives that work time to land.
+		if (!did_seek && atomic_load(&w->playing) && w->video && video_is_valid(w->video) &&
+		    !atomic_load(&w->loading)) {
 
 			bool is_live = video_is_live(w->video);
 
@@ -118,10 +123,9 @@ static int _video_worker_thread(void* arg) {
 
 				// Decode up to 3 frames per iteration to catch up
 				for (int i = 0; i < 3 && video_time < target_time; i++) {
-					if (!video_decode_next_frame(w->video)) {
-						// EOF
-						break;
-					}
+					if (atomic_load(&w->cmd_seek)) break; // New seek pending
+					video_decode_status_ status = video_decode_next_frame(w->video);
+					if (status != video_decode_ok) break;
 					video_time = video_get_current_time(w->video);
 				}
 			}
@@ -148,10 +152,9 @@ typedef struct {
 	char*          video_path;  // Display path for UI
 
 	skr_mesh_t     quad;
-	skr_shader_t   shader;
-	skr_material_t material;
 
 	bool           loop;
+	bool           was_playing_before_drag; // Resume playback after slider release
 	float          seek_slider;
 	double         last_duration;  // Cached duration for EOF detection
 } scene_video_t;
@@ -166,6 +169,9 @@ static void _worker_open(video_worker_t* w, const char* path) {
 
 static void _worker_seek(video_worker_t* w, double time) {
 	w->seek_target = time;
+	// Interrupt any blocking I/O (network reads) in the worker's decode loop
+	// so it can process this seek promptly instead of waiting for data.
+	if (w->video) video_abort_decode(w->video);
 	atomic_store(&w->cmd_seek, true);
 }
 
@@ -184,7 +190,6 @@ static scene_t* _scene_video_create(void) {
 	atomic_store(&w->cmd_seek, false);
 	atomic_store(&w->playing, true);
 	atomic_store(&w->loading, false);
-	atomic_store(&w->seeking, false);
 	atomic_store(&w->video_ready, false);
 	mtx_init(&w->open_path_mutex, mtx_plain);
 
@@ -196,17 +201,6 @@ static scene_t* _scene_video_create(void) {
 	// Create fullscreen quad
 	scene->quad = su_mesh_create_fullscreen_quad();
 	skr_mesh_set_name(&scene->quad, "video_quad");
-
-	// Load video shader
-	scene->shader = su_shader_load("shaders/video.hlsl.sks", "video");
-
-	// Create material
-	skr_material_create((skr_material_info_t){
-		.shader     = &scene->shader,
-		.cull       = skr_cull_none,
-		.write_mask = skr_write_default,
-		.depth_test = skr_compare_always,  // Fullscreen, no depth
-	}, &scene->material);
 
 	// Start loading default video
 	const char* default_video = "https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4";
@@ -238,8 +232,6 @@ static void _scene_video_destroy(scene_t* base) {
 
 	if (scene->video_path) free(scene->video_path);
 
-	skr_material_destroy(&scene->material);
-	skr_shader_destroy(&scene->shader);
 	skr_mesh_destroy(&scene->quad);
 
 	free(scene);
@@ -250,7 +242,7 @@ static void _scene_video_update(scene_t* base, float delta_time) {
 	video_worker_t* w = &scene->worker;
 
 	if (!atomic_load(&w->video_ready)) return;
-	if (atomic_load(&w->loading) || atomic_load(&w->seeking)) return;
+	if (atomic_load(&w->loading)) return;
 
 	// Update playback time (main thread advances, worker reads)
 	if (atomic_load(&w->playing) && w->video && !video_is_live(w->video)) {
@@ -281,17 +273,10 @@ static void _scene_video_render(scene_t* base, int32_t width, int32_t height, sk
 	(void)ref_system_buffer;
 
 	if (!atomic_load(&w->video_ready) || !w->video) return;
+	if (atomic_load(&w->loading)) return;
 
-	// Bind video textures to material
-	skr_tex_t* tex_y  = video_get_tex_y(w->video);
-	skr_tex_t* tex_uv = video_get_tex_uv(w->video);
-
-	if (tex_y && tex_uv && skr_tex_is_valid(tex_y) && skr_tex_is_valid(tex_uv)) {
-		skr_material_set_tex(&scene->material, "tex_y",  tex_y);
-		skr_material_set_tex(&scene->material, "tex_uv", tex_uv);
-	} else {
-		return;  // Textures not ready yet
-	}
+	skr_material_t* mat = video_get_material(w->video);
+	if (!mat) return;
 
 	// Calculate aspect ratio scaling to fit video in screen
 	float video_w = (float)video_get_width(w->video);
@@ -306,17 +291,14 @@ static void _scene_video_render(scene_t* base, int32_t width, int32_t height, sk
 	float scale_y = 1.0f;
 
 	if (video_aspect > screen_aspect) {
-		// Video is wider than screen - fit to width, letterbox top/bottom
 		scale_y = screen_aspect / video_aspect;
 	} else {
-		// Video is taller than screen - fit to height, pillarbox left/right
 		scale_x = video_aspect / screen_aspect;
 	}
 
-	// Scale the quad (NDC space: -1 to 1)
 	float4x4 world = float4x4_s((float3){scale_x, scale_y, 1.0f});
 
-	skr_render_list_add(ref_render_list, &scene->quad, &scene->material, &world, sizeof(float4x4), 1);
+	skr_render_list_add(ref_render_list, &scene->quad, mat, &world, sizeof(float4x4), 1);
 }
 
 static void _scene_video_render_ui(scene_t* base) {
@@ -327,7 +309,6 @@ static void _scene_video_render_ui(scene_t* base) {
 	igSeparator();
 
 	bool is_loading = atomic_load(&w->loading);
-	bool is_seeking = atomic_load(&w->seeking);
 	bool is_ready   = atomic_load(&w->video_ready);
 	bool is_playing = atomic_load(&w->playing);
 
@@ -366,9 +347,6 @@ static void _scene_video_render_ui(scene_t* base) {
 		}
 		igText("FPS: %.2f", video_get_framerate(w->video));
 		igText("HW Accel: %s", video_is_hw_accelerated(w->video) ? "Yes (Vulkan)" : "No (Software)");
-		if (is_seeking) {
-			igText("Seeking...");
-		}
 
 		igSeparator();
 
@@ -399,6 +377,16 @@ static void _scene_video_render_ui(scene_t* base) {
 					double new_time = scene->seek_slider * video_get_duration(w->video);
 					_worker_seek(w, new_time);
 				}
+			}
+			// Pause playback while dragging the slider to prevent
+			// the video from advancing and fighting with the seek position.
+			bool dragging = igIsItemActive();
+			if (dragging && is_playing) {
+				atomic_store(&w->playing, false);
+				scene->was_playing_before_drag = true;
+			} else if (!dragging && scene->was_playing_before_drag) {
+				atomic_store(&w->playing, true);
+				scene->was_playing_before_drag = false;
 			}
 		}
 

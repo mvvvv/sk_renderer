@@ -76,14 +76,24 @@ else()
 	set(SKR_HAS_VIDEO FALSE)
 endif()
 
+# Android: use NDK MediaCodec + AHB for zero-copy video
+if(ANDROID AND NOT SKR_HAS_VIDEO)
+	set(SKR_HAS_VIDEO TRUE)
+	set(SKR_VIDEO_ANDROID TRUE)
+endif()
+
 ###############################################################################
 # sk_renderer_test target
 ###############################################################################
 
 # Use sk_app's add_skapp() helper for cross-platform builds
-# Use debug manifest on Android for native debugging support
-if(ANDROID AND CMAKE_BUILD_TYPE STREQUAL "Debug")
-	set(SKR_MANIFEST MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidManifest_Debug.xml")
+# Always use our custom manifest on Android for permissions (INTERNET, etc.)
+if(ANDROID)
+	if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+		set(SKR_MANIFEST MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidManifest_Debug.xml")
+	else()
+		set(SKR_MANIFEST MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidManifest.xml")
+	endif()
 endif()
 
 add_skapp(sk_renderer_test
@@ -145,6 +155,7 @@ target_sources(sk_renderer_test PRIVATE
 	scene_gaussian_splat.c
 	scene_tex_compress.c
 	scene_stars.c
+	scene_yuv_test.c
 	bloom.c
 	text/text.c
 	tools/scene_util.c
@@ -161,12 +172,20 @@ target_sources(sk_renderer_test PRIVATE
 target_skapp_assets(sk_renderer_test
 	${CMAKE_CURRENT_SOURCE_DIR}/assets)
 
-# Video playback (conditional on FFmpeg)
+# Video playback
 if(SKR_HAS_VIDEO)
 	target_compile_definitions(sk_renderer_test PRIVATE SKR_HAS_VIDEO)
-	target_include_directories(sk_renderer_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
-	target_link_libraries     (sk_renderer_test PRIVATE ${FFMPEG_LIBRARIES})
-	target_sources            (sk_renderer_test PRIVATE tools/video.c scene_video.c)
+	target_sources            (sk_renderer_test PRIVATE scene_video.c)
+	if(SKR_VIDEO_ANDROID)
+		# Android: NDK MediaCodec + AHB zero-copy path
+		target_sources        (sk_renderer_test PRIVATE tools/video_android.c)
+		target_link_libraries (sk_renderer_test PRIVATE mediandk)
+	else()
+		# Desktop: FFmpeg with Vulkan hardware acceleration
+		target_include_directories(sk_renderer_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
+		target_link_libraries     (sk_renderer_test PRIVATE ${FFMPEG_LIBRARIES})
+		target_sources            (sk_renderer_test PRIVATE tools/video.c)
+	endif()
 endif()
 
 ###############################################################################
@@ -175,7 +194,7 @@ endif()
 
 # Compile ImGui shader to header file (no debug info, embedded in binary)
 # Output goes to imgui_backend/ to keep all ImGui backend files together
-skshaderc_compile_headers(sk_renderer_test ${CMAKE_CURRENT_SOURCE_DIR}/imgui_backend "-e -t s"
+skshaderc_compile_headers(sk_renderer_test ${CMAKE_CURRENT_SOURCE_DIR}/imgui_backend "-o3 -e -t s"
 	imgui_backend/imgui.hlsl
 )
 
@@ -200,7 +219,9 @@ skshaderc_compile_assets(sk_renderer_test ${CMAKE_CURRENT_BINARY_DIR}/generated/
 	assets/shaders/text.hlsl
 	assets/shaders/texture3d.hlsl
 	assets/shaders/unlit.hlsl
+	assets/shaders/yuv_unlit.hlsl
 	assets/shaders/video.hlsl
+	assets/shaders/video_ahb.hlsl
 	assets/shaders/gaussian_splat.hlsl
 	assets/shaders/gpu_sort_init.hlsl
 	assets/shaders/gpu_sort_upsweep.hlsl

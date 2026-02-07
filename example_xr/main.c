@@ -477,7 +477,7 @@ bool openxr_init(const char* app_name) {
 		: skr_tex_fmt_rgba32_srgb;
 
 	for (uint32_t j = 0; j < image_count; j++) {
-		skr_tex_create_external((skr_tex_external_info_t){
+		skr_tex_create_external_vk((skr_tex_external_info_t){
 			.image          = images[j].image,
 			.view           = VK_NULL_HANDLE,
 			.memory         = VK_NULL_HANDLE,

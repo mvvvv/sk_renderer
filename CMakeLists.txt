@@ -103,6 +103,8 @@ FetchContent_MakeAvailable(volk)
 target_link_libraries(sk_renderer PUBLIC volk)
 if(ANDROID)
 	set_target_properties(volk PROPERTIES POSITION_INDEPENDENT_CODE ON)
+	target_compile_definitions(volk         PRIVATE VK_USE_PLATFORM_ANDROID_KHR)
+	target_compile_definitions(sk_renderer  PUBLIC  VK_USE_PLATFORM_ANDROID_KHR)
 	target_link_libraries(sk_renderer PRIVATE log)  # Android logging library
 endif()
 

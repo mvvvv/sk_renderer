@@ -89,6 +89,15 @@ typedef struct skr_tex_t {
 	bool                   first_use;            // True until first transition (allows UNDEFINED optimization)
 	bool                   is_transient_discard; // True for non-readable depth/MSAA (always use UNDEFINED)
 	bool                   is_external;          // True if image/memory are externally owned (don't destroy)
+
+	// YCbCr conversion (Vulkan 1.1) for opaque YUV textures (e.g. AHB video frames)
+	VkSamplerYcbcrConversion ycbcr_conversion;   // VK_NULL_HANDLE if unused
+	VkSampler                ycbcr_sampler;       // Immutable sampler with YCbCr conversion baked in (VK_NULL_HANDLE if unused)
+
+#ifdef __ANDROID__
+	void*                  ahb_handle;           // AHardwareBuffer* if imported via AHB (NULL otherwise)
+	bool                   owns_ahb;             // If true, release AHB on destroy
+#endif
 } skr_tex_t;
 
 // External texture creation info (for wrapping VkImages from external sources like FFmpeg)
@@ -111,6 +120,42 @@ typedef struct skr_tex_external_update_t {
 	VkImageView   view;           // Optional new view (VK_NULL_HANDLE = recreate from image)
 	VkImageLayout current_layout; // Current layout of new image
 } skr_tex_external_update_t;
+
+// GL external texture import via external memory (FD on Linux/Android, Win32 HANDLE on Windows)
+typedef struct skr_tex_external_gl_info_t {
+	int32_t           fd;              // FD from glExportMemoryFdEXT (-1 if using handle)
+	void*             handle;          // Win32 HANDLE from glExportMemoryWin32HandleNV (NULL if using fd)
+	skr_tex_fmt_      format;          // Texture format
+	skr_vec3i_t       size;            // Dimensions (z=1 for 2D, z=depth for 3D/array)
+	uint64_t          allocation_size; // Total memory allocation size in bytes
+	uint64_t          memory_offset;   // Binding offset within the allocation (0 = start)
+	uint32_t          mip_levels;      // Number of mip levels (1 = no mipmaps)
+	uint32_t          array_layers;    // Array layer count (1 = non-array, 6 = cubemap)
+	skr_tex_flags_    flags;           // Texture flags (array, cubemap, 3d, etc.)
+	skr_tex_sampler_t sampler;         // Sampler settings
+	bool              dedicated;       // Use dedicated allocation (VK_KHR_dedicated_allocation)
+	bool              linear_tiling;   // Use LINEAR tiling (for cross-device memory sharing)
+} skr_tex_external_gl_info_t;
+
+// DMA-BUF external texture import via VK_EXT_external_memory_dma_buf
+typedef struct skr_tex_external_dma_info_t {
+	int32_t           fd;              // DMA-BUF file descriptor (consumed on success - caller must not close)
+	uint64_t          drm_modifier;    // DRM format modifier (DRM_FORMAT_MOD_LINEAR=0, or driver-specific)
+	skr_tex_fmt_      format;          // Texture format
+	skr_vec3i_t       size;            // Dimensions (z=1 for 2D)
+	uint64_t          allocation_size; // Total memory allocation size in bytes
+	uint64_t          offset;          // Offset of image data within the DMA-BUF (typically 0)
+	uint32_t          row_pitch;       // Row pitch in bytes (required for modifier layout)
+	skr_tex_sampler_t sampler;         // Sampler settings
+} skr_tex_external_dma_info_t;
+
+// Android Hardware Buffer external texture import
+typedef struct skr_tex_external_ahb_info_t {
+	void*             hardware_buffer; // AHardwareBuffer* (void* for C compatibility)
+	skr_tex_fmt_      format;          // Texture format (skr_tex_fmt_none = auto-detect from AHB)
+	skr_tex_sampler_t sampler;         // Sampler settings
+	bool              owns_buffer;     // If true, sk_renderer releases AHB on destroy
+} skr_tex_external_ahb_info_t;
 
 typedef struct skr_surface_t {
 	VkSurfaceKHR   surface;
@@ -159,6 +204,10 @@ typedef struct {
 	bool                 depth_clamp;
 	skr_stencil_state_t  stencil_front;
 	skr_stencil_state_t  stencil_back;
+#define SKR_MAX_IMMUTABLE_SAMPLERS 2
+	VkSampler            immutable_samplers[SKR_MAX_IMMUTABLE_SAMPLERS];      // Immutable samplers for YCbCr textures (VK_NULL_HANDLE = unused)
+	int32_t              immutable_sampler_slots[SKR_MAX_IMMUTABLE_SAMPLERS];  // Descriptor binding slots (sorted by slot for deterministic memcmp)
+	int32_t              immutable_sampler_count;                              // Number of active immutable samplers
 } _skr_pipeline_material_key_t;
 
 typedef struct skr_material_t {

@@ -131,6 +131,7 @@ compile_result_ sksc_hlsl_to_spirv(const char *filename, const char *hlsl, const
 	shader.setEnvClient       (glslang::EShClientVulkan,      glslang::EShTargetVulkan_1_1);
 	shader.setEnvTarget       (glslang::EShTargetSpv,         glslang::EShTargetSpv_1_3);
 	shader.setEnvTargetHlslFunctionality1();
+	shader.setTextureSamplerTransformMode(EShTexSampTransUpgradeTextureRemoveSampler);
 	if (settings->debug) {
 		shader.setDebugInfo (true);
 		shader.setSourceFile(filename);

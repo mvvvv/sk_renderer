@@ -160,7 +160,16 @@ void skr_shader_set_name(skr_shader_t* ref_shader, const char* name) {
 	}
 }
 
-VkDescriptorSetLayout _skr_shader_make_layout(VkDevice device, bool has_push_descriptors, const sksc_shader_meta_t* meta, skr_stage_ stage_mask) {
+// Returns pointer to the immutable sampler for a given binding slot, or NULL if none.
+// The returned pointer is stable (points into the caller's array) for use in pImmutableSamplers.
+static const VkSampler* _skr_find_immutable_sampler(int32_t slot, const VkSampler* samplers, const int32_t* slots, int32_t count) {
+	for (int32_t i = 0; i < count; i++) {
+		if (slots[i] == slot) return &samplers[i];
+	}
+	return NULL;
+}
+
+VkDescriptorSetLayout _skr_shader_make_layout(VkDevice device, bool has_push_descriptors, const sksc_shader_meta_t* meta, skr_stage_ stage_mask, const VkSampler* immutable_samplers, const int32_t* immutable_sampler_slots, int32_t immutable_sampler_count) {
 	if (meta->buffer_count == 0 && meta->resource_count == 0) {
 		return VK_NULL_HANDLE;
 	}
@@ -195,7 +204,7 @@ VkDescriptorSetLayout _skr_shader_make_layout(VkDevice device, bool has_push_des
 			.descriptorType     = desc_type,
 			.descriptorCount    = 1,
 			.stageFlags         = stages,
-			.pImmutableSamplers = NULL,
+			.pImmutableSamplers = _skr_find_immutable_sampler(bind.slot, immutable_samplers, immutable_sampler_slots, immutable_sampler_count),
 		};
 	}
 
@@ -221,12 +230,13 @@ VkDescriptorSetLayout _skr_shader_make_layout(VkDevice device, bool has_push_des
 		if (bind.stage_bits & skr_stage_pixel  ) stages |= VK_SHADER_STAGE_FRAGMENT_BIT;
 		if (bind.stage_bits & skr_stage_compute) stages |= VK_SHADER_STAGE_COMPUTE_BIT;
 
+		const VkSampler* found_sampler = _skr_find_immutable_sampler(bind.slot, immutable_samplers, immutable_sampler_slots, immutable_sampler_count);
 		bindings[binding_count++] = (VkDescriptorSetLayoutBinding){
 			.binding            = bind.slot,
 			.descriptorType     = desc_type,
 			.descriptorCount    = 1,
 			.stageFlags         = stages,
-			.pImmutableSamplers = NULL,
+			.pImmutableSamplers = found_sampler,
 		};
 	}
 

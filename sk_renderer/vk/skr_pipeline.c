@@ -218,7 +218,7 @@ int32_t _skr_pipeline_register_material(const _skr_pipeline_material_key_t* key)
 
 	// Register new material
 	_skr_pipeline_cache.materials[free_slot].key               = *key;
-	_skr_pipeline_cache.materials[free_slot].descriptor_layout = _skr_shader_make_layout    (_skr_vk.device, _skr_vk.has_push_descriptors, key->shader->meta, skr_stage_vertex | skr_stage_pixel | skr_stage_compute);
+	_skr_pipeline_cache.materials[free_slot].descriptor_layout = _skr_shader_make_layout    (_skr_vk.device, _skr_vk.has_push_descriptors, key->shader->meta, skr_stage_vertex | skr_stage_pixel | skr_stage_compute, key->immutable_samplers, key->immutable_sampler_slots, key->immutable_sampler_count);
 	_skr_pipeline_cache.materials[free_slot].layout            = _skr_pipeline_create_layout(_skr_pipeline_cache.materials[free_slot].descriptor_layout);
 	_skr_pipeline_cache.materials[free_slot].ref_count         = 1;
 

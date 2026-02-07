@@ -21,6 +21,7 @@
 		<activity
 			android:name="net.stereokit.sk_app.SkAppActivity"
 			android:label="@string/app_name"
+			android:theme="@android:style/Theme.DeviceDefault"
 			android:configChanges="orientation|keyboardHidden|screenSize"
 			android:exported="true">
 
@@ -34,5 +35,6 @@
 		<profileable android:shell="true"/>
 	</application>
 
+	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-feature android:name="android.hardware.type.pc" android:required="false" />
 </manifest>

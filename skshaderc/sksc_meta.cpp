@@ -454,7 +454,8 @@ bool sksc_spirv_to_meta(const sksc_shader_file_stage_t *spirv_stage, sksc_shader
 	for (uint32_t i = 0; i < binding_count; i++) {
 		SpvReflectDescriptorBinding* binding = bindings[i];
 		
-		if (binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
+		if (binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE ||
+		    binding->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
 			const char* name = binding->name ? binding->name : "";
 			int64_t id = resource_list.index_where([](const sksc_shader_resource_t &tex, void *data) {
 				return strcmp(tex.name, (char*)data) == 0;

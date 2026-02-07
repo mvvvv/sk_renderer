@@ -33,7 +33,7 @@ typedef struct {
 	VkAttachmentLoadOp    color_load_op;    // How to load color (LOAD, CLEAR, or DONT_CARE)
 } skr_pipeline_renderpass_key_t;
 
-#define SKR_MAX_FRAMES_IN_FLIGHT 3
+#define SKR_QUEUE_TYPE_COUNT    4   // graphics, present, transfer, video_decode
 #define skr_MAX_COMMAND_RING    8   // Number of command buffers per thread
 #define skr_MAX_THREAD_POOLS    16  // Maximum concurrent threads
 
@@ -158,10 +158,11 @@ typedef struct {
 	uint32_t                 present_queue_family;
 	uint32_t                 transfer_queue_family;
 	uint32_t                 video_decode_queue_family;  // UINT32_MAX if not available
-	mtx_t                    queue_mutexes[4];         // Mutexes for unique queues (graphics, present, transfer, video_decode)
+	mtx_t                    queue_mutexes[SKR_QUEUE_TYPE_COUNT]; // Mutexes for unique queues (graphics, present, transfer, video_decode)
 	mtx_t*                   graphics_queue_mutex;     // Pointer to correct mutex (may alias)
 	mtx_t*                   present_queue_mutex;      // Pointer to correct mutex (may alias)
 	mtx_t*                   transfer_queue_mutex;     // Pointer to correct mutex (may alias)
+	mtx_t*                   video_decode_queue_mutex; // Pointer to correct mutex (may alias, NULL if no video decode)
 	VkCommandPool            command_pool;
 	VkCommandBuffer          command_buffers[SKR_MAX_FRAMES_IN_FLIGHT];
 	VkFence                  frame_fences[SKR_MAX_FRAMES_IN_FLIGHT];
@@ -171,7 +172,16 @@ typedef struct {
 	bool                     validation_enabled;
 	bool                     has_push_descriptors;  // VK_KHR_push_descriptor support
 	bool                     has_depth_clamp;       // VkPhysicalDeviceFeatures::depthClamp support
+	bool                     has_external_memory_fd;      // VK_KHR_external_memory_fd
+	bool                     has_external_memory_win32;   // VK_KHR_external_memory_win32
+	bool                     has_android_hardware_buffer; // VK_ANDROID_external_memory_android_hardware_buffer
+	bool                     has_external_memory_dma_buf; // VK_EXT_external_memory_dma_buf
+	bool                     has_drm_format_modifier;     // VK_EXT_image_drm_format_modifier
+	bool                     has_video_decode;            // VK_KHR_video_decode_queue + related extensions
 	bool                     initialized;
+
+	// Capability system (runtime-queried feature support)
+	bool                     capabilities[skr_capability_count_];
 
 	// Memory allocators
 	void*                  (*malloc_func) (size_t size);
@@ -244,7 +254,7 @@ extern _skr_vk_t _skr_vk;
 
 VkFramebuffer         _skr_create_framebuffer               (VkDevice device, VkRenderPass render_pass, skr_tex_t* color, skr_tex_t* depth, skr_tex_t* opt_resolve);
 VkSampler             _skr_sampler_create_vk                (VkDevice device, skr_tex_sampler_t settings);
-VkDescriptorSetLayout _skr_shader_make_layout               (VkDevice device, bool has_push_descriptors, const sksc_shader_meta_t* meta, skr_stage_ stage_mask);
+VkDescriptorSetLayout _skr_shader_make_layout               (VkDevice device, bool has_push_descriptors, const sksc_shader_meta_t* meta, skr_stage_ stage_mask, const VkSampler* immutable_samplers, const int32_t* immutable_sampler_slots, int32_t immutable_sampler_count);
 
 // Format helpers
 bool                  _skr_format_has_stencil               (VkFormat format);
@@ -335,6 +345,7 @@ void                  _skr_cmd_destroy_swapchain            (skr_destroy_list_t*
 void                  _skr_cmd_destroy_surface              (skr_destroy_list_t* opt_ref_list, VkSurfaceKHR             handle);
 void                  _skr_cmd_destroy_debug_messenger      (skr_destroy_list_t* opt_ref_list, VkDebugUtilsMessengerEXT handle);
 void                  _skr_cmd_destroy_memory               (skr_destroy_list_t* opt_ref_list, VkDeviceMemory           handle);
+void                  _skr_cmd_destroy_ycbcr_conversion     (skr_destroy_list_t* opt_ref_list, VkSamplerYcbcrConversion handle);
 
 // Custom deferred destruction (non-Vulkan types)
 void                  _skr_cmd_destroy_bind_pool_slots      (skr_destroy_list_t* opt_ref_list, int32_t start, uint32_t count);

@@ -191,7 +191,8 @@ app_t* app_create(int32_t start_scene) {
 	app->scene_types[13] = &scene_gaussian_splat_vtable;
 	app->scene_types[14] = &scene_tex_compress_vtable;
 	app->scene_types[15] = &scene_stars_vtable;
-	app->scene_count = 16;
+	app->scene_types[16] = &scene_yuv_test_vtable;
+	app->scene_count = 17;
 #ifdef SKR_HAS_VIDEO
 	app->scene_types[app->scene_count++] = &scene_video_vtable;
 #endif
@@ -386,9 +387,10 @@ void app_render_imgui(app_t* app, skr_tex_t* render_target, int32_t width, int32
 
 	// Show scene info with navigation buttons
 	igText("%s", scene_get_name(app->scene_types[app->scene_index]));
-	if (igArrowButton("##left",  ImGuiDir_Left )) { _switch_scene(app, (app->scene_index - 1 + app->scene_count) % app->scene_count);}
+	float arrow_size = igGetFrameHeight() * 3.0f;
+	if (igArrowButtonEx("##left",  ImGuiDir_Left,  (ImVec2){arrow_size, arrow_size}, 0)) { _switch_scene(app, (app->scene_index - 1 + app->scene_count) % app->scene_count);}
 	igSameLine(0.0f, 5.0f);
-	if (igArrowButton("##right", ImGuiDir_Right)) { _switch_scene(app, (app->scene_index + 1) % app->scene_count); }
+	if (igArrowButtonEx("##right", ImGuiDir_Right, (ImVec2){arrow_size, arrow_size}, 0)) { _switch_scene(app, (app->scene_index + 1) % app->scene_count); }
 
 	igSeparator();
 

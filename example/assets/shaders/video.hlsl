@@ -3,6 +3,9 @@
 
 #include "common.hlsli"
 
+// UV crop for codec padding (e.g., H.264 macroblocks round up to 16px)
+float2 uv_crop;
+
 // NV12 video planes
 Texture2D<float>  tex_y    : register(t0);  // R8 luma (full resolution)
 Texture2D<float2> tex_uv   : register(t1);  // RG8 chroma (half resolution, interleaved U,V)
@@ -36,7 +39,7 @@ psIn vs(vsIn input, uint id : SV_InstanceID) {
 	float4 scaled_pos = mul(float4(input.pos, 1), inst[inst_idx].world);
 	o.pos = scaled_pos;
 
-	o.uv = input.uv;
+	o.uv = input.uv * uv_crop;
 	return o;
 }
 

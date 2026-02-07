@@ -320,7 +320,7 @@ bool skr_material_is_valid(const skr_material_t* material) {
 }
 
 void skr_material_destroy(skr_material_t* ref_material) {
-	if (!ref_material) return;
+	if (!ref_material || !ref_material->key.shader) return;
 
 	// Unregister from pipeline system
 	if (ref_material->pipeline_material_idx >= 0) {
@@ -333,13 +333,11 @@ void skr_material_destroy(skr_material_t* ref_material) {
 	// Defer bind pool slot release until GPU is done with this material
 	_skr_cmd_destroy_bind_pool_slots(NULL, ref_material->bind_start, ref_material->bind_count);
 
-	if (ref_material->key.shader && ref_material->key.shader->meta) {
+	if (ref_material->key.shader->meta) {
 		sksc_shader_meta_release(ref_material->key.shader->meta);
 	}
 
 	*ref_material = (skr_material_t){0};
-	ref_material->pipeline_material_idx = -1;
-	ref_material->bind_start            = -1;
 }
 
 void skr_material_set_tex(skr_material_t* ref_material, const char* name, skr_tex_t* texture) {
@@ -363,6 +361,64 @@ void skr_material_set_tex(skr_material_t* ref_material, const char* name, skr_te
 	skr_material_bind_t* binds = _skr_bind_pool_get(ref_material->bind_start);
 	binds[meta->buffer_count + idx].texture = texture;
 	_skr_bind_pool_unlock();
+
+	// Auto-detect YCbCr immutable sampler: if the texture carries a ycbcr_sampler,
+	// bake it into the descriptor set layout for this binding slot. This is required
+	// by Vulkan for VkSamplerYcbcrConversion — the sampler must be specified at
+	// layout creation time, not at descriptor write time.
+	VkSampler new_ycbcr = texture ? texture->ycbcr_sampler : VK_NULL_HANDLE;
+	int32_t   slot      = meta->resources[idx].bind.slot;
+
+	// Build updated immutable sampler list: copy existing, update/add/remove for this slot
+	_skr_pipeline_material_key_t new_key = ref_material->key;
+	int32_t found = -1;
+	for (int32_t i = 0; i < new_key.immutable_sampler_count; i++) {
+		if (new_key.immutable_sampler_slots[i] == slot) { found = i; break; }
+	}
+
+	bool changed = false;
+	if (new_ycbcr != VK_NULL_HANDLE) {
+		if (found >= 0) {
+			// Update existing entry
+			if (new_key.immutable_samplers[found] != new_ycbcr) {
+				new_key.immutable_samplers[found] = new_ycbcr;
+				changed = true;
+			}
+		} else if (new_key.immutable_sampler_count < SKR_MAX_IMMUTABLE_SAMPLERS) {
+			// Insert new entry, keep sorted by slot
+			int32_t insert = new_key.immutable_sampler_count;
+			for (int32_t i = 0; i < new_key.immutable_sampler_count; i++) {
+				if (slot < new_key.immutable_sampler_slots[i]) { insert = i; break; }
+			}
+			// Shift entries after insert point
+			for (int32_t i = new_key.immutable_sampler_count; i > insert; i--) {
+				new_key.immutable_samplers[i]     = new_key.immutable_samplers[i - 1];
+				new_key.immutable_sampler_slots[i] = new_key.immutable_sampler_slots[i - 1];
+			}
+			new_key.immutable_samplers[insert]     = new_ycbcr;
+			new_key.immutable_sampler_slots[insert] = slot;
+			new_key.immutable_sampler_count++;
+			changed = true;
+		} else {
+			skr_log(skr_log_warning, "skr_material_set_tex: too many YCbCr textures (max %d)", SKR_MAX_IMMUTABLE_SAMPLERS);
+		}
+	} else if (found >= 0) {
+		// Remove entry for this slot
+		for (int32_t i = found; i < new_key.immutable_sampler_count - 1; i++) {
+			new_key.immutable_samplers[i]     = new_key.immutable_samplers[i + 1];
+			new_key.immutable_sampler_slots[i] = new_key.immutable_sampler_slots[i + 1];
+		}
+		new_key.immutable_sampler_count--;
+		new_key.immutable_samplers[new_key.immutable_sampler_count]     = VK_NULL_HANDLE;
+		new_key.immutable_sampler_slots[new_key.immutable_sampler_count] = 0;
+		changed = true;
+	}
+
+	if (changed) {
+		_skr_pipeline_unregister_material(ref_material->pipeline_material_idx);
+		ref_material->key = new_key;
+		ref_material->pipeline_material_idx = _skr_pipeline_register_material(&ref_material->key);
+	}
 }
 
 void skr_material_set_buffer(skr_material_t* ref_material, const char* name, skr_buffer_t* buffer) {
