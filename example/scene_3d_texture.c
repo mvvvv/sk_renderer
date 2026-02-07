@@ -11,11 +11,18 @@
 #include <string.h>
 #include <math.h>
 
-// 3D Texture scene - displays a quad that moves up and down, sampling from a 3D texture containing colored spheres
+// 3D Texture scene - raymarches through a cube to visualize a 3D texture containing colored spheres
+
+// Instance data: world matrix + inverse for local-space raymarching
+typedef struct {
+	float4x4 world;
+	float4x4 world_inv;
+} cube_instance_t;
+
 typedef struct {
 	scene_t        base;
 
-	skr_mesh_t     quad_mesh;
+	skr_mesh_t     cube_mesh;
 	skr_shader_t   shader;
 	skr_material_t material;
 	skr_tex_t      texture_3d;
@@ -44,12 +51,10 @@ static uint32_t* _generate_3d_texture_data(int32_t size) {
 	} sphere_t;
 
 	sphere_t spheres[] = {
-		{ 0.3f, 0.55f, 0.5f, 0.3f, 0xFF0000FF },  // Red sphere (left)
-		{ 0.5f, 0.3f,  0.5f, 0.2f, 0xFF00FF00 },  // Green sphere (center)
+		{ 0.3f, 0.55f, 0.5f, 0.3f,  0xFF0000FF },  // Red sphere (left)
+		{ 0.5f, 0.3f,  0.5f, 0.2f,  0xFF00FF00 },  // Green sphere (center)
 		{ 0.7f, 0.3f,  0.7f, 0.25f, 0xFFFF0000 },  // Blue sphere (right)
 	};
-
-	const float smooth_k = 0.1f;  // Smoothness factor for blending
 
 	// Generate the 3D texture using SDF
 	for (int32_t z = 0; z < size; z++) {
@@ -61,19 +66,19 @@ static uint32_t* _generate_3d_texture_data(int32_t size) {
 				float nz = (z + 0.5f) / size;
 
 				// Calculate SDF distance for each sphere
-				float    min   = 1;
-				uint32_t color = 0x00000000;
+				float    min_dist = 1;
+				uint32_t color    = 0x00000000;
 				for (int32_t i = 0; i < 3; i++) {
-					sphere_t* s = &spheres[i];
-					float dist = _sdf_sphere(nx, ny, nz, s->x, s->y, s->z, s->radius);
-					if (min > dist && dist < 0) {
-						min   = dist;
-						color = s->color;
+					sphere_t* s    = &spheres[i];
+					float     dist = _sdf_sphere(nx, ny, nz, s->x, s->y, s->z, s->radius);
+					if (min_dist > dist && dist < 0) {
+						min_dist = dist;
+						color    = s->color;
 					}
 				}
 
 				int32_t idx = x + y * size + z * size * size;
-				data[idx] = color;
+				data[idx]   = color;
 			}
 		}
 	}
@@ -88,28 +93,18 @@ static scene_t* _scene_3d_texture_create(void) {
 	scene->base.size = sizeof(scene_3d_texture_t);
 	scene->time      = 0.0f;
 
-	// Create a flat quad mesh (horizontal, on XZ plane)
-	su_vertex_t quad_vertices[] = {
-		{ .position = {-2.0f, 0.0f, -2.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 0.0f}, .color = 0xFFFFFFFF },
-		{ .position = { 2.0f, 0.0f, -2.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 0.0f}, .color = 0xFFFFFFFF },
-		{ .position = { 2.0f, 0.0f,  2.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {1.0f, 1.0f}, .color = 0xFFFFFFFF },
-		{ .position = {-2.0f, 0.0f,  2.0f}, .normal = {0.0f, 1.0f, 0.0f}, .uv = {0.0f, 1.0f}, .color = 0xFFFFFFFF },
-	};
-	uint16_t quad_indices[] = {
-		0, 1, 2,
-		2, 3, 0,
-	};
-	skr_mesh_create  (&su_vertex_type, skr_index_fmt_u16, quad_vertices, 4, quad_indices, 6, &scene->quad_mesh);
-	skr_mesh_set_name(&scene->quad_mesh, "quad");
+	// Create a cube mesh (size 1.0 = range -0.5 to 0.5 in local space)
+	scene->cube_mesh = su_mesh_create_cube(1.0f, NULL);
+	skr_mesh_set_name(&scene->cube_mesh, "raymarch_cube");
 
 	// Load shader
 	scene->shader = su_shader_load("shaders/texture3d.hlsl.sks", "texture3d_shader");
 	skr_material_create((skr_material_info_t){
-		.shader     = &scene->shader,
-		.write_mask = skr_write_default,
-		.depth_test = skr_compare_less,
-		.cull       = skr_cull_none,
-		.alpha_to_coverage = true,
+		.shader      = &scene->shader,
+		.write_mask  = skr_write_default,
+		.depth_test  = skr_compare_less,
+		.cull        = skr_cull_back,
+		.blend_state = skr_blend_alpha,
 	}, &scene->material);
 
 	// Create 3D texture with colored spheres
@@ -118,7 +113,7 @@ static scene_t* _scene_3d_texture_create(void) {
 	skr_tex_create(
 		skr_tex_fmt_rgba32_srgb,
 		skr_tex_flags_readable | skr_tex_flags_3d,
-		(skr_tex_sampler_t){ .sample  = skr_tex_sample_linear, .address = skr_tex_address_clamp },
+		(skr_tex_sampler_t){ .sample = skr_tex_sample_linear, .address = skr_tex_address_clamp },
 		(skr_vec3i_t){tex_size, tex_size, tex_size},
 		1,
 		1,
@@ -134,7 +129,7 @@ static scene_t* _scene_3d_texture_create(void) {
 static void _scene_3d_texture_destroy(scene_t* base) {
 	scene_3d_texture_t* scene = (scene_3d_texture_t*)base;
 
-	skr_mesh_destroy    (&scene->quad_mesh);
+	skr_mesh_destroy    (&scene->cube_mesh);
 	skr_material_destroy(&scene->material);
 	skr_shader_destroy  (&scene->shader);
 	skr_tex_destroy     (&scene->texture_3d);
@@ -150,25 +145,19 @@ static void _scene_3d_texture_update(scene_t* base, float delta_time) {
 static void _scene_3d_texture_render(scene_t* base, int32_t width, int32_t height, skr_render_list_t* ref_render_list, su_system_buffer_t* ref_system_buffer) {
 	scene_3d_texture_t* scene = (scene_3d_texture_t*)base;
 
-	float4x4 quad_instances[2];
-
-	// First quad: moves up and down (horizontal)
-	quad_instances[0] = float4x4_trs(
-		(float3){0.0f, sinf(scene->time * 2.0f) * 2.0f, 0.0f},
-		(float4){0, 0, 0, 1},
-		(float3){1.0f, 1.0f, 1.0f} );
-	// Second quad: spins around Y axis (vertical, standing up)
-	quad_instances[1] = float4x4_trs(
+	// Slowly rotating cube, scaled up for better visibility
+	cube_instance_t inst;
+	inst.world = float4x4_trs(
 		(float3){0.0f, 0.0f, 0.0f},
-		float4_quat_from_euler((float3){1.5708f, scene->time * 1.5f, 0.0f}),
-		(float3){1.0f, 1.0f, 1.0f} );
+		float4_quat_from_euler((float3){scene->time * 0.3f, scene->time * 0.5f, 0.0f}),
+		(float3){3.0f, 3.0f, 3.0f} );
+	inst.world_inv = float4x4_invert(inst.world);
 
-	// Add both quads to the provided render list
-	skr_render_list_add(ref_render_list, &scene->quad_mesh, &scene->material, quad_instances, sizeof(float4x4), 2);
+	skr_render_list_add(ref_render_list, &scene->cube_mesh, &scene->material, &inst, sizeof(cube_instance_t), 1);
 }
 
 const scene_vtable_t scene_3d_texture_vtable = {
-	.name       = "3D Texture (Sphere Slices)",
+	.name       = "3D Texture (Raymarch)",
 	.create     = _scene_3d_texture_create,
 	.destroy    = _scene_3d_texture_destroy,
 	.update     = _scene_3d_texture_update,
